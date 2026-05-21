@@ -289,7 +289,10 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[
+            CommandHandler("start", start),
+            CallbackQueryHandler(select_category, pattern="^cat:"),
+        ],
         states={
             SELECT_CATEGORY: [CallbackQueryHandler(select_category, pattern="^cat:")],
             SELECT_SUBCATEGORY: [
@@ -303,6 +306,7 @@ def main():
             CONFIRM_MESSAGE: [CallbackQueryHandler(confirm_message, pattern="^confirm:")],
         },
         fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
     )
     
     app.add_handler(conv_handler)
