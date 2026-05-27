@@ -5,7 +5,9 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 )
-from config import BOT_TOKEN, ADMIN_ID, CHANNEL_ID, CATEGORIES, COMING_SOON_SUBCATS
+from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, COMING_SOON_SUBCATS,
+                    ANONYMOUS_SUBCATS, EXPERIENCE_SUBCATS,
+                    CATEGORY_CHANNELS, DEFAULT_CHANNEL)
 from texts import *
 
 logging.basicConfig(
@@ -14,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SELECT_CATEGORY, SELECT_SUBCATEGORY, WRITE_MESSAGE, CONFIRM_MESSAGE = range(4)
+SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_EXPERIENCE, WRITE_MESSAGE, CONFIRM_MESSAGE = range(5)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
@@ -25,7 +27,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row.append(InlineKeyboardButton(cats[i+1], callback_data=f"cat:{cats[i+1]}"))
         keyboard.append(row)
     reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # ارسال عکس + متن خوش‌آمدگویی
     if update.message:
+        await update.message.reply_photo(
+            photo=WELCOME_IMAGE_URL,
+            caption=WELCOME_CAPTION
+        )
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
         await update.callback_query.edit_message_text(WELCOME, reply_markup=reply_markup)
@@ -77,24 +85,59 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     subcategory = query.data.replace("sub:", "")
     context.user_data['subcategory'] = subcategory
+    category = context.user_data.get('category', '')
 
     # بخش‌های به زودی
     if subcategory in COMING_SOON_SUBCATS or "(به زودی)" in subcategory:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{context.user_data.get('category', '')}")]]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(COMING_SOON, reply_markup=reply_markup)
         return SELECT_SUBCATEGORY
 
     # ارتباط با ادمین
     if subcategory == "💛 ارتباط با ادمین":
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{context.user_data.get('category', '')}")]]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        text = SUBCATEGORY_TEXTS.get(subcategory, "")
-        await query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(SUBCATEGORY_TEXTS.get(subcategory, ""), reply_markup=reply_markup)
         return SELECT_SUBCATEGORY
 
-    text = SUBCATEGORY_TEXTS.get(subcategory, f"📝 پیام خود را بنویسید:")
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{context.user_data.get('category', '')}")]]
+    # تجربه‌ها - نمایش زیرمجموعه‌های موضوعی
+    if subcategory == "🧭 تجربه‌ها":
+        keyboard = []
+        for exp in EXPERIENCE_SUBCATS:
+            keyboard.append([InlineKeyboardButton(exp, callback_data=f"exp:{exp}")])
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(SUB_EXPERIENCES, reply_markup=reply_markup)
+        return SELECT_EXPERIENCE
+
+    text = SUBCATEGORY_TEXTS.get(subcategory, "📝 پیام خود را بنویسید:")
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text, reply_markup=reply_markup)
+    return WRITE_MESSAGE
+
+async def select_experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data.startswith("cat:"):
+        return await select_category(update, context)
+
+    experience = query.data.replace("exp:", "")
+    context.user_data['experience'] = experience
+    category = context.user_data.get('category', '')
+
+    text = f"""🧭 تجربه‌ها — {experience}
+
+جهت ثبت رایگان تجربه خود در این موضوع، پیام خود را بنویسید.
+
+⚠️ ارسال عکس، لینک و فیلم مجاز نیست.
+✅ شماره تماس و آیدی تلگرام مجاز است.
+
+📝 پیام خود را بنویسید:"""
+
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:🧭 تجربه‌ها")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text, reply_markup=reply_markup)
     return WRITE_MESSAGE
@@ -104,11 +147,14 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['message'] = user_message
     category = context.user_data.get('category', '')
     subcategory = context.user_data.get('subcategory', '')
+    experience = context.user_data.get('experience', '')
+
+    display_sub = f"{subcategory} — {experience}" if experience else subcategory
 
     text = FORM_CONFIRM.format(
         message=user_message,
         category=category,
-        subcategory=subcategory
+        subcategory=display_sub
     )
 
     keyboard = [
@@ -135,14 +181,22 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = query.from_user
         category = context.user_data.get('category', '')
         subcategory = context.user_data.get('subcategory', '')
+        experience = context.user_data.get('experience', '')
         message = context.user_data.get('message', '')
-        user_name = f"@{user.username}" if user.username else user.full_name
+
+        display_sub = f"{subcategory} — {experience}" if experience else subcategory
+        is_anonymous = subcategory in ANONYMOUS_SUBCATS
+
+        if is_anonymous:
+            user_name = "ناشناس"
+        else:
+            user_name = f"@{user.username}" if user.username else user.full_name
 
         admin_text = ADMIN_NEW_POST.format(
             user_name=user_name,
             user_id=user.id,
             category=category,
-            subcategory=subcategory,
+            subcategory=display_sub,
             message=message
         )
 
@@ -155,11 +209,16 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        # تعیین کانال مناسب
+        target_channel = CATEGORY_CHANNELS.get(category, DEFAULT_CHANNEL)
+
         context.bot_data[f"post_{user.id}"] = {
             'category': category,
-            'subcategory': subcategory,
+            'subcategory': display_sub,
             'message': message,
             'user_name': user_name,
+            'is_anonymous': is_anonymous,
+            'target_channel': target_channel,
         }
 
         await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=reply_markup)
@@ -177,10 +236,21 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = query.data.split(":")
     action = parts[1]
     user_id = int(parts[2])
+    post = context.bot_data.get(f"post_{user_id}", {})
 
     if action == "approve":
-        post = context.bot_data.get(f"post_{user_id}", {})
-        channel_text = f"""📌 {post.get('category')} | {post.get('subcategory')}
+        is_anonymous = post.get('is_anonymous', False)
+        target_channel = post.get('target_channel', DEFAULT_CHANNEL)
+
+        if is_anonymous:
+            channel_text = f"""📌 {post.get('category')} | {post.get('subcategory')}
+
+{post.get('message')}
+
+━━━━━━━━━━━━━━━
+🤖 @VitrinSpainBot"""
+        else:
+            channel_text = f"""📌 {post.get('category')} | {post.get('subcategory')}
 
 {post.get('message')}
 
@@ -188,7 +258,7 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 👤 {post.get('user_name')}
 🤖 @VitrinSpainBot"""
 
-        await context.bot.send_message(chat_id=CHANNEL_ID, text=channel_text)
+        await context.bot.send_message(chat_id=target_channel, text=channel_text)
         await context.bot.send_message(chat_id=user_id, text=FORM_APPROVED)
         await query.edit_message_text(f"✅ تأیید شد.\n\n{query.message.text}")
 
@@ -238,9 +308,15 @@ def main():
                 CallbackQueryHandler(select_subcategory, pattern="^back:"),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
             ],
+            SELECT_EXPERIENCE: [
+                CallbackQueryHandler(select_experience, pattern="^exp:"),
+                CallbackQueryHandler(select_subcategory, pattern="^sub:"),
+                CallbackQueryHandler(select_category, pattern="^cat:"),
+            ],
             WRITE_MESSAGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_message),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
+                CallbackQueryHandler(select_subcategory, pattern="^sub:"),
             ],
             CONFIRM_MESSAGE: [CallbackQueryHandler(confirm_message, pattern="^confirm:")],
         },
