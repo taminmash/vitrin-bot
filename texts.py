@@ -591,7 +591,7 @@ ADMIN_ASK_REASON = """لطفاً دلیل {action} را بنویسید:"""
 # متن‌های جدید
 # ===================================================
 
-WELCOME_IMAGE_URL = "https://t.me/vitrinspain/1"  # لینک عکس رو بعداً آپدیت کن
+WELCOME_IMAGE_URL = "https://t.me/c/3945260173/10"
 WELCOME_CAPTION = "رمز موفقیت به بزرگی قدم‌ها نیست، به استمرار است."
 
 SUB_EXPERIENCES = """🧭 تجربه‌ها
