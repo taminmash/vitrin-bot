@@ -30,10 +30,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ارسال عکس + متن خوش‌آمدگویی
     if update.message:
-        await update.message.reply_photo(
-            photo=WELCOME_IMAGE_URL,
-            caption=WELCOME_CAPTION
-        )
+        if WELCOME_IMAGE_URL:
+            await update.message.reply_photo(
+                photo=WELCOME_IMAGE_URL,
+                caption=WELCOME_CAPTION
+            )
+        else:
+            with open("welcome.png", "rb") as photo:
+                await update.message.reply_photo(
+                    photo=photo,
+                    caption=WELCOME_CAPTION
+                )
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
         await update.callback_query.edit_message_text(WELCOME, reply_markup=reply_markup)
