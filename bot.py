@@ -30,17 +30,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ارسال عکس + متن خوش‌آمدگویی
     if update.message:
-        if WELCOME_IMAGE_URL:
+        if WELCOME_IMAGE_URL and WELCOME_IMAGE_URL != "skip":
             await update.message.reply_photo(
                 photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_CAPTION
             )
-        else:
-            with open("welcome.png", "rb") as photo:
-                await update.message.reply_photo(
-                    photo=photo,
-                    caption=WELCOME_CAPTION
-                )
+        elif WELCOME_IMAGE_URL != "skip":
+            try:
+                with open("welcome.png", "rb") as photo:
+                    await update.message.reply_photo(
+                        photo=photo,
+                        caption=WELCOME_CAPTION
+                    )
+            except:
+                pass
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
         await update.callback_query.edit_message_text(WELCOME, reply_markup=reply_markup)
