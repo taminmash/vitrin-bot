@@ -2,7 +2,7 @@
 # فایل تنظیمات بات
 # ===================================================
 
-BOT_TOKEN = "8931837221:AAF0riuaFkWUtxLisszk25SP3yfS-PeZ6wk"
+BOT_TOKEN = "8931837221:AAFSQc8JpY_M_gx7eGjv6kHssaalb8cd6OA"
 ADMIN_ID = 41792255
 
 # کانال‌ها
