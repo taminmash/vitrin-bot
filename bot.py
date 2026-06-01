@@ -6,8 +6,8 @@ from telegram.ext import (
     CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 )
 from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, COMING_SOON_SUBCATS,
-                    ANONYMOUS_SUBCATS, EXPERIENCE_SUBCATS,
-                    CATEGORY_CHANNELS, DEFAULT_CHANNEL)
+                    ANONYMOUS_SUBCATS, HAYAT_SUBCATS,
+                    CATEGORY_CHANNELS, DEFAULT_CHANNEL, SUPPORT_SUBCATS)
 from texts import *
 
 logging.basicConfig(
@@ -16,7 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_EXPERIENCE, WRITE_MESSAGE, CONFIRM_MESSAGE = range(5)
+SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_HAYAT_TOPIC, WRITE_MESSAGE, CONFIRM_MESSAGE = range(5)
+
+# دسته‌های حیاط خلوت
+HAYAT_MAIN_SUBCATS = ["💬 پیام ناشناس", "🧭 تجربه‌ها", "🎉 دورهمی"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
@@ -28,22 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(row)
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # ارسال عکس + متن خوش‌آمدگویی
     if update.message:
-        if WELCOME_IMAGE_URL and WELCOME_IMAGE_URL != "skip":
-            await update.message.reply_photo(
-                photo=WELCOME_IMAGE_URL,
-                caption=WELCOME_CAPTION
-            )
-        elif WELCOME_IMAGE_URL != "skip":
-            try:
-                with open("welcome.png", "rb") as photo:
-                    await update.message.reply_photo(
-                        photo=photo,
-                        caption=WELCOME_CAPTION
-                    )
-            except:
-                pass
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
         await update.callback_query.edit_message_text(WELCOME, reply_markup=reply_markup)
@@ -54,6 +42,7 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     category = query.data.replace("cat:", "")
     context.user_data['category'] = category
+    context.user_data['experience'] = ''
     subcats = CATEGORIES.get(category, [])
 
     keyboard = []
@@ -104,50 +93,68 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(COMING_SOON, reply_markup=reply_markup)
         return SELECT_SUBCATEGORY
 
-    # ارتباط با ادمین
-    if subcategory == "💛 ارتباط با ادمین":
+    # پشتیبانی - مستقیم به ادمین
+    if subcategory in SUPPORT_SUBCATS:
+        text = """💛 💬 پشتیبان فنی 💛
+
+پیام خود را بنویسید. تیم ویترین در اسرع وقت پاسخ خواهد داد. 🙏
+
+📝 پیام خود را بنویسید:"""
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(SUBCATEGORY_TEXTS.get(subcategory, ""), reply_markup=reply_markup)
-        return SELECT_SUBCATEGORY
+        await query.edit_message_text(text, reply_markup=reply_markup)
+        return WRITE_MESSAGE
 
-    # تجربه‌ها - نمایش زیرمجموعه‌های موضوعی
-    if subcategory == "🧭 تجربه‌ها":
+    # زیربخش‌های حیاط خلوت - نمایش موضوعات
+    if subcategory in HAYAT_MAIN_SUBCATS:
+        context.user_data['hayat_type'] = subcategory
         keyboard = []
-        for exp in EXPERIENCE_SUBCATS:
-            keyboard.append([InlineKeyboardButton(exp, callback_data=f"exp:{exp}")])
+        for topic in HAYAT_SUBCATS:
+            keyboard.append([InlineKeyboardButton(topic, callback_data=f"htopic:{topic}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(SUB_EXPERIENCES, reply_markup=reply_markup)
-        return SELECT_EXPERIENCE
 
+        type_texts = {
+            "💬 پیام ناشناس": SUB_ANONYMOUS,
+            "🧭 تجربه‌ها": SUB_EXPERIENCES,
+            "🎉 دورهمی": SUB_DORHAM,
+        }
+        text = type_texts.get(subcategory, "موضوع را انتخاب کنید:")
+        await query.edit_message_text(text, reply_markup=reply_markup)
+        return SELECT_HAYAT_TOPIC
+
+    # بقیه زیربخش‌ها
     text = SUBCATEGORY_TEXTS.get(subcategory, "📝 پیام خود را بنویسید:")
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text, reply_markup=reply_markup)
     return WRITE_MESSAGE
 
-async def select_experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if query.data.startswith("cat:"):
+        category = query.data.replace("cat:", "")
+        context.user_data['category'] = category
         return await select_category(update, context)
 
-    experience = query.data.replace("exp:", "")
-    context.user_data['experience'] = experience
+    topic = query.data.replace("htopic:", "")
+    context.user_data['experience'] = topic
+    hayat_type = context.user_data.get('hayat_type', '🧭 تجربه‌ها')
     category = context.user_data.get('category', '')
 
-    text = f"""🧭 تجربه‌ها — {experience}
+    text = f"""{hayat_type} — {topic}
 
-جهت ثبت رایگان تجربه خود در این موضوع، پیام خود را بنویسید.
+پیام خود را بنویسید.
 
-⚠️ ارسال عکس، لینک و فیلم مجاز نیست.
-✅ شماره تماس و آیدی تلگرام مجاز است.
+⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
+هویت شما کاملاً محفوظ می‌ماند.
+این پیام توسط ربات بررسی و به کانال ارسال خواهد شد.
 
 📝 پیام خود را بنویسید:"""
 
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:🧭 تجربه‌ها")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{hayat_type}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text, reply_markup=reply_markup)
     return WRITE_MESSAGE
@@ -183,7 +190,24 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "confirm:edit":
         subcategory = context.user_data.get('subcategory', '')
-        text = SUBCATEGORY_TEXTS.get(subcategory, "📝 پیام خود را بنویسید:")
+        experience = context.user_data.get('experience', '')
+        hayat_type = context.user_data.get('hayat_type', '')
+
+        if experience and subcategory in HAYAT_MAIN_SUBCATS:
+            text = f"""{subcategory} — {experience}
+
+پیام خود را بنویسید.
+
+⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
+
+📝 پیام خود را بنویسید:"""
+        elif subcategory in SUPPORT_SUBCATS:
+            text = """💛 💬 پشتیبان فنی 💛
+
+📝 پیام خود را بنویسید:"""
+        else:
+            text = SUBCATEGORY_TEXTS.get(subcategory, "📝 پیام خود را بنویسید:")
+
         await query.edit_message_text(text)
         return WRITE_MESSAGE
 
@@ -196,15 +220,33 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         display_sub = f"{subcategory} — {experience}" if experience else subcategory
         is_anonymous = subcategory in ANONYMOUS_SUBCATS
+        is_support = subcategory in SUPPORT_SUBCATS
 
         if is_anonymous:
             user_name = "ناشناس"
         else:
             user_name = f"@{user.username}" if user.username else user.full_name
 
+        # پشتیبانی مستقیم به ادمین
+        if is_support:
+            support_text = f"""📩 پیام پشتیبانی جدید
+
+👤 کاربر: {f"@{user.username}" if user.username else user.full_name}
+🆔 آی‌دی: {user.id}
+
+📝 پیام:
+━━━━━━━━━━━━━━━
+{message}
+━━━━━━━━━━━━━━━"""
+            await context.bot.send_message(chat_id=ADMIN_ID, text=support_text)
+            await query.edit_message_text("""✅ پیام شما به تیم پشتیبانی ارسال شد.
+
+در اسرع وقت پاسخ خواهیم داد. 💛""")
+            return ConversationHandler.END
+
         admin_text = ADMIN_NEW_POST.format(
             user_name=user_name,
-            user_id=user.id,
+            user_id=user.id if not is_anonymous else "ناشناس",
             category=category,
             subcategory=display_sub,
             message=message
@@ -219,7 +261,6 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # تعیین کانال مناسب
         target_channel = CATEGORY_CHANNELS.get(category, DEFAULT_CHANNEL)
 
         context.bot_data[f"post_{user.id}"] = {
@@ -312,14 +353,16 @@ def main():
             CallbackQueryHandler(select_category, pattern="^cat:"),
         ],
         states={
-            SELECT_CATEGORY: [CallbackQueryHandler(select_category, pattern="^cat:")],
+            SELECT_CATEGORY: [
+                CallbackQueryHandler(select_category, pattern="^cat:"),
+            ],
             SELECT_SUBCATEGORY: [
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
                 CallbackQueryHandler(select_subcategory, pattern="^back:"),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
             ],
-            SELECT_EXPERIENCE: [
-                CallbackQueryHandler(select_experience, pattern="^exp:"),
+            SELECT_HAYAT_TOPIC: [
+                CallbackQueryHandler(select_hayat_topic, pattern="^htopic:"),
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
             ],
@@ -328,7 +371,9 @@ def main():
                 CallbackQueryHandler(select_category, pattern="^cat:"),
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
             ],
-            CONFIRM_MESSAGE: [CallbackQueryHandler(confirm_message, pattern="^confirm:")],
+            CONFIRM_MESSAGE: [
+                CallbackQueryHandler(confirm_message, pattern="^confirm:"),
+            ],
         },
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
