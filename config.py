@@ -4,7 +4,7 @@
 import os
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8931837221:AAF0riuaFkWUtxLisszk25SP3yfS-PeZ6wk")
-ADMIN_ID = 41792255
+ADMIN_ID = 8747305714
 
 # کانال‌ها
 CHANNEL_VITRIN = -1003945260173
