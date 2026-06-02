@@ -31,6 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(row)
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    # فقط متن — بدون عکس
     if update.message:
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
@@ -95,9 +96,10 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # پشتیبانی - مستقیم به ادمین
     if subcategory in SUPPORT_SUBCATS:
-        text = """💛 💬 پشتیبان فنی 💛
+        text = """💬 پشتیبان فنی
 
-پیام خود را بنویسید. تیم ویترین در اسرع وقت پاسخ خواهد داد. 🙏
+پیام خود را بنویسید.
+تیم ویترین در اسرع وقت پاسخ خواهد داد. 💛
 
 📝 پیام خود را بنویسید:"""
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
@@ -144,13 +146,24 @@ async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE)
     hayat_type = context.user_data.get('hayat_type', '🧭 تجربه‌ها')
     category = context.user_data.get('category', '')
 
-    text = f"""{hayat_type} — {topic}
+    is_dorham = hayat_type == "🎉 دورهمی"
+
+    if is_dorham:
+        text = f"""🎉 دورهمی — {topic}
 
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
-هویت شما کاملاً محفوظ می‌ماند.
-این پیام توسط ربات بررسی و به کانال ارسال خواهد شد.
+هویت شما کاملاً محفوظ می‌ماند. 💜
+
+📝 پیام خود را بنویسید:"""
+    else:
+        text = f"""{hayat_type} — {topic}
+
+پیام خود را بنویسید.
+
+⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
+هویت شما کاملاً محفوظ می‌ماند. 💜
 
 📝 پیام خود را بنویسید:"""
 
@@ -191,10 +204,20 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "confirm:edit":
         subcategory = context.user_data.get('subcategory', '')
         experience = context.user_data.get('experience', '')
-        hayat_type = context.user_data.get('hayat_type', '')
 
         if experience and subcategory in HAYAT_MAIN_SUBCATS:
-            text = f"""{subcategory} — {experience}
+            is_dorham = subcategory == "🎉 دورهمی"
+            if is_dorham:
+                text = f"""🎉 دورهمی — {experience}
+
+پیام خود را بنویسید.
+
+⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
+هویت شما کاملاً محفوظ می‌ماند. 💜
+
+📝 پیام خود را بنویسید:"""
+            else:
+                text = f"""{subcategory} — {experience}
 
 پیام خود را بنویسید.
 
@@ -202,7 +225,7 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📝 پیام خود را بنویسید:"""
         elif subcategory in SUPPORT_SUBCATS:
-            text = """💛 💬 پشتیبان فنی 💛
+            text = """💬 پشتیبان فنی
 
 📝 پیام خود را بنویسید:"""
         else:
