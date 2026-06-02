@@ -5,9 +5,10 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 )
-from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, COMING_SOON_SUBCATS,
-                    ANONYMOUS_SUBCATS, HAYAT_SUBCATS,
-                    CATEGORY_CHANNELS, DEFAULT_CHANNEL, SUPPORT_SUBCATS)
+from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, SUBCAT_LABELS,
+                    COMING_SOON_SUBCATS, ANONYMOUS_SUBCATS, HAYAT_SUBCATS,
+                    HAYAT_MAIN_SUBCATS, CATEGORY_CHANNELS, DEFAULT_CHANNEL,
+                    SUPPORT_SUBCATS)
 from texts import *
 
 logging.basicConfig(
@@ -17,9 +18,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_HAYAT_TOPIC, WRITE_MESSAGE, CONFIRM_MESSAGE = range(5)
-
-# دسته‌های حیاط خلوت
-HAYAT_MAIN_SUBCATS = ["💬 پیام ناشناس", "🧭 تجربه‌ها", "🎉 دورهمی"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
@@ -31,7 +29,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(row)
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # فقط متن — بدون عکس
     if update.message:
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
@@ -47,8 +44,8 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subcats = CATEGORIES.get(category, [])
 
     keyboard = []
-    for sub in subcats:
-        keyboard.append([InlineKeyboardButton(sub, callback_data=f"sub:{sub}")])
+    for label, code in subcats:
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"sub:{code}")])
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back:main")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -60,7 +57,7 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💰 سرمایه و وام": CAT_INVESTMENT,
         "🌿 حیاط خلوت اسپانیا": CAT_COMMUNITY,
         "📢 تبلیغات ویژه": CAT_ADS,
-        "💬 پشتیبانی": CAT_SUPPORT,
+        "💬 پشتیبانی 💛💜": CAT_SUPPORT,
     }
 
     text = cat_texts.get(category, f"بخش {category}\n\n👇 زیربخش موردنظر را انتخاب کنید:")
@@ -83,20 +80,22 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(WELCOME, reply_markup=reply_markup)
         return SELECT_CATEGORY
 
-    subcategory = query.data.replace("sub:", "")
-    context.user_data['subcategory'] = subcategory
+    subcode = query.data.replace("sub:", "")
+    sublabel = SUBCAT_LABELS.get(subcode, subcode)
+    context.user_data['subcategory'] = subcode
+    context.user_data['subcategory_label'] = sublabel
     category = context.user_data.get('category', '')
 
     # بخش‌های به زودی
-    if subcategory in COMING_SOON_SUBCATS or "(به زودی)" in subcategory:
+    if subcode in COMING_SOON_SUBCATS:
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(COMING_SOON, reply_markup=reply_markup)
         return SELECT_SUBCATEGORY
 
     # پشتیبانی - مستقیم به ادمین
-    if subcategory in SUPPORT_SUBCATS:
-        text = """💬 پشتیبان فنی
+    if subcode in SUPPORT_SUBCATS:
+        text = """💬 پشتیبان فنی 💛💜
 
 پیام خود را بنویسید.
 تیم ویترین در اسرع وقت پاسخ خواهد داد. 💛
@@ -107,9 +106,10 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(text, reply_markup=reply_markup)
         return WRITE_MESSAGE
 
-    # زیربخش‌های حیاط خلوت - نمایش موضوعات
-    if subcategory in HAYAT_MAIN_SUBCATS:
-        context.user_data['hayat_type'] = subcategory
+    # زیربخش‌های حیاط خلوت
+    if subcode in HAYAT_MAIN_SUBCATS:
+        context.user_data['hayat_type'] = subcode
+        context.user_data['hayat_type_label'] = sublabel
         keyboard = []
         for topic in HAYAT_SUBCATS:
             keyboard.append([InlineKeyboardButton(topic, callback_data=f"htopic:{topic}")])
@@ -117,16 +117,16 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         type_texts = {
-            "💬 پیام ناشناس": SUB_ANONYMOUS,
-            "🧭 تجربه‌ها": SUB_EXPERIENCES,
-            "🎉 دورهمی": SUB_DORHAM,
+            "sub_hayat_anon": SUB_ANONYMOUS,
+            "sub_hayat_exp": SUB_EXPERIENCES,
+            "sub_hayat_event": SUB_DORHAM,
         }
-        text = type_texts.get(subcategory, "موضوع را انتخاب کنید:")
+        text = type_texts.get(subcode, "موضوع را انتخاب کنید:")
         await query.edit_message_text(text, reply_markup=reply_markup)
         return SELECT_HAYAT_TOPIC
 
     # بقیه زیربخش‌ها
-    text = SUBCATEGORY_TEXTS.get(subcategory, "📝 پیام خود را بنویسید:")
+    text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text, reply_markup=reply_markup)
@@ -143,10 +143,11 @@ async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     topic = query.data.replace("htopic:", "")
     context.user_data['experience'] = topic
-    hayat_type = context.user_data.get('hayat_type', '🧭 تجربه‌ها')
+    hayat_type = context.user_data.get('hayat_type', 'sub_hayat_exp')
+    hayat_label = context.user_data.get('hayat_type_label', '🧭 تجربه‌ها')
     category = context.user_data.get('category', '')
 
-    is_dorham = hayat_type == "🎉 دورهمی"
+    is_dorham = hayat_type == "sub_hayat_event"
 
     if is_dorham:
         text = f"""🎉 دورهمی — {topic}
@@ -158,7 +159,7 @@ async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 📝 پیام خود را بنویسید:"""
     else:
-        text = f"""{hayat_type} — {topic}
+        text = f"""{hayat_label} — {topic}
 
 پیام خود را بنویسید.
 
@@ -176,10 +177,10 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     context.user_data['message'] = user_message
     category = context.user_data.get('category', '')
-    subcategory = context.user_data.get('subcategory', '')
+    subcategory_label = context.user_data.get('subcategory_label', '')
     experience = context.user_data.get('experience', '')
 
-    display_sub = f"{subcategory} — {experience}" if experience else subcategory
+    display_sub = f"{subcategory_label} — {experience}" if experience else subcategory_label
 
     text = FORM_CONFIRM.format(
         message=user_message,
@@ -202,11 +203,12 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "confirm:edit":
-        subcategory = context.user_data.get('subcategory', '')
+        subcode = context.user_data.get('subcategory', '')
         experience = context.user_data.get('experience', '')
+        hayat_label = context.user_data.get('hayat_type_label', '')
 
-        if experience and subcategory in HAYAT_MAIN_SUBCATS:
-            is_dorham = subcategory == "🎉 دورهمی"
+        if experience and subcode in HAYAT_MAIN_SUBCATS:
+            is_dorham = subcode == "sub_hayat_event"
             if is_dorham:
                 text = f"""🎉 دورهمی — {experience}
 
@@ -217,19 +219,19 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📝 پیام خود را بنویسید:"""
             else:
-                text = f"""{subcategory} — {experience}
+                text = f"""{hayat_label} — {experience}
 
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
 
 📝 پیام خود را بنویسید:"""
-        elif subcategory in SUPPORT_SUBCATS:
-            text = """💬 پشتیبان فنی
+        elif subcode in SUPPORT_SUBCATS:
+            text = """💬 پشتیبان فنی 💛💜
 
 📝 پیام خود را بنویسید:"""
         else:
-            text = SUBCATEGORY_TEXTS.get(subcategory, "📝 پیام خود را بنویسید:")
+            text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
 
         await query.edit_message_text(text)
         return WRITE_MESSAGE
@@ -237,13 +239,14 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "confirm:yes":
         user = query.from_user
         category = context.user_data.get('category', '')
-        subcategory = context.user_data.get('subcategory', '')
+        subcode = context.user_data.get('subcategory', '')
+        subcategory_label = context.user_data.get('subcategory_label', '')
         experience = context.user_data.get('experience', '')
         message = context.user_data.get('message', '')
 
-        display_sub = f"{subcategory} — {experience}" if experience else subcategory
-        is_anonymous = subcategory in ANONYMOUS_SUBCATS
-        is_support = subcategory in SUPPORT_SUBCATS
+        display_sub = f"{subcategory_label} — {experience}" if experience else subcategory_label
+        is_anonymous = subcode in ANONYMOUS_SUBCATS
+        is_support = subcode in SUPPORT_SUBCATS
 
         if is_anonymous:
             user_name = "ناشناس"
