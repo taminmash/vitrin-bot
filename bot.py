@@ -206,6 +206,7 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subcode = context.user_data.get('subcategory', '')
         experience = context.user_data.get('experience', '')
         hayat_label = context.user_data.get('hayat_type_label', '')
+        category = context.user_data.get('category', '')
 
         if experience and subcode in HAYAT_MAIN_SUBCATS:
             is_dorham = subcode == "sub_hayat_event"
@@ -224,16 +225,21 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
+هویت شما کاملاً محفوظ می‌ماند. 💜
 
 📝 پیام خود را بنویسید:"""
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{subcode}")]]
         elif subcode in SUPPORT_SUBCATS:
             text = """💬 پشتیبان فنی 💛💜
 
 📝 پیام خود را بنویسید:"""
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
         else:
             text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
 
-        await query.edit_message_text(text)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text, reply_markup=reply_markup)
         return WRITE_MESSAGE
 
     if query.data == "confirm:yes":
@@ -396,6 +402,7 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_message),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
+                CallbackQueryHandler(select_hayat_topic, pattern="^htopic:"),
             ],
             CONFIRM_MESSAGE: [
                 CallbackQueryHandler(confirm_message, pattern="^confirm:"),
