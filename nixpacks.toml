@@ -1,0 +1,2 @@
+[phases.setup]
+nixPkgs = ["glib", "nss", "nspr", "atk", "cups", "dbus", "expat", "libdrm", "libxkbcommon", "mesa", "libGL"]
