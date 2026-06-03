@@ -2,9 +2,13 @@
 import asyncio
 import json
 import os
+import subprocess
 from telegram import Bot
 from playwright.async_api import async_playwright
 from config import BOT_TOKEN
+
+# نصب chromium در صورت نیاز
+subprocess.run(["playwright", "install", "chromium"], check=True)
 
 CHANNELS = [
     -1003945260173,
