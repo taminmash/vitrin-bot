@@ -3,7 +3,7 @@ import asyncio
 import json
 import os
 from telegram import Bot
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from config import BOT_TOKEN
 
 CHANNELS = [
@@ -27,7 +27,7 @@ LESSONS = [
     {"lesson": "درس ۱۱", "word": "uno, dos, tres", "pronunciation": "اونُ، دُس، تِرِس", "meaning": "یعنی: ۱، ۲، ۳ 🔢", "tip": "نکته: <b>U</b> مثل «اُ» کوتاه<br>uno قبل از اسم میشه un — un café = یه قهوه ☕"},
     {"lesson": "درس ۱۲", "word": "cuatro, cinco, seis", "pronunciation": "کواترُ، ثینکُ، سِئیس", "meaning": "یعنی: ۴، ۵، ۶ 🔢", "tip": "نکته: <b>C</b> قبل از i یا e در اسپانیا مثل «ث»<br>cinco = ثینکُ — نه سینکو! 😊"},
     {"lesson": "درس ۱۳", "word": "rojo, azul, verde", "pronunciation": "رُخُ، آثول، وِردِه", "meaning": "یعنی: قرمز 🔴 آبی 🔵 سبز 🟢", "tip": "نکته: <b>J</b> مثل «خ» — rojo = رُخُ<br><b>Z</b> مثل «ث» — azul = آثول<br>رنگ بعد از اسم میاد: coche rojo 🚗"},
-    {"lesson": "درس ۱۴", "word": "amarillo, blanco, negro", "pronunciation": "آماریُ، بلانکُ، نِگرُ", "meaning": "یعنی: زرد 🟡 سفید ⚪ مشکی ⚫", "tip": "نکته: <b>LL</b> = «ی» — amarillo = آماریُ نه آماریلو<br>¿De qué color es? = دِه کِه کولُر اِس = چه رنگیه؟"},
+    {"lesson": "درس ۱۴", "word": "amarillo, blanco, negro", "pronunciation": "آماریُ، بلانکُ، نِگرُ", "meaning": "یعنی: زرد 🟡 سفید ⚪ مشکی ⚫", "tip": "نکته: <b>LL</b> = «ی» — amarillo = آماریُ نه آماریلو<br>¿De qué color es? = چه رنگیه؟"},
     {"lesson": "درس ۱۵", "word": "lunes ... domingo", "pronunciation": "لونِس ... دومینگُ", "meaning": "یعنی: روزهای هفته 📅", "tip": "هفته از <b>lunes</b> (دوشنبه) شروع میشه نه یکشنبه!<br>Hoy es lunes = اُی اِس لونِس = امروز دوشنبه‌ست"},
     {"lesson": "درس ۱۶", "word": "enero ... diciembre", "pronunciation": "اِنِرُ ... دیثیِمبرِه", "meaning": "یعنی: ماه‌های سال 📆", "tip": "نکته: <b>C</b> قبل از e = «ث» — diciembre = دیثیِمبرِه<br>hoy = اُی | mañana = مانیانا | ayer = آیِر"},
     {"lesson": "درس ۱۷", "word": "padre, madre, hermano", "pronunciation": "پادرِه، مادرِه، اِرمانُ", "meaning": "یعنی: پدر، مادر، برادر 👨‍👩‍👦", "tip": "نکته: <b>H</b> ساکته — hermano = اِرمانُ نه هِرمانُ<br>mi = می = مال من | mi padre = پدرم 😊"},
@@ -46,8 +46,8 @@ LESSONS = [
     {"lesson": "درس ۳۰", "word": "desayuno, almuerzo, cena", "pronunciation": "دِسایونُ، آلموئِرثُ، ثِنا", "meaning": "یعنی: صبحانه، ناهار، شام 🍽️", "tip": "نکته: <b>Z</b> = «ث» — almuerzo = آلموئِرثُ<br><b>C</b> قبل از e = «ث» — cena = ثِنا<br>اسپانیایی‌ها شام رو ساعت ۹-۱۰ شب می‌خورن! 🌙"},
     {"lesson": "درس ۳۱", "word": "pan, leche, huevo", "pronunciation": "پان، لِچِه، وئِبُ", "meaning": "یعنی: نان، شیر، تخم‌مرغ 🥚", "tip": "نکته: <b>H</b> ساکته — huevo = وئِبُ نه هوئِبو<br><b>V</b> = «ب» نرم — huevo = وئِبُ<br><b>CH</b> = «چ» — leche = لِچِه"},
     {"lesson": "درس ۳۲", "word": "agua, café, té, zumo", "pronunciation": "آگوا، کافِه، تِه، ثومُ", "meaning": "یعنی: آب، قهوه، چای، آب‌میوه ☕", "tip": "نکته: <b>Z</b> = «ث» — zumo = ثومُ<br>Un café con leche, por favor ☕<br>café solo = کافِه سُلُ = اسپرسو"},
-    {"lesson": "درس ۳۳", "word": "Una mesa para dos", "pronunciation": "اونا مِسا پارا دُس", "meaning": "یعنی: میز برای دو نفر 🍽️", "tip": "La carta, por favor = لا کارتا، پُر فابُر = منو لطفاً<br>نکته: <b>V</b> = «ب» — favor = فابُر<br>¿Qué recomienda? = کِه رِکُمیِندا = چی پیشنهاد میدی؟"},
-    {"lesson": "درس ۳۴", "word": "Para mí la paella", "pronunciation": "پارا می لا پاِیا", "meaning": "یعنی: برای من پائلا 🥘", "tip": "نکته: <b>LL</b> = «ی» — paella = پاِیا نه پائِلا<br>¡Está delicioso! = اِستا دِلیثیُسُ = خیلی خوشمزه‌ست!<br>La cuenta = لا کوئِنتا = صورتحساب"},
+    {"lesson": "درس ۳۳", "word": "Una mesa para dos", "pronunciation": "اونا مِسا پارا دُس", "meaning": "یعنی: میز برای دو نفر 🍽️", "tip": "La carta, por favor = منو لطفاً<br>نکته: <b>V</b> = «ب» — favor = فابُر<br>¿Qué recomienda? = کِه رِکُمیِندا = چی پیشنهاد میدی؟"},
+    {"lesson": "درس ۳۴", "word": "Para mí la paella", "pronunciation": "پارا می لا پاِیا", "meaning": "یعنی: برای من پائلا 🥘", "tip": "نکته: <b>LL</b> = «ی» — paella = پاِیا نه پائِلا<br>¡Está delicioso! = اِستا دِلیثیُسُ = خیلی خوشمزه!<br>La cuenta = لا کوئِنتا = صورتحساب"},
     {"lesson": "درس ۳۵", "word": "farmacia, supermercado", "pronunciation": "فارماثیا، سوپِرمِرکادُ", "meaning": "یعنی: داروخانه، سوپرمارکت 🏪", "tip": "نکته: <b>C</b> قبل از i = «ث» — farmacia = فارماثیا<br>farmacia با صلیب سبز مشخصه ✚<br>panadería = پاناداِریا = نانوایی"},
     {"lesson": "درس ۳۶", "word": "¿Cuánto cuesta?", "pronunciation": "کوانتُ کوئِستا", "meaning": "یعنی: چقدر میشه؟ 💰", "tip": "نکته: <b>QU</b> = «ک» — U خونده نمیشه<br>caro = کارُ = گرونه | barato = باراتُ = ارزونه<br>rebaja = رِباخا = تخفیف"},
     {"lesson": "درس ۳۷", "word": "talla, mediano, grande", "pronunciation": "تایا، مِدیانُ، گراندِه", "meaning": "یعنی: سایز، متوسط، بزرگ 👗", "tip": "نکته: <b>LL</b> = «ی» — talla = تایا نه تالا<br>¿Puedo probármelo? = میتونم امتحان کنم؟<br>Me queda bien = مِه کِدا بیِن = خوب بهم میاد"},
@@ -76,12 +76,12 @@ LESSONS = [
     {"lesson": "درس ۶۰", "word": "Creo que... / Me parece bien", "pronunciation": "کرِئُ کِه / مِه پارِثِه بیِن", "meaning": "یعنی: فکر می‌کنم / به نظرم خوبه 💭", "tip": "نکته: <b>C</b> قبل از e = «ث» — parece = پارِثِه<br>Muchas gracias = موچاس گِراثیاس = خیلی ممنون<br>Lo siento = لُ سیِنتُ = متأسفم"},
     {"lesson": "درس ۶۱ — مکالمه: معرفی", "word": "¡Hola! Me llamo Dara.", "pronunciation": "اُلا! مِه یامُ دارا", "meaning": "یعنی: سلام! اسمم داراست 👤", "tip": "Soy de Irán. Tengo 32 años.<br>Soy ingeniero. Vivo en Madrid.<br>Estoy aprendiendo español! 😄"},
     {"lesson": "درس ۶۲ — مکالمه: رستوران", "word": "Una mesa para dos", "pronunciation": "اونا مِسا پارا دُس", "meaning": "یعنی: میز برای دو نفر 🍽️", "tip": "Para mí, la paella. De beber, agua.<br>¡Está delicioso! La cuenta, por favor.<br>= برای من پائلا. خوشمزه! صورتحساب."},
-    {"lesson": "درس ۶۳ — مکالمه: خرید", "word": "¿Tiene esta camiseta en azul?", "pronunciation": "تیِنِه اِستا کامیسِتا اِن آثول", "meaning": "یعنی: این تیشرت رنگ آبی دارید؟ 👕", "tip": "نکته: <b>Z</b> = «ث» — azul = آثول<br>La mediana, por favor. Veinte euros.<br>¿Acepta tarjeta? = آثِپتا = کارت قبول می‌کنید؟"},
+    {"lesson": "درس ۶۳ — مکالمه: خرید", "word": "¿Tiene esta camiseta en azul?", "pronunciation": "تیِنِه اِستا کامیسِتا اِن آثول", "meaning": "یعنی: این تیشرت رنگ آبی دارید؟ 👕", "tip": "نکته: <b>Z</b> = «ث» — azul = آثول<br>La mediana, por favor. Veinte euros.<br>¿Acepta tarjeta? = کارت قبول می‌کنید؟"},
     {"lesson": "درس ۶۴ — مکالمه: مسیر", "word": "¿Dónde está el metro?", "pronunciation": "دُندِه اِستا اِل مِترُ", "meaning": "یعنی: مترو کجاست؟ 🚇", "tip": "Todo recto y luego a la derecha.<br>A cinco minutos a pie.<br>= مستقیم، بعد راست. پنج دقیقه پیاده."},
     {"lesson": "درس ۶۵ — مکالمه: دکتر", "word": "Me duele la garganta", "pronunciation": "مِه دوئِلِه لا گارگانتا", "meaning": "یعنی: گلوم درد میکنه 🤒", "tip": "Tengo cita con el médico.<br>¿Desde cuándo? = دِسدِه کواندُ = از کِی؟<br>¿Tiene alergia? = آلِرخیا = حساسیت داری؟"},
     {"lesson": "درس ۶۶ — گرامر: فعل‌های ar", "word": "hablar = حرف زدن", "pronunciation": "آبلار", "meaning": "یعنی: حرف زدن 🗣️", "tip": "نکته: <b>H</b> ساکته — hablar = آبلار نه هابلار<br>hablo / hablas / habla / hablamos<br>trabajar, comprar, escuchar هم اینطوری! 😊"},
     {"lesson": "درس ۶۷ — گرامر: فعل‌های er/ir", "word": "comer, vivir", "pronunciation": "کُمِر، بیبیر", "meaning": "یعنی: خوردن، زندگی کردن 📝", "tip": "نکته: <b>V</b> = «ب» — vivir = بیبیر نه ویویر<br>como / comes / come / comemos<br>سه دسته فعل: ar، er، ir 💡"},
-    {"lesson": "درس ۶۸", "word": "¿Puede repetir?", "pronunciation": "پوئِدِه رِپِتیر", "meaning": "یعنی: میتونید تکرار کنید؟ 🔄", "tip": "No entiendo = نُ اِنتیِندُ = نمی‌فهمم<br>Habla más despacio = آبلا ماس دِسپاثیُ = آروم‌تر حرف بزنید<br>نکته: <b>H</b> ساکته — habla = آبلا"},
+    {"lesson": "درس ۶۸", "word": "¿Puede repetir?", "pronunciation": "پوئِدِه رِپِتیر", "meaning": "یعنی: میتونید تکرار کنید؟ 🔄", "tip": "No entiendo = نُ اِنتیِندُ = نمی‌فهمم<br>Habla más despacio = آبلا ماس دِسپاثیُ = آروم‌تر<br>نکته: <b>H</b> ساکته — habla = آبلا"},
     {"lesson": "درس ۶۹ — ۲۰ کلمه طلایی ✨", "word": "por favor, gracias, perdón", "pronunciation": "پُر فابُر، گِراثیاس، پِردُن", "meaning": "یعنی: لطفاً، ممنون، ببخشید ✨", "tip": "نکته: <b>V</b> = «ب» — favor = فابُر<br><b>Z/C</b> = «ث» — gracias = گِراثیاس<br>De nada = دِه نادا = خواهش می‌کنم"},
     {"lesson": "درس ۷۰ — فرهنگ اسپانیایی", "word": "Siesta, Flamenco, Fútbol", "pronunciation": "سیِستا، فلامِنکُ، فوتبُل", "meaning": "یعنی: چرت نیمروز، فلامنکو، فوتبال 💃⚽", "tip": "🕐 Siesta هنوز مرسومه!<br>🍅 La Tomatina = جشن پرتاب گوجه<br>🎉 Las Fallas = جشن آتش در والنسیا"},
     {"lesson": "درس ۷۱ — شهرهای اسپانیا", "word": "Madrid, Barcelona, Valencia", "pronunciation": "مادِرید، بارثِلُنا، بالِنثیا", "meaning": "یعنی: مادرید، بارسلونا، والنسیا 🏙️", "tip": "نکته: <b>C</b> قبل از e = «ث» — Barcelona = بارثِلُنا<br><b>V</b> = «ب» — Valencia = بالِنثیا<br>Sevilla = سِبیا | Granada = گِرانادا"},
@@ -109,13 +109,13 @@ def generate_card_html(lesson):
   .dots span {{ width: 12px; height: 12px; border-radius: 50%; background: #fff; display: block; }}
   .card-inner {{ position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; padding: 56px; }}
   .top-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }}
-  .day-badge {{ background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 24px; font-weight: 600; padding: 12px 28px; border-radius: 40px; }}
-  .flag {{ font-size: 56px; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3)); }}
-  .main-word {{ font-family: Playfair Display, serif; font-size: 110px; font-weight: 900; color: #fff; line-height: 1; margin-bottom: 12px; text-shadow: 0 4px 20px rgba(0,0,0,0.3); letter-spacing: -2px; direction: ltr; text-align: right; }}
+  .day-badge {{ background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 24px; font-weight: 600; padding: 12px 28px; border-radius: 40px; }}
+  .flag {{ font-size: 56px; }}
+  .main-word {{ font-family: Playfair Display, serif; font-size: 110px; font-weight: 900; color: #fff; line-height: 1; margin-bottom: 12px; text-shadow: 0 4px 20px rgba(0,0,0,0.3); direction: ltr; text-align: right; }}
   .pronunciation {{ color: rgba(255,220,100,0.9); font-size: 34px; font-weight: 600; margin-bottom: 8px; direction: rtl; }}
   .meaning {{ color: rgba(255,255,255,0.85); font-size: 42px; font-weight: 700; margin-bottom: 40px; }}
   .divider {{ width: 96px; height: 6px; background: rgba(255,220,100,0.7); border-radius: 3px; margin-bottom: 32px; }}
-  .tip-box {{ background: rgba(0,0,0,0.25); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 32px 36px; flex: 1; display: flex; align-items: flex-start; gap: 24px; }}
+  .tip-box {{ background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 32px 36px; flex: 1; display: flex; align-items: flex-start; gap: 24px; }}
   .tip-icon {{ font-size: 44px; flex-shrink: 0; margin-top: 4px; }}
   .tip-text {{ color: rgba(255,255,255,0.88); font-size: 30px; line-height: 1.8; }}
   .tip-text b {{ color: rgba(255,220,100,0.95); font-weight: 700; }}
@@ -160,15 +160,15 @@ def generate_card_html(lesson):
 </html>"""
 
 
-def create_card_image(lesson, output_path):
+async def create_card_image(lesson, output_path):
     html_content = generate_card_html(lesson)
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 840, "height": 1080})
-        page.set_content(html_content)
-        page.wait_for_timeout(2500)
-        page.screenshot(path=output_path, clip={"x": 0, "y": 0, "width": 840, "height": 1080})
-        browser.close()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page(viewport={"width": 840, "height": 1080})
+        await page.set_content(html_content)
+        await page.wait_for_timeout(2500)
+        await page.screenshot(path=output_path, clip={"x": 0, "y": 0, "width": 840, "height": 1080})
+        await browser.close()
 
 
 def load_day():
@@ -196,7 +196,7 @@ async def send_lessons():
     for i, lesson in enumerate(posts_to_send):
         img_path = f"/tmp/spanish_card_{i}.png"
         print(f"🎨 در حال ساخت تصویر: {lesson['lesson']}")
-        create_card_image(lesson, img_path)
+        await create_card_image(lesson, img_path)
 
         for channel_id in CHANNELS:
             try:
