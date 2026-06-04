@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_HAYAT_TOPIC, WRITE_MESSAGE, CONFIRM_MESSAGE = range(5)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def build_main_keyboard():
     keyboard = []
     cats = list(CATEGORIES.keys())
     for i in range(0, len(cats), 2):
@@ -27,8 +27,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if i + 1 < len(cats):
             row.append(InlineKeyboardButton(cats[i+1], callback_data=f"cat:{cats[i+1]}"))
         keyboard.append(row)
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard)
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reply_markup = build_main_keyboard()
     if update.message:
         await update.message.reply_text(WELCOME, reply_markup=reply_markup)
     else:
@@ -69,15 +71,7 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
 
     if query.data == "back:main":
-        keyboard = []
-        cats = list(CATEGORIES.keys())
-        for i in range(0, len(cats), 2):
-            row = [InlineKeyboardButton(cats[i], callback_data=f"cat:{cats[i]}")]
-            if i + 1 < len(cats):
-                row.append(InlineKeyboardButton(cats[i+1], callback_data=f"cat:{cats[i+1]}"))
-            keyboard.append(row)
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(WELCOME, reply_markup=reply_markup)
+        await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
         return SELECT_CATEGORY
 
     subcode = query.data.replace("sub:", "")
@@ -86,14 +80,11 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['subcategory_label'] = sublabel
     category = context.user_data.get('category', '')
 
-    # بخش‌های به زودی
     if subcode in COMING_SOON_SUBCATS:
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(COMING_SOON, reply_markup=reply_markup)
+        await query.edit_message_text(COMING_SOON, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_SUBCATEGORY
 
-    # پشتیبانی - مستقیم به ادمین
     if subcode in SUPPORT_SUBCATS:
         text = """💬 پشتیبان فنی 💛💜
 
@@ -102,11 +93,9 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 📝 پیام خود را بنویسید:"""
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return WRITE_MESSAGE
 
-    # زیربخش‌های حیاط خلوت
     if subcode in HAYAT_MAIN_SUBCATS:
         context.user_data['hayat_type'] = subcode
         context.user_data['hayat_type_label'] = sublabel
@@ -114,7 +103,6 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for topic in HAYAT_SUBCATS:
             keyboard.append([InlineKeyboardButton(topic, callback_data=f"htopic:{topic}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         type_texts = {
             "sub_hayat_anon": SUB_ANONYMOUS,
@@ -122,24 +110,32 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "sub_hayat_event": SUB_DORHAM,
         }
         text = type_texts.get(subcode, "موضوع را انتخاب کنید:")
-        await query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_HAYAT_TOPIC
 
-    # بقیه زیربخش‌ها
     text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup)
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WRITE_MESSAGE
 
 async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    # بازگشت به منوی اصلی
+    if query.data == "back:main":
+        await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
+        return SELECT_CATEGORY
+
+    # بازگشت به کتگوری
     if query.data.startswith("cat:"):
         category = query.data.replace("cat:", "")
         context.user_data['category'] = category
         return await select_category(update, context)
+
+    # بازگشت به زیربخش حیاط خلوت
+    if query.data.startswith("sub:"):
+        return await select_subcategory(update, context)
 
     topic = query.data.replace("htopic:", "")
     context.user_data['experience'] = topic
@@ -169,8 +165,7 @@ async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE)
 📝 پیام خود را بنویسید:"""
 
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{hayat_type}")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup)
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WRITE_MESSAGE
 
 async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,8 +189,7 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("✏️ ویرایش", callback_data="confirm:edit"),
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return CONFIRM_MESSAGE
 
 async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -238,8 +232,7 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
             keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return WRITE_MESSAGE
 
     if query.data == "confirm:yes":
@@ -259,7 +252,6 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             user_name = f"@{user.username}" if user.username else user.full_name
 
-        # پشتیبانی مستقیم به ادمین
         if is_support:
             support_text = f"""📩 پیام پشتیبانی جدید
 
@@ -271,9 +263,7 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {message}
 ━━━━━━━━━━━━━━━"""
             await context.bot.send_message(chat_id=ADMIN_ID, text=support_text)
-            await query.edit_message_text("""✅ پیام شما به تیم پشتیبانی ارسال شد.
-
-در اسرع وقت پاسخ خواهیم داد. 💛""")
+            await query.edit_message_text("✅ پیام شما به تیم پشتیبانی ارسال شد.\n\nدر اسرع وقت پاسخ خواهیم داد. 💛")
             return ConversationHandler.END
 
         admin_text = ADMIN_NEW_POST.format(
@@ -291,7 +281,6 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("❌ رد", callback_data=f"admin:reject:{user.id}"),
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         target_channel = CATEGORY_CHANNELS.get(category, DEFAULT_CHANNEL)
 
@@ -304,7 +293,7 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'target_channel': target_channel,
         }
 
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=reply_markup)
+        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard))
         await query.edit_message_text(FORM_SUBMITTED)
         return ConversationHandler.END
 
@@ -346,12 +335,12 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"✅ تأیید شد.\n\n{query.message.text}")
 
     elif action == "edit":
-        context.bot_data[f"waiting_reason_{ADMIN_ID}"] = {'action': 'edit', 'user_id': user_id}
+        context.bot_data[f"waiting_edit_{user_id}"] = {'action': 'edit', 'user_id': user_id}
         await query.edit_message_text(query.message.text + "\n\n⏳ دلیل ویرایش را بنویسید...")
         await context.bot.send_message(chat_id=ADMIN_ID, text=ADMIN_ASK_REASON.format(action="ویرایش"))
 
     elif action == "reject":
-        context.bot_data[f"waiting_reason_{ADMIN_ID}"] = {'action': 'reject', 'user_id': user_id}
+        context.bot_data[f"waiting_edit_{user_id}"] = {'action': 'reject', 'user_id': user_id}
         await query.edit_message_text(query.message.text + "\n\n⏳ دلیل رد را بنویسید...")
         await context.bot.send_message(chat_id=ADMIN_ID, text=ADMIN_ASK_REASON.format(action="رد"))
 
@@ -359,7 +348,15 @@ async def admin_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         return
 
-    waiting = context.bot_data.get(f"waiting_reason_{ADMIN_ID}")
+    # پیدا کردن waiting_edit برای هر user_id
+    waiting = None
+    waiting_key = None
+    for key, val in context.bot_data.items():
+        if key.startswith("waiting_edit_"):
+            waiting = val
+            waiting_key = key
+            break
+
     if not waiting:
         return
 
@@ -368,13 +365,27 @@ async def admin_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = waiting['user_id']
 
     if action == "edit":
-        await context.bot.send_message(chat_id=user_id, text=FORM_NEEDS_EDIT.format(reason=reason))
+        # پیام ویرایش + دکمه شروع مجدد
+        edit_text = FORM_NEEDS_EDIT.format(reason=reason)
+        keyboard = [[InlineKeyboardButton("✏️ ویرایش پیام", callback_data="restart:edit")]]
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=edit_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         await update.message.reply_text("✅ پیام ویرایش به کاربر ارسال شد.")
     elif action == "reject":
         await context.bot.send_message(chat_id=user_id, text=FORM_REJECTED.format(reason=reason))
         await update.message.reply_text("✅ پیام رد به کاربر ارسال شد.")
 
-    del context.bot_data[f"waiting_reason_{ADMIN_ID}"]
+    del context.bot_data[waiting_key]
+
+async def restart_for_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """کاربر دکمه ویرایش پیام رو زده — برگرده به منوی اصلی"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
+    return SELECT_CATEGORY
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -383,6 +394,7 @@ def main():
         entry_points=[
             CommandHandler("start", start),
             CallbackQueryHandler(select_category, pattern="^cat:"),
+            CallbackQueryHandler(restart_for_edit, pattern="^restart:edit$"),
         ],
         states={
             SELECT_CATEGORY: [
@@ -395,20 +407,25 @@ def main():
             ],
             SELECT_HAYAT_TOPIC: [
                 CallbackQueryHandler(select_hayat_topic, pattern="^htopic:"),
-                CallbackQueryHandler(select_subcategory, pattern="^sub:"),
-                CallbackQueryHandler(select_category, pattern="^cat:"),
+                CallbackQueryHandler(select_hayat_topic, pattern="^sub:"),
+                CallbackQueryHandler(select_hayat_topic, pattern="^cat:"),
+                CallbackQueryHandler(select_hayat_topic, pattern="^back:"),
             ],
             WRITE_MESSAGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_message),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
                 CallbackQueryHandler(select_hayat_topic, pattern="^htopic:"),
+                CallbackQueryHandler(select_subcategory, pattern="^back:"),
             ],
             CONFIRM_MESSAGE: [
                 CallbackQueryHandler(confirm_message, pattern="^confirm:"),
             ],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("start", start),
+            CallbackQueryHandler(restart_for_edit, pattern="^restart:edit$"),
+        ],
         allow_reentry=True,
     )
 
