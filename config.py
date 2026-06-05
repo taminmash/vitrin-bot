@@ -10,25 +10,46 @@ ADMIN_ID = 8747305714
 CHANNEL_VITRIN = -1003945260173
 CHANNEL_HAYAT = -1003854428039
 
-# کدام کتگوری به کدام کانال میره
 CATEGORY_CHANNELS = {
-    "🌿 حیاط خلوت اسپانیا": CHANNEL_HAYAT,
+    "ثبت پیام در حیاط خلوت 💜": CHANNEL_HAYAT,
 }
 DEFAULT_CHANNEL = CHANNEL_VITRIN
 
 CATEGORIES = {
-    "💼 کار و درآمد": [
+    "ورود به کانال ویترین 🟡": [],
+    "ورود به کانال حیاط خلوت 🟣": [],
+    "ثبت پیام در ویترین 💛": [
+        ("💼 کار و درآمد", "sub_work_main"),
+        ("🏠 خانه‌یابی", "sub_house_main"),
+        ("🛒 خرید و فروش", "sub_shop_main"),
+        ("🔧 خدمات و ارتباطات", "sub_srv_main"),
+        ("💰 سرمایه و وام", "sub_inv_main"),
+        ("💶 خرید و فروش یورو", "sub_euro_main"),
+        ("📢 تبلیغات ویژه", "sub_ads_main"),
+        ("💬 پشتیبانی", "sub_support_main"),
+    ],
+    "ثبت پیام در حیاط خلوت 💜": [
+        ("💬 پیام ناشناس", "sub_hayat_anon"),
+        ("🧭 تجربه‌ها", "sub_hayat_exp"),
+        ("🎉 دورهمی", "sub_hayat_event"),
+        ("📰 اخبار", "sub_hayat_news"),
+    ],
+}
+
+# زیربخش‌های ویترین
+VITRIN_SUBCATS = {
+    "sub_work_main": [
         ("👤 معرفی کارجو", "sub_work_jobseeker"),
         ("📋 آگهی استخدام", "sub_work_hiring"),
     ],
-    "🏠 خانه‌یابی": [
+    "sub_house_main": [
         ("🏘 خانه اشتراکی و همخانه", "sub_house_shared"),
         ("🏠 آگهی اجاره", "sub_house_rent"),
         ("🔍 جستجوی اجاره", "sub_house_search"),
         ("🏡 آگهی فروش", "sub_house_sell"),
         ("🔑 درخواست خرید", "sub_house_buy"),
     ],
-    "🛒 خرید و فروش": [
+    "sub_shop_main": [
         ("🚗 خودرو", "sub_shop_car"),
         ("📱 موبایل و دیجیتال", "sub_shop_mobile"),
         ("🏠 لوازم خانه", "sub_shop_home"),
@@ -39,7 +60,7 @@ CATEGORIES = {
         ("🎁 واگذاری رایگان", "sub_shop_free"),
         ("📦 سایر", "sub_shop_other"),
     ],
-    "🔧 خدمات و ارتباطات": [
+    "sub_srv_main": [
         ("🩺 خدمات درمانی و پزشکی", "sub_srv_medical"),
         ("💇 خدمات زیبایی و آرایشی", "sub_srv_beauty"),
         ("🍽 خدمات رستوران و کافه", "sub_srv_restaurant"),
@@ -62,28 +83,31 @@ CATEGORIES = {
         ("🍳 خدمات آشپزی و کترینگ", "sub_srv_catering"),
         ("📋 سایر موارد", "sub_srv_other"),
     ],
-    "💰 سرمایه و وام": [
+    "sub_inv_main": [
         ("💰 جذب سرمایه‌گذار", "sub_inv_attract"),
         ("💸 آماده سرمایه‌گذاری", "sub_inv_ready"),
     ],
-    "🌿 حیاط خلوت اسپانیا": [
-        ("💬 پیام ناشناس", "sub_hayat_anon"),
-        ("🧭 تجربه‌ها", "sub_hayat_exp"),
-        ("🎉 دورهمی", "sub_hayat_event"),
+    "sub_euro_main": [
+        ("💶 خرید یورو", "sub_euro_buy"),
+        ("💶 فروش یورو", "sub_euro_sell"),
     ],
-    "📢 تبلیغات ویژه": [
+    "sub_ads_main": [
         ("📦 پکیج‌های تبلیغاتی (به زودی)", "sub_ads_packages"),
-    ],
-    "💬 پشتیبانی 💛💜": [
-        ("💬 پشتیبان فنی 💛💜", "sub_support_main"),
     ],
 }
 
-# نگاشت از callback_data به نام نمایشی
+# نگاشت کد به نام
 SUBCAT_LABELS = {}
 for cat, subs in CATEGORIES.items():
     for label, code in subs:
         SUBCAT_LABELS[code] = label
+
+for cat, subs in VITRIN_SUBCATS.items():
+    for label, code in subs:
+        SUBCAT_LABELS[code] = label
+
+# کدهای سطح اول ویترین
+VITRIN_MAIN_SUBCATS = list(VITRIN_SUBCATS.keys())
 
 # زیربخش‌های مشترک حیاط خلوت
 HAYAT_SUBCATS = [
@@ -103,21 +127,24 @@ COMING_SOON_SUBCATS = [
     "sub_ads_packages",
 ]
 
-# زیربخش‌های حیاط خلوت
 HAYAT_MAIN_SUBCATS = [
     "sub_hayat_anon",
     "sub_hayat_exp",
     "sub_hayat_event",
+    "sub_hayat_news",
 ]
 
-# همه زیربخش‌های حیاط خلوت ناشناس هستن
 ANONYMOUS_SUBCATS = [
     "sub_hayat_anon",
     "sub_hayat_exp",
     "sub_hayat_event",
+    "sub_hayat_news",
 ]
 
-# زیربخش‌هایی که به ادمین میرن نه کانال
 SUPPORT_SUBCATS = [
     "sub_support_main",
 ]
+
+# لینک‌های کانال
+CHANNEL_VITRIN_LINK = "t.me/vitrinspain"
+CHANNEL_HAYAT_LINK = "t.me/hayatkhalvatspain"
