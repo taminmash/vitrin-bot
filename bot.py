@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_VITRIN_SUB, SELECT_HAYAT_TOPIC, WRITE_MESSAGE, CONFIRM_MESSAGE = range(6)
 
 CATEGORY_DESCRIPTIONS = {
-    "ثبت پیام در حیاط خلوت": "ارسال ناشناس پیام، تجربه، اخبار و دورهمی",
-    "ورود به کانال حیاط خلوت": "مشاهده گفتگوها — ناشناس",
-    "ثبت پیام در ویترین": "ثبت رایگان آگهی کار، خونه، خرید، فروش و خدمات",
-    "ورود به کانال ویترین": "مشاهده همه آگهی‌ها",
+    "ثبت پیام در حیاط خلوت 💜": "ارسال ناشناس پیام، تجربه، اخبار و دورهمی",
+    "ورود به کانال حیاط خلوت 🟣": "مشاهده گفتگوها — ناشناس",
+    "ثبت پیام در ویترین 💛": "ثبت رایگان آگهی کار، خونه، خرید، فروش و خدمات",
+    "ورود به کانال ویترین 🟡": "مشاهده همه آگهی‌ها",
 }
 
 def build_main_keyboard():
@@ -66,21 +66,21 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELECT_CATEGORY
 
     # ورود مستقیم به کانال ویترین
-    if category == "ورود به کانال ویترین":
+    if category == "ورود به کانال ویترین 🟡":
         keyboard = [[InlineKeyboardButton("📢 ورود به کانال ویترین", url=f"https://{CHANNEL_VITRIN_LINK}")],
                     [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")]]
         await query.edit_message_text(CAT_VITRIN_CHANNEL, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
 
     # ورود مستقیم به کانال حیاط خلوت
-    if category == "ورود به کانال حیاط خلوت":
+    if category == "ورود به کانال حیاط خلوت 🟣":
         keyboard = [[InlineKeyboardButton("🌿 ورود به کانال حیاط خلوت", url=f"https://{CHANNEL_HAYAT_LINK}")],
                     [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")]]
         await query.edit_message_text(CAT_HAYAT_CHANNEL, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
 
     # ثبت پیام در ویترین — چک عضویت
-    if category == "ثبت پیام در ویترین":
+    if category == "ثبت پیام در ویترین 💛":
         is_member = await check_membership(context.bot, query.from_user.id, CHANNEL_VITRIN)
         if not is_member:
             keyboard = [
@@ -103,7 +103,7 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELECT_SUBCATEGORY
 
     # ثبت پیام در حیاط خلوت — چک عضویت
-    if category == "ثبت پیام در حیاط خلوت":
+    if category == "ثبت پیام در حیاط خلوت 💜":
         is_member = await check_membership(context.bot, query.from_user.id, CHANNEL_HAYAT)
         if not is_member:
             keyboard = [
