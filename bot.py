@@ -20,14 +20,34 @@ logger = logging.getLogger(__name__)
 
 SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_VITRIN_SUB, SELECT_HAYAT_TOPIC, WRITE_MESSAGE, CONFIRM_MESSAGE = range(6)
 
-def new_message_btn():
-    return [InlineKeyboardButton(NEW_MESSAGE_BTN, callback_data="restart:new")]
+# توضیحات زیر هر دکمه منوی اصلی
+CATEGORY_DESCRIPTIONS = {
+    "ثبت پیام در حیاط خلوت": "ارسال ناشناس پیام، تجربه، اخبار و دورهمی",
+    "ورود به کانال حیاط خلوت": "مشاهده گفتگوها — ناشناس",
+    "ثبت پیام در ویترین": "ثبت رایگان آگهی کار، خونه، خرید، فروش و خدمات",
+    "ورود به کانال ویترین": "مشاهده همه آگهی‌ها",
+}
 
 def build_main_keyboard():
     keyboard = []
-    cats = list(CATEGORIES.keys())
-    for cat in cats:
-        keyboard.append([InlineKeyboardButton(cat, callback_data=f"cat:{cat}")])
+    for cat in CATEGORIES.keys():
+        desc = CATEGORY_DESCRIPTIONS.get(cat, "")
+        if desc:
+            # اگه توضیح داره — بدون ایموجی
+            keyboard.append([InlineKeyboardButton(cat, callback_data=f"cat:{cat}")])
+            keyboard.append([InlineKeyboardButton(f"   {desc}", callback_data=f"cat:{cat}")])
+        else:
+            keyboard.append([InlineKeyboardButton(f"✨ {cat} ✨", callback_data=f"cat:{cat}")])
+    return InlineKeyboardMarkup(keyboard)
+
+def build_main_keyboard():
+    keyboard = []
+    for cat in CATEGORIES.keys():
+        desc = CATEGORY_DESCRIPTIONS.get(cat, "")
+        if desc:
+            keyboard.append([InlineKeyboardButton(f"{cat}\n{desc}", callback_data=f"cat:{cat}")])
+        else:
+            keyboard.append([InlineKeyboardButton(f"✨ {cat} ✨", callback_data=f"cat:{cat}")])
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -45,37 +65,31 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['category'] = category
     context.user_data['experience'] = ''
 
-    # ورود به کانال ویترین
-    if category == "ورود به کانال ویترین 🟡":
-        keyboard = [new_message_btn()]
+    if category == "ورود به کانال ویترین":
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="back:main")]]
         await query.edit_message_text(CAT_VITRIN_CHANNEL, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
 
-    # ورود به کانال حیاط خلوت
-    if category == "ورود به کانال حیاط خلوت 🟣":
-        keyboard = [new_message_btn()]
+    if category == "ورود به کانال حیاط خلوت":
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="back:main")]]
         await query.edit_message_text(CAT_HAYAT_CHANNEL, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
 
-    # ثبت پیام در ویترین
-    if category == "ثبت پیام در ویترین 💛":
+    if category == "ثبت پیام در ویترین":
         subcats = CATEGORIES.get(category, [])
         keyboard = []
         for label, code in subcats:
             keyboard.append([InlineKeyboardButton(label, callback_data=f"vsub:{code}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back:main")])
-        keyboard.append(new_message_btn())
         await query.edit_message_text(CAT_VITRIN_POST, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_SUBCATEGORY
 
-    # ثبت پیام در حیاط خلوت
-    if category == "ثبت پیام در حیاط خلوت 💜":
+    if category == "ثبت پیام در حیاط خلوت":
         subcats = CATEGORIES.get(category, [])
         keyboard = []
         for label, code in subcats:
             keyboard.append([InlineKeyboardButton(label, callback_data=f"sub:{code}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back:main")])
-        keyboard.append(new_message_btn())
         await query.edit_message_text(CAT_HAYAT_POST, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_SUBCATEGORY
 
@@ -89,7 +103,6 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
         return SELECT_CATEGORY
 
-    # زیربخش‌های ویترین سطح اول
     if query.data.startswith("vsub:"):
         subcode = query.data.replace("vsub:", "")
         sublabel = SUBCAT_LABELS.get(subcode, subcode)
@@ -97,33 +110,24 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['vitrin_section_label'] = sublabel
         category = context.user_data.get('category', '')
 
-        # پشتیبانی
         if subcode in SUPPORT_SUBCATS:
-            text = """💬 پشتیبانی
+            text = """پشتیبانی
 
 پیام خود را بنویسید.
-تیم ویترین در اسرع وقت پاسخ خواهد داد. 💛
+تیم ویترین در اسرع وقت پاسخ خواهد داد ✨
 
 📝 پیام خود را بنویسید:"""
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
             context.user_data['subcategory'] = subcode
             context.user_data['subcategory_label'] = sublabel
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return WRITE_MESSAGE
 
-        # به زودی
         if subcode in COMING_SOON_SUBCATS:
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
             await query.edit_message_text(COMING_SOON, reply_markup=InlineKeyboardMarkup(keyboard))
             return SELECT_SUBCATEGORY
 
-        # زیربخش‌های سطح دوم ویترین
         if subcode in VITRIN_MAIN_SUBCATS:
             subs = VITRIN_SUBCATS.get(subcode, [])
             vitrin_texts = {
@@ -135,16 +139,14 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "sub_euro_main": CAT_EURO,
                 "sub_ads_main": CAT_ADS,
             }
-            text = vitrin_texts.get(subcode, "👇 زیربخش موردنظر را انتخاب کنید:")
+            text = vitrin_texts.get(subcode, "زیربخش موردنظر را انتخاب کنید:")
             keyboard = []
             for label, code in subs:
                 keyboard.append([InlineKeyboardButton(label, callback_data=f"sub:{code}")])
             keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")])
-            keyboard.append(new_message_btn())
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return SELECT_VITRIN_SUB
 
-    # زیربخش‌های حیاط خلوت
     if query.data.startswith("sub:"):
         subcode = query.data.replace("sub:", "")
         sublabel = SUBCAT_LABELS.get(subcode, subcode)
@@ -153,10 +155,7 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
         category = context.user_data.get('category', '')
 
         if subcode in COMING_SOON_SUBCATS:
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
             await query.edit_message_text(COMING_SOON, reply_markup=InlineKeyboardMarkup(keyboard))
             return SELECT_SUBCATEGORY
 
@@ -167,7 +166,6 @@ async def select_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE)
             for topic in HAYAT_SUBCATS:
                 keyboard.append([InlineKeyboardButton(topic, callback_data=f"htopic:{topic}")])
             keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")])
-            keyboard.append(new_message_btn())
 
             type_texts = {
                 "sub_hayat_anon": SUB_ANONYMOUS,
@@ -205,18 +203,12 @@ async def select_vitrin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['subcategory_label'] = sublabel
 
         if subcode in COMING_SOON_SUBCATS:
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=f"vsub:{vitrin_section}")],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"vsub:{vitrin_section}")]]
             await query.edit_message_text(COMING_SOON, reply_markup=InlineKeyboardMarkup(keyboard))
             return SELECT_VITRIN_SUB
 
         text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
-        keyboard = [
-            [InlineKeyboardButton("🔙 بازگشت", callback_data=f"vsub:{vitrin_section}")],
-            new_message_btn()
-        ]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"vsub:{vitrin_section}")]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return WRITE_MESSAGE
 
@@ -225,8 +217,6 @@ async def select_vitrin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    category = context.user_data.get('category', '')
 
     if query.data == "back:main":
         await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
@@ -246,12 +236,12 @@ async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE)
     is_dorham = hayat_type == "sub_hayat_event"
 
     if is_dorham:
-        text = f"""🎉 دورهمی — {topic}
+        text = f"""دورهمی — {topic}
 
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
-هویت شما کاملاً محفوظ می‌ماند. 💜
+هویت شما کاملاً محفوظ می‌ماند ✨
 
 📝 پیام خود را بنویسید:"""
     else:
@@ -260,14 +250,11 @@ async def select_hayat_topic(update: Update, context: ContextTypes.DEFAULT_TYPE)
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
-هویت شما کاملاً محفوظ می‌ماند. 💜
+هویت شما کاملاً محفوظ می‌ماند ✨
 
 📝 پیام خود را بنویسید:"""
 
-    keyboard = [
-        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{hayat_type}")],
-        new_message_btn()
-    ]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{hayat_type}")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WRITE_MESSAGE
 
@@ -286,13 +273,10 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subcategory=display_sub
     )
 
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ تأیید و ارسال", callback_data="confirm:yes"),
-            InlineKeyboardButton("✏️ ویرایش", callback_data="confirm:edit"),
-        ],
-        new_message_btn()
-    ]
+    keyboard = [[
+        InlineKeyboardButton("✅ تأیید و ارسال", callback_data="confirm:yes"),
+        InlineKeyboardButton("✏️ ویرایش", callback_data="confirm:edit"),
+    ]]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return CONFIRM_MESSAGE
 
@@ -310,12 +294,12 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if experience and subcode in HAYAT_MAIN_SUBCATS:
             is_dorham = subcode == "sub_hayat_event"
             if is_dorham:
-                text = f"""🎉 دورهمی — {experience}
+                text = f"""دورهمی — {experience}
 
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
-هویت شما کاملاً محفوظ می‌ماند. 💜
+هویت شما کاملاً محفوظ می‌ماند ✨
 
 📝 پیام خود را بنویسید:"""
             else:
@@ -324,28 +308,19 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 پیام خود را بنویسید.
 
 ⚠️ ارسال عکس، لینک، فیلم، شماره تماس و آیدی مجاز نیست.
-هویت شما کاملاً محفوظ می‌ماند. 💜
+هویت شما کاملاً محفوظ می‌ماند ✨
 
 📝 پیام خود را بنویسید:"""
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{subcode}")],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"sub:{subcode}")]]
         elif subcode in SUPPORT_SUBCATS:
-            text = """💬 پشتیبانی
+            text = """پشتیبانی
 
 📝 پیام خود را بنویسید:"""
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat:{category}")]]
         else:
             text = SUBCATEGORY_TEXTS.get(subcode, "📝 پیام خود را بنویسید:")
             back_target = f"vsub:{vitrin_section}" if vitrin_section else f"cat:{category}"
-            keyboard = [
-                [InlineKeyboardButton("🔙 بازگشت", callback_data=back_target)],
-                new_message_btn()
-            ]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=back_target)]]
 
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return WRITE_MESSAGE
@@ -378,12 +353,8 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {message}
 ━━━━━━━━━━━━━━━"""
             await context.bot.send_message(chat_id=ADMIN_ID, text=support_text)
-            keyboard = [new_message_btn()]
-            await query.edit_message_text(
-                "✅ پیام شما به تیم پشتیبانی ارسال شد.\n\nدر اسرع وقت پاسخ خواهیم داد. 💛",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return CONFIRM_MESSAGE
+            await query.edit_message_text("✅ پیام شما به تیم پشتیبانی ارسال شد.\n\nدر اسرع وقت پاسخ خواهیم داد ✨")
+            return ConversationHandler.END
 
         admin_text = ADMIN_NEW_POST.format(
             user_name=user_name,
@@ -393,13 +364,11 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message=message
         )
 
-        keyboard_admin = [
-            [
-                InlineKeyboardButton("✅ تأیید", callback_data=f"admin:approve:{user.id}"),
-                InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:edit:{user.id}"),
-                InlineKeyboardButton("❌ رد", callback_data=f"admin:reject:{user.id}"),
-            ]
-        ]
+        keyboard_admin = [[
+            InlineKeyboardButton("✅ تأیید", callback_data=f"admin:approve:{user.id}"),
+            InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:edit:{user.id}"),
+            InlineKeyboardButton("❌ رد", callback_data=f"admin:reject:{user.id}"),
+        ]]
 
         target_channel = CATEGORY_CHANNELS.get(category, DEFAULT_CHANNEL)
 
@@ -413,10 +382,8 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard_admin))
-
-        keyboard = [new_message_btn()]
-        await query.edit_message_text(FORM_SUBMITTED, reply_markup=InlineKeyboardMarkup(keyboard))
-        return CONFIRM_MESSAGE
+        await query.edit_message_text(FORM_SUBMITTED)
+        return ConversationHandler.END
 
 async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -516,6 +483,7 @@ def main():
         states={
             SELECT_CATEGORY: [
                 CallbackQueryHandler(select_category, pattern="^cat:"),
+                CallbackQueryHandler(select_subcategory, pattern="^back:"),
                 CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
             SELECT_SUBCATEGORY: [
