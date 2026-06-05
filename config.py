@@ -11,19 +11,14 @@ CHANNEL_VITRIN = -1003945260173
 CHANNEL_HAYAT = -1003854428039
 
 CATEGORY_CHANNELS = {
-    "ثبت پیام در حیاط خلوت": CHANNEL_HAYAT,
+    "ثبت پیام در حیاط خلوت 💜": CHANNEL_HAYAT,
 }
 DEFAULT_CHANNEL = CHANNEL_VITRIN
 
 CATEGORIES = {
-    "ثبت پیام در حیاط خلوت": [
-        ("💬 پیام ناشناس", "sub_hayat_anon"),
-        ("🧭 تجربه‌ها", "sub_hayat_exp"),
-        ("🎉 دورهمی", "sub_hayat_event"),
-        ("📰 اخبار", "sub_hayat_news"),
-    ],
-    "ورود به کانال حیاط خلوت": [],
-    "ثبت پیام در ویترین": [
+    "ورود به کانال ویترین 🟡": [],
+    "ورود به کانال حیاط خلوت 🟣": [],
+    "ثبت پیام در ویترین 💛": [
         ("💼 کار و درآمد", "sub_work_main"),
         ("🏠 خانه‌یابی", "sub_house_main"),
         ("🛒 خرید و فروش", "sub_shop_main"),
@@ -33,7 +28,12 @@ CATEGORIES = {
         ("📢 تبلیغات ویژه", "sub_ads_main"),
         ("💬 پشتیبانی", "sub_support_main"),
     ],
-    "ورود به کانال ویترین": [],
+    "ثبت پیام در حیاط خلوت 💜": [
+        ("💬 پیام ناشناس", "sub_hayat_anon"),
+        ("🧭 تجربه‌ها", "sub_hayat_exp"),
+        ("🎉 دورهمی", "sub_hayat_event"),
+        ("📰 اخبار", "sub_hayat_news"),
+    ],
 }
 
 # زیربخش‌های ویترین
