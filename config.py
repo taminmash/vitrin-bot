@@ -11,14 +11,19 @@ CHANNEL_VITRIN = -1003945260173
 CHANNEL_HAYAT = -1003854428039
 
 CATEGORY_CHANNELS = {
-    "ثبت پیام در حیاط خلوت 💜": CHANNEL_HAYAT,
+    "ثبت پیام در حیاط خلوت": CHANNEL_HAYAT,
 }
 DEFAULT_CHANNEL = CHANNEL_VITRIN
 
 CATEGORIES = {
-    "ورود به کانال ویترین 🟡": [],
-    "ورود به کانال حیاط خلوت 🟣": [],
-    "ثبت پیام در ویترین 💛": [
+    "ثبت پیام در حیاط خلوت": [
+        ("💬 پیام ناشناس", "sub_hayat_anon"),
+        ("🧭 تجربه‌ها", "sub_hayat_exp"),
+        ("🎉 دورهمی", "sub_hayat_event"),
+        ("📰 اخبار", "sub_hayat_news"),
+    ],
+    "ورود به کانال حیاط خلوت": [],
+    "ثبت پیام در ویترین": [
         ("💼 کار و درآمد", "sub_work_main"),
         ("🏠 خانه‌یابی", "sub_house_main"),
         ("🛒 خرید و فروش", "sub_shop_main"),
@@ -28,12 +33,7 @@ CATEGORIES = {
         ("📢 تبلیغات ویژه", "sub_ads_main"),
         ("💬 پشتیبانی", "sub_support_main"),
     ],
-    "ثبت پیام در حیاط خلوت 💜": [
-        ("💬 پیام ناشناس", "sub_hayat_anon"),
-        ("🧭 تجربه‌ها", "sub_hayat_exp"),
-        ("🎉 دورهمی", "sub_hayat_event"),
-        ("📰 اخبار", "sub_hayat_news"),
-    ],
+    "ورود به کانال ویترین": [],
 }
 
 # زیربخش‌های ویترین
@@ -106,10 +106,8 @@ for cat, subs in VITRIN_SUBCATS.items():
     for label, code in subs:
         SUBCAT_LABELS[code] = label
 
-# کدهای سطح اول ویترین
 VITRIN_MAIN_SUBCATS = list(VITRIN_SUBCATS.keys())
 
-# زیربخش‌های مشترک حیاط خلوت
 HAYAT_SUBCATS = [
     "🛂 مهاجرت و اقامت",
     "🏥 بیمه و درمان",
@@ -145,6 +143,5 @@ SUPPORT_SUBCATS = [
     "sub_support_main",
 ]
 
-# لینک‌های کانال
 CHANNEL_VITRIN_LINK = "t.me/vitrinspain"
 CHANNEL_HAYAT_LINK = "t.me/hayatkhalvatspain"
