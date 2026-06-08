@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 SELECT_CATEGORY, SELECT_SUBCATEGORY, SELECT_VITRIN_SUB, SELECT_HAYAT_TOPIC, WRITE_MESSAGE, CONFIRM_MESSAGE = range(6)
 
 CATEGORY_DESCRIPTIONS = {
-    "ثبت پیام در حیاط خلوت 💜": "ارسال ناشناس پیام، تجربه، اخبار و دورهمی",
+    "ورود به کانال ویترین 🟡": "مشاهده همه آگهی‌ها",
     "ورود به کانال حیاط خلوت 🟣": "مشاهده گفتگوها — ناشناس",
     "ثبت پیام در ویترین 💛": "ثبت رایگان آگهی کار، خونه، خرید، فروش و خدمات",
-    "ورود به کانال ویترین 🟡": "مشاهده همه آگهی‌ها",
+    "ثبت پیام در حیاط خلوت 💜": "ارسال ناشناس پیام، تجربه، اخبار و دورهمی",
 }
 
 def build_main_keyboard():
@@ -39,7 +39,6 @@ def build_main_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 async def check_membership(bot, user_id, channel_id):
-    """چک می‌کنه کاربر عضو کانال هست یا نه"""
     try:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         return member.status in ['member', 'administrator', 'creator']
@@ -65,21 +64,22 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
         return SELECT_CATEGORY
 
-    # ورود مستقیم به کانال ویترین
     if category == "ورود به کانال ویترین 🟡":
-        keyboard = [[InlineKeyboardButton("📢 ورود به کانال ویترین", url=f"https://{CHANNEL_VITRIN_LINK}")],
-                    [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")]]
+        keyboard = [
+            [InlineKeyboardButton("📢 ورود به کانال ویترین", url=f"https://{CHANNEL_VITRIN_LINK}")],
+            [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")]
+        ]
         await query.edit_message_text(CAT_VITRIN_CHANNEL, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
 
-    # ورود مستقیم به کانال حیاط خلوت
     if category == "ورود به کانال حیاط خلوت 🟣":
-        keyboard = [[InlineKeyboardButton("🌿 ورود به کانال حیاط خلوت", url=f"https://{CHANNEL_HAYAT_LINK}")],
-                    [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")]]
+        keyboard = [
+            [InlineKeyboardButton("🌿 ورود به کانال حیاط خلوت", url=f"https://{CHANNEL_HAYAT_LINK}")],
+            [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")]
+        ]
         await query.edit_message_text(CAT_HAYAT_CHANNEL, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_CATEGORY
 
-    # ثبت پیام در ویترین — چک عضویت
     if category == "ثبت پیام در ویترین 💛":
         is_member = await check_membership(context.bot, query.from_user.id, CHANNEL_VITRIN)
         if not is_member:
@@ -89,7 +89,7 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")],
             ]
             await query.edit_message_text(
-                f"⚠️ برای ارسال پیام باید ابتدا عضو کانال ویترین بشی!\n\nبعد از عضویت روی «عضو شدم» بزن ✨",
+                "⚠️ برای ارسال پیام باید ابتدا عضو کانال ویترین بشی!\n\nبعد از عضویت روی «عضو شدم» بزن ✨",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return SELECT_CATEGORY
@@ -102,7 +102,6 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(CAT_VITRIN_POST, reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECT_SUBCATEGORY
 
-    # ثبت پیام در حیاط خلوت — چک عضویت
     if category == "ثبت پیام در حیاط خلوت 💜":
         is_member = await check_membership(context.bot, query.from_user.id, CHANNEL_HAYAT)
         if not is_member:
@@ -112,7 +111,7 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 بازگشت به صفحه قبل", callback_data="back:main")],
             ]
             await query.edit_message_text(
-                f"⚠️ برای ارسال پیام باید ابتدا عضو کانال حیاط خلوت بشی!\n\nبعد از عضویت روی «عضو شدم» بزن ✨",
+                "⚠️ برای ارسال پیام باید ابتدا عضو کانال حیاط خلوت بشی!\n\nبعد از عضویت روی «عضو شدم» بزن ✨",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return SELECT_CATEGORY
@@ -386,12 +385,14 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_sub = f"{subcategory_label} — {experience}" if experience else subcategory_label
         is_anonymous = subcode in ANONYMOUS_SUBCATS
         is_support = subcode in SUPPORT_SUBCATS
+        is_hayat = category == "ثبت پیام در حیاط خلوت 💜"
 
         if is_anonymous:
             user_name = "ناشناس"
         else:
             user_name = f"@{user.username}" if user.username else user.full_name
 
+        # پشتیبانی مستقیم به ادمین
         if is_support:
             support_text = f"""📩 پیام پشتیبانی جدید
 
@@ -406,6 +407,31 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("✅ پیام شما به تیم پشتیبانی ارسال شد.\n\nدر اسرع وقت پاسخ خواهیم داد ✨")
             return ConversationHandler.END
 
+        target_channel = CATEGORY_CHANNELS.get(category, DEFAULT_CHANNEL)
+
+        if is_anonymous:
+            channel_text = f"""📌 {display_sub}
+
+{message}
+
+━━━━━━━━━━━━━━━
+🤖 @VitrinSpainBot"""
+        else:
+            channel_text = f"""📌 {display_sub}
+
+{message}
+
+━━━━━━━━━━━━━━━
+👤 {user_name}
+🤖 @VitrinSpainBot"""
+
+        # حیاط خلوت — مستقیم بدون تایید
+        if is_hayat:
+            await context.bot.send_message(chat_id=target_channel, text=channel_text)
+            await query.edit_message_text(FORM_APPROVED)
+            return ConversationHandler.END
+
+        # ویترین — با تایید ادمین
         admin_text = ADMIN_NEW_POST.format(
             user_name=user_name,
             user_id=user.id if not is_anonymous else "ناشناس",
@@ -420,8 +446,6 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("❌ رد", callback_data=f"admin:reject:{user.id}"),
         ]]
 
-        target_channel = CATEGORY_CHANNELS.get(category, DEFAULT_CHANNEL)
-
         context.bot_data[f"post_{user.id}"] = {
             'category': category,
             'subcategory': display_sub,
@@ -429,6 +453,7 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'user_name': user_name,
             'is_anonymous': is_anonymous,
             'target_channel': target_channel,
+            'channel_text': channel_text,
         }
 
         await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard_admin))
@@ -449,25 +474,8 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     post = context.bot_data.get(f"post_{user_id}", {})
 
     if action == "approve":
-        is_anonymous = post.get('is_anonymous', False)
         target_channel = post.get('target_channel', DEFAULT_CHANNEL)
-
-        if is_anonymous:
-            channel_text = f"""📌 {post.get('category')} | {post.get('subcategory')}
-
-{post.get('message')}
-
-━━━━━━━━━━━━━━━
-🤖 @VitrinSpainBot"""
-        else:
-            channel_text = f"""📌 {post.get('category')} | {post.get('subcategory')}
-
-{post.get('message')}
-
-━━━━━━━━━━━━━━━
-👤 {post.get('user_name')}
-🤖 @VitrinSpainBot"""
-
+        channel_text = post.get('channel_text', '')
         await context.bot.send_message(chat_id=target_channel, text=channel_text)
         await context.bot.send_message(chat_id=user_id, text=FORM_APPROVED)
         await query.edit_message_text(f"✅ تأیید شد.\n\n{query.message.text}")
@@ -502,13 +510,7 @@ async def admin_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = waiting['user_id']
 
     if action == "edit":
-        edit_text = FORM_NEEDS_EDIT.format(reason=reason)
-        keyboard = [[InlineKeyboardButton("✏️ ویرایش پیام", callback_data="restart:edit")]]
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=edit_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await context.bot.send_message(chat_id=user_id, text=FORM_NEEDS_EDIT.format(reason=reason))
         await update.message.reply_text("✅ پیام ویرایش به کاربر ارسال شد.")
     elif action == "reject":
         await context.bot.send_message(chat_id=user_id, text=FORM_REJECTED.format(reason=reason))
@@ -516,46 +518,33 @@ async def admin_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     del context.bot_data[waiting_key]
 
-async def restart_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(WELCOME, reply_markup=build_main_keyboard())
-    return SELECT_CATEGORY
-
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", start),
-            CallbackQueryHandler(restart_handler, pattern="^restart:"),
-        ],
+        entry_points=[CommandHandler("start", start)],
         states={
             SELECT_CATEGORY: [
                 CallbackQueryHandler(select_category, pattern="^cat:"),
                 CallbackQueryHandler(select_category, pattern="^back:main$"),
-                CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
             SELECT_SUBCATEGORY: [
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
                 CallbackQueryHandler(select_subcategory, pattern="^vsub:"),
                 CallbackQueryHandler(select_category, pattern="^back:main$"),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
-                CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
             SELECT_VITRIN_SUB: [
                 CallbackQueryHandler(select_vitrin_sub, pattern="^sub:"),
                 CallbackQueryHandler(select_vitrin_sub, pattern="^vsub:"),
                 CallbackQueryHandler(select_category, pattern="^back:main$"),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
-                CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
             SELECT_HAYAT_TOPIC: [
                 CallbackQueryHandler(select_hayat_topic, pattern="^htopic:"),
                 CallbackQueryHandler(select_hayat_topic, pattern="^sub:"),
                 CallbackQueryHandler(select_category, pattern="^back:main$"),
                 CallbackQueryHandler(select_category, pattern="^cat:"),
-                CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
             WRITE_MESSAGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_message),
@@ -563,19 +552,13 @@ def main():
                 CallbackQueryHandler(select_category, pattern="^cat:"),
                 CallbackQueryHandler(select_subcategory, pattern="^sub:"),
                 CallbackQueryHandler(select_subcategory, pattern="^vsub:"),
-                CallbackQueryHandler(select_vitrin_sub, pattern="^vsub:"),
                 CallbackQueryHandler(select_hayat_topic, pattern="^htopic:"),
-                CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
             CONFIRM_MESSAGE: [
                 CallbackQueryHandler(confirm_message, pattern="^confirm:"),
-                CallbackQueryHandler(restart_handler, pattern="^restart:"),
             ],
         },
-        fallbacks=[
-            CommandHandler("start", start),
-            CallbackQueryHandler(restart_handler, pattern="^restart:"),
-        ],
+        fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
     )
 
