@@ -46,3 +46,19 @@ def get_comment_count(post_id):
     conn.close()
 
     return count
+
+
+def get_comments(post_id):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT comment_text FROM comments WHERE post_id = ? ORDER BY id ASC",
+        (post_id,)
+    )
+
+    comments = cur.fetchall()
+
+    conn.close()
+
+    return comments
