@@ -437,20 +437,20 @@ if is_hayat:
     await query.edit_message_text(FORM_APPROVED)
     return ConversationHandler.END
 
- # ویترین — با تایید ادمین
-        admin_text = ADMIN_NEW_POST.format(
-            user_name=user_name,
-            user_id=user.id if not is_anonymous else "ناشناس",
-            category=category,
-            subcategory=display_sub,
-            message=message
-        )
+# ویترین — با تایید ادمین
+admin_text = ADMIN_NEW_POST.format(
+    user_name=user_name,
+    user_id=user.id if not is_anonymous else "ناشناس",
+    category=category,
+    subcategory=display_sub,
+    message=message
+)
 
-        keyboard_admin = [[
-            InlineKeyboardButton("✅ تأیید", callback_data=f"admin:approve:{user.id}"),
-            InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:edit:{user.id}"),
-            InlineKeyboardButton("❌ رد", callback_data=f"admin:reject:{user.id}"),
-        ]]
+keyboard_admin = [[
+    InlineKeyboardButton("✅ تأیید", callback_data=f"admin:approve:{user.id}"),
+    InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:edit:{user.id}"),
+    InlineKeyboardButton("❌ رد", callback_data=f"admin:reject:{user.id}"),
+]]
 
         context.bot_data[f"post_{user.id}"] = {
             'category': category,
