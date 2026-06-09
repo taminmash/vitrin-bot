@@ -13,6 +13,7 @@ from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, SUBCAT_LABELS,
                     CHANNEL_VITRIN_LINK, CHANNEL_HAYAT_LINK)
 from texts import *
 from database import init_db
+from comment_handlers import build_comment_button
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
