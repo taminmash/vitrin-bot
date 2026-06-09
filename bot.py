@@ -13,7 +13,7 @@ from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, SUBCAT_LABELS,
                     CHANNEL_VITRIN_LINK, CHANNEL_HAYAT_LINK)
 from texts import *
 from database import init_db
-from comment_handlers import build_comment_button
+from comment_handlers import build_comment_button, comment_callback
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -578,6 +578,7 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CallbackQueryHandler(admin_action, pattern="^admin:"))
+    app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment:"))
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.User(ADMIN_ID),
         admin_reason
