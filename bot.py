@@ -437,7 +437,7 @@ if is_hayat:
     await query.edit_message_text(FORM_APPROVED)
     return ConversationHandler.END
 
-        # ویترین — با تایید ادمین
+ # ویترین — با تایید ادمین
         admin_text = ADMIN_NEW_POST.format(
             user_name=user_name,
             user_id=user.id if not is_anonymous else "ناشناس",
