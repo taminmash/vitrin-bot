@@ -429,16 +429,10 @@ async def confirm_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # حیاط خلوت — مستقیم بدون تایید
 if is_hayat:
-    sent_message = await context.bot.send_message(
-        chat_id=target_channel,
-        text=channel_text
-    )
-
-    await context.bot.edit_message_reply_markup(
-        chat_id=target_channel,
-        message_id=sent_message.message_id,
-        reply_markup=build_comment_button(sent_message.message_id)
-    )
+    await context.bot.send_message(
+    chat_id=target_channel,
+    text=channel_text
+)
 
     await query.edit_message_text(FORM_APPROVED)
     return ConversationHandler.END
