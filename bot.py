@@ -12,6 +12,7 @@ from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, SUBCAT_LABELS,
                     CHANNEL_VITRIN, CHANNEL_HAYAT,
                     CHANNEL_VITRIN_LINK, CHANNEL_HAYAT_LINK)
 from texts import *
+from database import init_db
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -519,6 +520,8 @@ async def admin_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del context.bot_data[waiting_key]
 
 def main():
+    init_db()
+    
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
