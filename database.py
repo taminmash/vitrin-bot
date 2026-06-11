@@ -1,64 +1,73 @@
-import sqlite3
+import os
+import psycopg2
 
-DB_NAME = "comments.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS comments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        post_id INTEGER,
+        id SERIAL PRIMARY KEY,
+        post_id BIGINT,
         comment_text TEXT
     )
     """)
 
     conn.commit()
+    cur.close()
     conn.close()
 
 
 def add_comment(post_id, comment_text):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
-        "INSERT INTO comments (post_id, comment_text) VALUES (?, ?)",
+        "INSERT INTO comments (post_id, comment_text) VALUES (%s, %s)",
         (post_id, comment_text)
     )
 
     conn.commit()
+    cur.close()
     conn.close()
 
 
 def get_comment_count(post_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT COUNT(*) FROM comments WHERE post_id = ?",
+        "SELECT COUNT(*) FROM comments WHERE post_id = %s",
         (post_id,)
     )
 
     count = cur.fetchone()[0]
 
+    cur.close()
     conn.close()
 
     return count
 
 
 def get_comments(post_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT comment_text FROM comments WHERE post_id = ? ORDER BY id ASC",
+        "SELECT comment_text FROM comments WHERE post_id = %s ORDER BY id ASC",
         (post_id,)
     )
 
     comments = cur.fetchall()
 
+    cur.close()
     conn.close()
 
     return comments
