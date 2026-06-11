@@ -30,4 +30,7 @@ async def comment_callback(update, context):
         for i, comment in enumerate(comments, start=1):
             text += f"{i}. {comment[0]}\n"
 
-    await query.message.reply_text(text)
+await context.bot.send_message(
+    chat_id=query.from_user.id,
+    text=text
+)
