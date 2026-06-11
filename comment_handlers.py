@@ -19,8 +19,15 @@ async def comment_callback(update, context):
     query = update.callback_query
     await query.answer()
 
-    post_id = query.data.split(":")[1]
+    post_id = int(query.data.split(":")[1])
 
-    await query.message.reply_text(
-        f"✍️ ارسال نظر برای پست {post_id}\n\nاین بخش فعال شد."
-    )
+    comments = get_comments(post_id)
+
+    if not comments:
+        text = "💬 هنوز نظری ثبت نشده است."
+    else:
+        text = "💬 نظرات:\n\n"
+        for i, comment in enumerate(comments, start=1):
+            text += f"{i}. {comment[0]}\n"
+
+    await query.message.reply_text(text)
