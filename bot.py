@@ -568,6 +568,10 @@ def main():
         admin_reason
     ))
 
+    from pg_test import test_connection
+
+    test_connection()
+
     print("🤖 بات ویترین اسپانیا شروع به کار کرد...")
     app.run_polling()
 
