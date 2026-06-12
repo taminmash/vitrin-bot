@@ -20,6 +20,7 @@ async def comment_callback(update, context):
     await query.answer()
 
     post_id = int(query.data.split(":")[1])
+    print("READ POST ID =", post_id)
 
     comments = get_comments(post_id)
 
@@ -50,6 +51,7 @@ async def save_comment(update, context):
         return
 
     post_id = context.user_data["waiting_comment_post_id"]
+    print("SAVE POST ID =", post_id)
 
     user_id = update.effective_user.id
     nickname = f"کاربر {str(user_id)[-4:]}"
