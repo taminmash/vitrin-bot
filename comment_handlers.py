@@ -44,6 +44,8 @@ async def comment_callback(update, context):
 
 
 async def save_comment(update, context):
+    print("SAVE_COMMENT CALLED")
+
     if "waiting_comment_post_id" not in context.user_data:
         return
 
