@@ -14,11 +14,13 @@ def init_db():
     cur = conn.cursor()
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS comments (
-        id SERIAL PRIMARY KEY,
-        post_id BIGINT,
-        comment_text TEXT
-    )
+CREATE TABLE IF NOT EXISTS comments (
+    id SERIAL PRIMARY KEY,
+    post_id BIGINT,
+    user_id BIGINT,
+    nickname TEXT,
+    comment_text TEXT
+)
     """)
 
     conn.commit()
