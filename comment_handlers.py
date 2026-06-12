@@ -63,8 +63,8 @@ async def save_comment(update, context):
         update.message.text
     )
 
-    del context.user_data["waiting_comment_post_id"]
+del context.user_data["waiting_comment_post_id"]
 
-    await update.message.reply_text(
-        "✅ نظر شما ثبت شد."
-    )
+await update.message.reply_text(
+    f"✅ نظر شما ثبت شد. POST={post_id}"
+)
