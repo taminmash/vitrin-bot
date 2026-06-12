@@ -13,7 +13,7 @@ from config import (BOT_TOKEN, ADMIN_ID, CATEGORIES, SUBCAT_LABELS,
                     CHANNEL_VITRIN_LINK, CHANNEL_HAYAT_LINK)
 from texts import *
 from database import init_db
-from comment_handlers import build_comment_button, comment_callback
+from comment_handlers import build_comment_button, comment_callback, save_comment
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -568,6 +568,10 @@ def main():
         admin_reason
     ))
 
+    app.add_handler(MessageHandler(
+    filters.TEXT & ~filters.COMMAND,
+    save_comment
+))
     print("🤖 بات ویترین اسپانیا شروع به کار کرد...")
     app.run_polling()
 
