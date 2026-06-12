@@ -472,7 +472,16 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         target_channel = post.get('target_channel', DEFAULT_CHANNEL)
         channel_text = post.get('channel_text', '')
-        await context.bot.send_message(chat_id=target_channel, text=channel_text)
+       sent_message = await context.bot.send_message(
+    chat_id=target_channel,
+    text=channel_text
+)
+
+await context.bot.edit_message_reply_markup(
+    chat_id=target_channel,
+    message_id=sent_message.message_id,
+    reply_markup=build_comment_button(sent_message.message_id)
+)
         await context.bot.send_message(chat_id=user_id, text=FORM_APPROVED)
         await query.edit_message_text(f"✅ تأیید شد.\n\n{query.message.text}")
 
