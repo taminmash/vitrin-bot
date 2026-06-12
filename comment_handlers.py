@@ -1,5 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from database import get_comment_count, get_comments
+from database import get_comment_count, get_comments, add_comment
 
 
 def build_comment_button(post_id):
