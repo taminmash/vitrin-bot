@@ -515,7 +515,7 @@ async def admin_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del context.bot_data[waiting_key]
 
 def main():
-    # init_db()
+    init_db()
     
     app = Application.builder().token(BOT_TOKEN).build()
 
