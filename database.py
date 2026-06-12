@@ -28,13 +28,17 @@ CREATE TABLE IF NOT EXISTS comments (
     conn.close()
 
 
-def add_comment(post_id, comment_text):
+def add_comment(post_id, user_id, nickname, comment_text):
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
-        "INSERT INTO comments (post_id, comment_text) VALUES (%s, %s)",
-        (post_id, comment_text)
+        """
+        INSERT INTO comments
+        (post_id, user_id, nickname, comment_text)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (post_id, user_id, nickname, comment_text)
     )
 
     conn.commit()
