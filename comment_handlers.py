@@ -34,3 +34,33 @@ async def comment_callback(update, context):
         chat_id=query.from_user.id,
         text=text
     )
+
+    context.user_data["waiting_comment_post_id"] = post_id
+
+    await context.bot.send_message(
+        chat_id=query.from_user.id,
+        text="✍️ حالا نظر خود را ارسال کنید."
+    )
+
+
+async def save_comment(update, context):
+    if "waiting_comment_post_id" not in context.user_data:
+        return
+
+    post_id = context.user_data["waiting_comment_post_id"]
+
+    user_id = update.effective_user.id
+    nickname = f"کاربر {str(user_id)[-4:]}"
+
+    add_comment(
+        post_id,
+        user_id,
+        nickname,
+        update.message.text
+    )
+
+    del context.user_data["waiting_comment_post_id"]
+
+    await update.message.reply_text(
+        "✅ نظر شما ثبت شد."
+    )
