@@ -472,7 +472,8 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         target_channel = post.get('target_channel', DEFAULT_CHANNEL)
         channel_text = post.get('channel_text', '')
-              sent_message = await context.bot.send_message(
+
+        sent_message = await context.bot.send_message(
             chat_id=target_channel,
             text=channel_text
         )
@@ -482,11 +483,15 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_id=sent_message.message_id,
             reply_markup=build_comment_button(sent_message.message_id)
         )
+
         await context.bot.send_message(chat_id=user_id, text=FORM_APPROVED)
         await query.edit_message_text(f"✅ تأیید شد.\n\n{query.message.text}")
 
     elif action == "edit":
-        context.bot_data[f"waiting_edit_{user_id}"] = {'action': 'edit', 'user_id': user_id}
+        context.bot_data[f"waiting_edit_{user_id}"] = {
+            'action': 'edit',
+            'user_id': user_id
+        }
         await query.edit_message_text(query.message.text + "\n\n⏳ دلیل ویرایش را بنویسید...")
         await context.bot.send_message(chat_id=ADMIN_ID, text=ADMIN_ASK_REASON.format(action="ویرایش"))
 
