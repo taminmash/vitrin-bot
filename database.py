@@ -5,6 +5,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 def get_connection():
+    print("DATABASE_URL =", DATABASE_URL)
     return psycopg2.connect(DATABASE_URL)
 
 
