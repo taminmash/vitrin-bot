@@ -73,6 +73,8 @@ def get_comment_count(post_id):
 
 
 def get_comments(post_id):
+    print("GET COMMENTS POST =", post_id)
+
     conn = get_connection()
     cur = conn.cursor()
 
@@ -82,6 +84,8 @@ def get_comments(post_id):
     )
 
     comments = cur.fetchall()
+
+    print("COMMENTS FOUND =", comments)
 
     cur.close()
     conn.close()
