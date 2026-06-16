@@ -1,12 +1,15 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from handlers.profile import profile_start
+
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text
 
     if text == "🟡 ثبت آگهی در ویترین":
+
         await update.message.reply_text(
             "دسته آگهی را انتخاب کنید:\n\n"
             "💼 کار و درآمد\n"
@@ -19,6 +22,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif text == "🟣 ثبت پیام در حیاط خلوت":
+
         await update.message.reply_text(
             "نوع پیام را انتخاب کنید:\n\n"
             "💬 پیام ناشناس\n"
@@ -28,11 +32,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif text == "👤 پروفایل من":
-        await update.message.reply_text(
-            "بخش پروفایل در حال ساخت است."
-        )
+
+        await profile_start(update, context)
 
     elif text == "ℹ️ راهنما":
+
         await update.message.reply_text(
             "راهنمای ویترین اسپانیا به زودی تکمیل می‌شود."
         )
