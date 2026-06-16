@@ -6,6 +6,8 @@ from handlers.profile import profile_start
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    print("MENU:", update.message.text)
+
     text = update.message.text
 
     if text == "🟡 ثبت آگهی در ویترین":
@@ -33,7 +35,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "👤 پروفایل من":
 
-        await profile_start(update, context)
+        await update.message.reply_text(
+            "تست پروفایل"
+        )
 
     elif text == "ℹ️ راهنما":
 
