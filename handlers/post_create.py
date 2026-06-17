@@ -71,7 +71,8 @@ async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["post_step"] = "content"
 
         await update.message.reply_text(
-            "📝 لطفاً متن جدید آگهی را ارسال کنید:"
+            "📝 لطفاً متن جدید آگهی را ارسال کنید:",
+            reply_markup=BACK_KEYBOARD,
         )
         return
 
@@ -112,10 +113,19 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prev_step = step_order[step_index]
             context.user_data["post_step"] = prev_step
             await send_step_prompt(update, prev_step)
-        else:
+            return
+
+        if context.user_data.get("edit_post_id"):
+            context.user_data.clear()
             await update.message.reply_text(
-                "این ابتدای فرآیند ثبت آگهی است."
+                "↩️ فرآیند ویرایش آگهی لغو شد.",
+                reply_markup=ReplyKeyboardRemove(),
             )
+            return
+
+        await update.message.reply_text(
+            "این ابتدای فرآیند ثبت آگهی است."
+        )
         return
 
     if step == "category":
