@@ -21,6 +21,7 @@ resize_keyboard=True,
 
 async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+
 context.user_data.clear()
 context.user_data["post_step"] = "category"
 
@@ -29,7 +30,9 @@ await update.message.reply_text(
     reply_markup=CATEGORY_KEYBOARD,
 )
 
+
 async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
 
 if "post_step" not in context.user_data:
     return
