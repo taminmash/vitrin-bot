@@ -53,6 +53,7 @@ def init_db():
     """)
 
     conn.commit()
+
     cur.close()
     conn.close()
 
@@ -119,7 +120,8 @@ def get_post(post_id):
             display_name,
             telegram_id,
             content,
-            status
+            status,
+            channel_message_id
         FROM posts
         WHERE id = %s
         """,
@@ -155,3 +157,51 @@ def update_post_status(post_id, status):
 
     cur.close()
     conn.close()
+
+
+def save_channel_message(post_id, message_id):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        UPDATE posts
+        SET channel_message_id = %s
+        WHERE id = %s
+        """,
+        (
+            message_id,
+            post_id,
+        ),
+    )
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+
+def get_user_id_by_post(post_id):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT user_id
+        FROM posts
+        WHERE id = %s
+        """,
+        (post_id,),
+    )
+
+    row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if row:
+        return row[0]
+
+    return None
