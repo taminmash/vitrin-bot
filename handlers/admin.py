@@ -3,7 +3,6 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.db import save_post
-from handlers.admin import send_post_to_admin
 
 CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
     [
