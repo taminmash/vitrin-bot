@@ -1,152 +1,57 @@
-from telegram import ReplyKeyboardMarkup
-from telegram import Update
-from telegram.ext import ContextTypes
+import os
+import psycopg2
 
-from handlers.start import MAIN_MENU
-
-
-BACK_KEYBOARD = ReplyKeyboardMarkup(
-    [
-        ["🔙 بازگشت"],
-    ],
-    resize_keyboard=True,
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-CITY_KEYBOARD = ReplyKeyboardMarkup(
-    [
-        ["📍 مادرید", "📍 بارسلونا"],
-        ["📍 والنسیا", "📍 مالاگا"],
-        ["📍 سویا", "📍 آلیکانته"],
-        ["📍 مورسیا", "📍 بیلبائو"],
-        ["📍 ساراگوسا", "📍 باداخوس"],
-        ["📍 وایادولید", "📍 سالامانکا"],
-        ["📍 گرانادا", "📍 کوردوبا"],
-        ["📍 کادیز", "📍 ماربیا"],
-        ["📍 تنریف", "📍 لاس پالماس"],
-        ["📍 اوویدو", "📍 خیخون"],
-        ["📍 پامپلونا", "📍 لئون"],
-        ["📍 تولدو", "📍 گوادالاخارا"],
-        ["📍 سایر شهرها"],
-        ["🔙 بازگشت"],
-    ],
-    resize_keyboard=True,
-)
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 
-async def profile_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
 
-    context.user_data.clear()
-    context.user_data["profile_step"] = "name"
-
-    await update.message.reply_text(
-        "👤 نام نمایشی خود را وارد کنید:",
-        reply_markup=BACK_KEYBOARD,
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id BIGINT PRIMARY KEY,
+        display_name TEXT,
+        city TEXT,
+        username TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+    """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS posts (
+        id SERIAL PRIMARY KEY,
 
-async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id BIGINT,
 
-    if "profile_step" not in context.user_data:
-        return
+        post_type TEXT,
+        category TEXT,
 
-    text = update.message.text
-    step = context.user_data["profile_step"]
+        display_name TEXT,
+        city TEXT,
 
-    # بازگشت
-    if text == "🔙 بازگشت":
+        content TEXT,
 
-        if step == "name":
+        telegram_id TEXT,
 
-            context.user_data.clear()
+        hashtags TEXT,
 
-            await update.message.reply_text(
-                "🏠 به منوی اصلی برگشتید.",
-                reply_markup=MAIN_MENU,
-            )
+        status TEXT DEFAULT 'pending',
 
-            return
+        channel_message_id BIGINT,
 
-        if step == "city":
+        approved_by BIGINT,
+        approved_at TIMESTAMP,
 
-            context.user_data["profile_step"] = "name"
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
 
-            await update.message.reply_text(
-                "👤 نام نمایشی خود را وارد کنید:",
-                reply_markup=BACK_KEYBOARD,
-            )
+    conn.commit()
 
-            return
-
-        if step == "other_city":
-
-            context.user_data["profile_step"] = "city"
-
-            await update.message.reply_text(
-                "📍 شهر خود را انتخاب کنید:",
-                reply_markup=CITY_KEYBOARD,
-            )
-
-            return
-
-    # نام نمایشی
-    if step == "name":
-
-        if len(text.strip()) < 2:
-
-            await update.message.reply_text(
-                "نام نمایشی حداقل باید ۲ حرف باشد."
-            )
-
-            return
-
-        context.user_data["display_name"] = text.strip()
-        context.user_data["profile_step"] = "city"
-
-        await update.message.reply_text(
-            "📍 شهر خود را انتخاب کنید:",
-            reply_markup=CITY_KEYBOARD,
-        )
-
-        return
-
-    # انتخاب شهر
-    if step == "city":
-
-        if text == "📍 سایر شهرها":
-
-            context.user_data["profile_step"] = "other_city"
-
-            await update.message.reply_text(
-                "📍 نام شهر را وارد کنید:",
-                reply_markup=BACK_KEYBOARD,
-            )
-
-            return
-
-        context.user_data["city"] = text.replace("📍 ", "")
-
-        await update.message.reply_text(
-            f"✅ پروفایل ثبت شد.\n\n"
-            f"👤 نام: {context.user_data['display_name']}\n"
-            f"📍 شهر: {context.user_data['city']}",
-            reply_markup=MAIN_MENU,
-        )
-
-        context.user_data.clear()
-
-        return
-
-    # سایر شهرها
-    if step == "other_city":
-
-        context.user_data["city"] = text.strip()
-
-        await update.message.reply_text(
-            f"✅ پروفایل ثبت شد.\n\n"
-            f"👤 نام: {context.user_data['display_name']}\n"
-            f"📍 شهر: {context.user_data['city']}",
-            reply_markup=MAIN_MENU,
-        )
-
-        context.user_data.clear()
+    cur.close()
+    conn.close()
