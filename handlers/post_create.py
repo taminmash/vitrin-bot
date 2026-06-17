@@ -106,13 +106,3 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("مرحله 3")
 
     return
-
-        await update.message.reply_text(
-            f"✅ آگهی شما ثبت شد.\n\n"
-            f"شماره آگهی: {post_id}\n\n"
-            f"پس از تایید ادمین منتشر خواهد شد."
-        )
-
-        context.user_data.clear()
-
-        return
