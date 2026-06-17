@@ -24,13 +24,13 @@ def build_admin_keyboard(post_id):
         ],
         [
             InlineKeyboardButton(
-                "📝 درخواست اصلاح",
+                "📝 ویرایش آگهی",
                 callback_data=f"edit:{post_id}",
             )
         ],
         [
             InlineKeyboardButton(
-                "❌ رد آگهی",
+                "❌ حذف آگهی",
                 callback_data=f"reject:{post_id}",
             )
         ],
@@ -163,7 +163,7 @@ async def admin_callback(
         context.user_data["awaiting_edit_reason"] = post_id
 
         await query.edit_message_text(
-            "📝 لطفاً دلیل درخواست اصلاح را وارد کنید:"
+            "📝 لطفاً دلیل درخواست ویرایش را وارد کنید:"
         )
 
         return
@@ -227,5 +227,5 @@ async def admin_edit_reason_handler(
         )
 
     await update.message.reply_text(
-        f"✅ درخواست اصلاح برای آگهی {post_id} ارسال شد."
+        f"✅ درخواست ویرایش برای آگهی {post_id} ارسال شد."
     )
