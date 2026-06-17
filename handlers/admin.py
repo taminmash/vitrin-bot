@@ -1,217 +1,123 @@
-from telegram import InlineKeyboardButton
-from telegram import InlineKeyboardMarkup
+from telegram import ReplyKeyboardMarkup
 from telegram import Update
-
 from telegram.ext import ContextTypes
 
-from config_v2 import ADMIN_IDS
-from config_v2 import CHANNEL_VITRIN
-
-from database.db import get_post
-from database.db import update_post_status
-from database.db import save_channel_message
-from database.db import get_user_id_by_post
+from database.db import save_post
+from handlers.admin import send_post_to_admin
 
 
-def build_admin_keyboard(post_id):
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "✅ تایید انتشار",
-                callback_data=f"approve:{post_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📝 درخواست اصلاح",
-                callback_data=f"edit:{post_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "❌ رد آگهی",
-                callback_data=f"reject:{post_id}",
-            )
-        ],
-    ]
-
-    return InlineKeyboardMarkup(keyboard)
+CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["💼 کار و درآمد"],
+        ["🏠 خانه و اجاره"],
+        ["🛒 خرید و فروش"],
+        ["🔧 خدمات"],
+        ["🚚 ارسال بار"],
+        ["💰 سرمایه گذاری"],
+        ["💶 خرید و فروش یورو"],
+        ["📢 آگهی ویژه"],
+    ],
+    resize_keyboard=True,
+)
 
 
-async def send_post_to_admin(
-    context: ContextTypes.DEFAULT_TYPE,
-    post_id: int,
-    post_data: dict,
-):
+async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    text = f"""
-📥 آگهی جدید
+    context.user_data.clear()
+    context.user_data["post_step"] = "category"
 
-🆔 {post_id}
-
-📂 دسته:
-{post_data['category']}
-
-📍 شهر:
-{post_data['city']}
-
-👤 نام:
-{post_data['display_name']}
-
-📨 تلگرام:
-{post_data['telegram_id']}
-
-📝 متن:
-
-{post_data['content']}
-"""
-
-    for admin_id in ADMIN_IDS:
-
-        await context.bot.send_message(
-            chat_id=admin_id,
-            text=text,
-            reply_markup=build_admin_keyboard(post_id),
-        )
+    await update.message.reply_text(
+        "📂 دسته آگهی را انتخاب کنید:",
+        reply_markup=CATEGORY_KEYBOARD,
+    )
 
 
-async def admin_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    query = update.callback_query
-
-    if not query:
+    if "post_step" not in context.user_data:
         return
 
-    await query.answer()
+    if not update.message:
+        return
 
-    data = query.data
+    text = update.message.text
+    step = context.user_data["post_step"]
 
-    #
-    # تایید انتشار
-    #
-    if data.startswith("approve:"):
+    if step == "category":
 
-        post_id = int(data.split(":")[1])
+        context.user_data["category"] = text
+        context.user_data["post_step"] = "name"
 
-        post = get_post(post_id)
-
-        if not post:
-
-            await query.edit_message_text(
-                "❌ آگهی پیدا نشد."
-            )
-
-            return
-
-        (
-            _id,
-            user_id,
-            category,
-            city,
-            display_name,
-            telegram_id,
-            content,
-            status,
-            channel_message_id,
-        ) = post
-
-        channel_text = f"""
-📂 {category}
-
-📍 {city}
-
-👤 {display_name}
-
-📨 {telegram_id}
-
-━━━━━━━━━━━━━━
-
-{content}
-"""
-
-        msg = await context.bot.send_message(
-            chat_id=CHANNEL_VITRIN,
-            text=channel_text,
-        )
-
-        save_channel_message(
-            post_id,
-            msg.message_id,
-        )
-
-        update_post_status(
-            post_id,
-            "approved",
-        )
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="✅ آگهی شما تایید و منتشر شد.",
-        )
-
-        await query.edit_message_text(
-            f"✅ آگهی {post_id} منتشر شد."
+        await update.message.reply_text(
+            "👤 نام نمایشی خود را وارد کنید:"
         )
 
         return
 
-    #
-    # درخواست اصلاح
-    #
-    if data.startswith("edit:"):
+    if step == "name":
 
-        post_id = int(data.split(":")[1])
+        context.user_data["display_name"] = text
+        context.user_data["post_step"] = "city"
 
-        update_post_status(
-            post_id,
-            "need_edit",
-        )
-
-        user_id = get_user_id_by_post(post_id)
-
-        if user_id:
-
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    "📝 آگهی شما نیاز به اصلاح دارد.\n\n"
-                    "لطفاً آگهی جدید ثبت کنید."
-                ),
-            )
-
-        await query.edit_message_text(
-            f"📝 درخواست اصلاح برای آگهی {post_id} ارسال شد."
+        await update.message.reply_text(
+            "📍 شهر خود را وارد کنید:"
         )
 
         return
 
-    #
-    # رد آگهی
-    #
-    if data.startswith("reject:"):
+    if step == "city":
 
-        post_id = int(data.split(":")[1])
+        context.user_data["city"] = text
+        context.user_data["post_step"] = "content"
 
-        update_post_status(
-            post_id,
-            "rejected",
+        await update.message.reply_text(
+            "📝 متن آگهی را وارد کنید:"
         )
 
-        user_id = get_user_id_by_post(post_id)
+        return
 
-        if user_id:
+    if step == "content":
 
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="❌ آگهی شما تایید نشد.",
-            )
+        await update.message.reply_text("مرحله 1")
 
-        await query.edit_message_text(
-            f"❌ آگهی {post_id} رد شد."
+        username = update.effective_user.username
+
+        if username:
+            telegram_id = f"@{username}"
+        else:
+            telegram_id = "بدون یوزرنیم"
+
+        post_id = save_post(
+            user_id=update.effective_user.id,
+            category=context.user_data["category"],
+            city=context.user_data["city"],
+            display_name=context.user_data["display_name"],
+            telegram_id=telegram_id,
+            content=text,
         )
+
+        await update.message.reply_text("مرحله 2")
+
+        await send_post_to_admin(
+            context=context,
+            post_id=post_id,
+            post_data={
+                "category": context.user_data["category"],
+                "city": context.user_data["city"],
+                "display_name": context.user_data["display_name"],
+                "telegram_id": telegram_id,
+                "content": text,
+            },
+        )
+
+        await update.message.reply_text("مرحله 3")
+
+        await update.message.reply_text(
+            f"✅ آگهی شما ثبت شد.\n\n"
+            f"شماره آگهی: {post_id}\n\n"
+            f"پس از تایید ادمین منتشر خواهد شد."
+        )
+
+        context.user_data.clear()
 
         return
