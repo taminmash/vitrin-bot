@@ -22,10 +22,10 @@ resize_keyboard=True,
 async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
-context.user_data.clear()
-context.user_data["post_step"] = "category"
+    context.user_data.clear()
+    context.user_data["post_step"] = "category"
 
-await update.message.reply_text(
+    await update.message.reply_text(
     "📂 دسته آگهی را انتخاب کنید:",
     reply_markup=CATEGORY_KEYBOARD,
 )
