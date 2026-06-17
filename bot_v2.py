@@ -12,6 +12,7 @@ from database.db import init_db
 from handlers.start import start
 from handlers.menu import menu_handler
 from handlers.profile import profile_handler
+from handlers.post_create import post_handler
 
 
 def main():
@@ -27,14 +28,21 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            menu_handler,
+            profile_handler,
         )
     )
 
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            profile_handler,
+            post_handler,
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            menu_handler,
         )
     )
 
