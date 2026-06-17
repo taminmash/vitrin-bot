@@ -21,10 +21,7 @@ CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 
-async def start_post(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data.clear()
     context.user_data["post_step"] = "category"
@@ -35,10 +32,7 @@ async def start_post(
     )
 
 
-async def post_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "post_step" not in context.user_data:
         return
@@ -49,9 +43,6 @@ async def post_handler(
     text = update.message.text
     step = context.user_data["post_step"]
 
-    #
-    # دسته
-    #
     if step == "category":
 
         context.user_data["category"] = text
@@ -63,9 +54,6 @@ async def post_handler(
 
         return
 
-    #
-    # نام
-    #
     if step == "name":
 
         context.user_data["display_name"] = text
@@ -77,9 +65,6 @@ async def post_handler(
 
         return
 
-    #
-    # شهر
-    #
     if step == "city":
 
         context.user_data["city"] = text
@@ -91,10 +76,11 @@ async def post_handler(
 
         return
 
-    #
-    # متن آگهی
-    #
     if step == "content":
+
+        await update.message.reply_text(
+            "مرحله 1"
+        )
 
         username = update.effective_user.username
 
@@ -112,6 +98,10 @@ async def post_handler(
             content=text,
         )
 
+        await update.message.reply_text(
+            "مرحله 2"
+        )
+
         await send_post_to_admin(
             context=context,
             post_id=post_id,
@@ -122,6 +112,10 @@ async def post_handler(
                 "telegram_id": telegram_id,
                 "content": text,
             },
+        )
+
+        await update.message.reply_text(
+            "مرحله 3"
         )
 
         await update.message.reply_text(
