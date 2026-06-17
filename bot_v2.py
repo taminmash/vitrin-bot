@@ -27,14 +27,15 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            menu_handler,
-        )
+            profile_handler,
+        ),
+        group=0,
     )
 
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            profile_handler,
+            post_handler,
         ),
         group=1,
     )
@@ -42,7 +43,7 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            post_handler,
+            menu_handler,
         ),
         group=2,
     )
