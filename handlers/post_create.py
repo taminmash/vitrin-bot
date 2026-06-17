@@ -1,7 +1,7 @@
 from telegram import ReplyKeyboardMarkup
 from telegram import Update
 from telegram.ext import ContextTypes
-from database.db import save_post
+from database.db import save_post, update_post, get_pending_edit_post
 from handlers.admin import send_post_to_admin
 
 CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
@@ -22,6 +22,12 @@ CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
 async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     context.user_data["post_step"] = "category"
+
+    user_id = update.effective_user.id
+    edit_post_id = get_pending_edit_post(user_id)
+    if edit_post_id:
+        context.user_data["edit_post_id"] = edit_post_id
+
     await update.message.reply_text(
         "📂 دسته آگهی را انتخاب کنید:",
         reply_markup=CATEGORY_KEYBOARD,
@@ -70,14 +76,27 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             telegram_id = "بدون یوزرنیم"
 
-        post_id = save_post(
-            user_id=update.effective_user.id,
-            category=context.user_data["category"],
-            city=context.user_data["city"],
-            display_name=context.user_data["display_name"],
-            telegram_id=telegram_id,
-            content=text,
-        )
+        edit_post_id = context.user_data.get("edit_post_id")
+
+        if edit_post_id:
+            post_id = edit_post_id
+            update_post(
+                post_id=post_id,
+                category=context.user_data["category"],
+                city=context.user_data["city"],
+                display_name=context.user_data["display_name"],
+                telegram_id=telegram_id,
+                content=text,
+            )
+        else:
+            post_id = save_post(
+                user_id=update.effective_user.id,
+                category=context.user_data["category"],
+                city=context.user_data["city"],
+                display_name=context.user_data["display_name"],
+                telegram_id=telegram_id,
+                content=text,
+            )
 
         await update.message.reply_text("مرحله 2")
 
