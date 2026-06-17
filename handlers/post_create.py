@@ -82,11 +82,11 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "مرحله 1"
         )
 
-       await update.message.reply_text(
-    "مرحله 2"
-)
+        await update.message.reply_text(
+            "مرحله 2"
+        )
 
-return
+        return
 
         await update.message.reply_text(
             f"✅ آگهی شما ثبت شد.\n\n"
