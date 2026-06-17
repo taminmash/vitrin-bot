@@ -89,14 +89,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             telegram_id = "بدون یوزرنیم"
 
-        post_id = save_post(
-            user_id=update.effective_user.id,
-            category=context.user_data["category"],
-            city=context.user_data["city"],
-            display_name=context.user_data["display_name"],
-            telegram_id=telegram_id,
-            content=text,
-        )
+        post_id = 999
 
         await update.message.reply_text(
             "مرحله 2"
