@@ -2,6 +2,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 
@@ -12,6 +13,7 @@ from handlers.start import start
 from handlers.menu import menu_handler
 from handlers.profile import profile_handler
 from handlers.post_create import post_handler
+from handlers.admin import admin_callback
 
 
 def main():
@@ -21,7 +23,16 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            admin_callback,
+        )
     )
 
     app.add_handler(
