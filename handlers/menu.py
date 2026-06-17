@@ -2,24 +2,19 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.profile import profile_start
+from handlers.post_create import start_post
 
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message:
+        return
 
     text = update.message.text
 
     if text == "🟡 ثبت آگهی در ویترین":
 
-        await update.message.reply_text(
-            "دسته آگهی را انتخاب کنید:\n\n"
-            "💼 کار و درآمد\n"
-            "🏠 خانه و اجاره\n"
-            "🛒 خرید و فروش\n"
-            "🔧 خدمات\n"
-            "💰 سرمایه گذاری\n"
-            "💶 خرید و فروش یورو\n"
-            "📢 آگهی ویژه"
-        )
+        await start_post(update, context)
 
     elif text == "🟣 ثبت پیام در حیاط خلوت":
 
