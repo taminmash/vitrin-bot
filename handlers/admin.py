@@ -160,25 +160,10 @@ async def admin_callback(
 
         post_id = int(data.split(":")[1])
 
-        update_post_status(
-            post_id,
-            "need_edit",
-        )
-
-        user_id = get_user_id_by_post(post_id)
-
-        if user_id:
-
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    "📝 آگهی شما نیاز به اصلاح دارد.\n\n"
-                    "لطفاً آگهی جدید ثبت کنید."
-                ),
-            )
+        context.user_data["awaiting_edit_reason"] = post_id
 
         await query.edit_message_text(
-            f"📝 درخواست اصلاح برای آگهی {post_id} ارسال شد."
+            "📝 لطفاً دلیل درخواست اصلاح را وارد کنید:"
         )
 
         return
@@ -206,3 +191,41 @@ async def admin_callback(
         )
 
         return
+
+
+async def admin_edit_reason_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not update.message:
+        return
+
+    if "awaiting_edit_reason" not in context.user_data:
+        return
+
+    post_id = context.user_data.pop("awaiting_edit_reason")
+
+    reason = update.message.text
+
+    update_post_status(
+        post_id,
+        "need_edit",
+    )
+
+    user_id = get_user_id_by_post(post_id)
+
+    if user_id:
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "📝 آگهی شما نیاز به اصلاح دارد.\n\n"
+                f"دلیل اصلاح: {reason}\n\n"
+                "لطفاً آگهی را اصلاح و مجدداً ثبت کنید."
+            ),
+        )
+
+    await update.message.reply_text(
+        f"✅ درخواست اصلاح برای آگهی {post_id} ارسال شد."
+    )
