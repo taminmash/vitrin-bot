@@ -14,16 +14,14 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "🟡 ثبت آگهی در ویترین":
 
-        await start_post(update, context)
+        await update.message.reply_text(
+            "ورود به ثبت آگهی"
+        )
 
     elif text == "🟣 ثبت پیام در حیاط خلوت":
 
         await update.message.reply_text(
-            "نوع پیام را انتخاب کنید:\n\n"
-            "💬 پیام ناشناس\n"
-            "🧭 تجربه‌ها\n"
-            "🎉 دورهمی\n"
-            "📰 اخبار"
+            "ورود به حیاط خلوت"
         )
 
     elif text == "👤 پروفایل من":
