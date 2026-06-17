@@ -10,18 +10,22 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    if "profile_step" in context.user_data:
+        return
+
+    if "post_step" in context.user_data:
+        return
+
     text = update.message.text
 
     if text == "🟡 ثبت آگهی در ویترین":
 
-        await update.message.reply_text(
-            "ورود به ثبت آگهی"
-        )
+        await start_post(update, context)
 
     elif text == "🟣 ثبت پیام در حیاط خلوت":
 
         await update.message.reply_text(
-            "ورود به حیاط خلوت"
+            "بخش حیاط خلوت به زودی تکمیل می‌شود."
         )
 
     elif text == "👤 پروفایل من":
