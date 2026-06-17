@@ -121,6 +121,27 @@ def update_post(
     conn.close()
 
 
+def update_post_content(post_id, content):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE posts
+        SET
+            content = %s,
+            status = 'pending'
+        WHERE id = %s
+        """,
+        (
+            content,
+            post_id,
+        ),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def get_post(post_id):
     conn = get_connection()
     cur = conn.cursor()
@@ -224,3 +245,47 @@ def get_user_id_by_post(post_id):
     if row:
         return row[0]
     return None
+
+
+def get_user_profile(user_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT display_name, city
+        FROM users
+        WHERE id = %s
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row and row[0] and row[1]:
+        return row[0], row[1]
+    return None
+
+
+def save_user_profile(user_id, display_name, city, username=None):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO users (id, display_name, city, username)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE
+        SET
+            display_name = EXCLUDED.display_name,
+            city = EXCLUDED.city,
+            username = EXCLUDED.username
+        """,
+        (
+            user_id,
+            display_name,
+            city,
+            username,
+        ),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
