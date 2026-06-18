@@ -2,6 +2,7 @@ from telegram import ReplyKeyboardMarkup
 from telegram import ReplyKeyboardRemove
 from telegram import Update
 from telegram.ext import ContextTypes
+from config_v2 import SUBCATEGORIES
 from database.db import (
     save_post,
     update_post_content,
@@ -26,7 +27,7 @@ CATEGORY_OPTIONS = [
 ]
 
 CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
-    [[option] for option in CATEGORY_OPTIONS],
+    [[option] for option in CATEGORY_OPTIONS] + [[BACK_BUTTON]],
     resize_keyboard=True,
 )
 
@@ -43,7 +44,26 @@ STEP_PROMPTS = {
 }
 
 
-async def send_step_prompt(update: Update, step: str):
+def build_subcategory_keyboard(category):
+    options = SUBCATEGORIES.get(category, [])
+    keyboard = [[option] for option in options]
+    keyboard.append([BACK_BUTTON])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+async def send_step_prompt(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    step: str,
+):
+    if step == "subcategory":
+        category = context.user_data.get("category")
+        await update.message.reply_text(
+            "📂 ساب‌دسته را انتخاب کنید:",
+            reply_markup=build_subcategory_keyboard(category),
+        )
+        return
+
     prompt_text, keyboard = STEP_PROMPTS[step]
     await update.message.reply_text(
         prompt_text,
@@ -63,15 +83,16 @@ async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["edit_post_id"] = edit_post_id
         context.user_data["category"] = old_post[2]
-        context.user_data["city"] = old_post[3]
-        context.user_data["display_name"] = old_post[4]
+        context.user_data["subcategory"] = old_post[3]
+        context.user_data["city"] = old_post[4]
+        context.user_data["display_name"] = old_post[5]
 
         context.user_data["step_order"] = ["content"]
         context.user_data["step_index"] = 0
         context.user_data["post_step"] = "content"
 
         await update.message.reply_text(
-            "📝 لطفاً متن جدید آگهی را ارسال کنید:",
+            "لطفاً پیام خود را ویرایش کرده و مجدداً ارسال نمایید.",
             reply_markup=BACK_KEYBOARD,
         )
         return
@@ -82,9 +103,19 @@ async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_name, city = profile
         context.user_data["display_name"] = display_name
         context.user_data["city"] = city
-        context.user_data["step_order"] = ["category", "content"]
+        context.user_data["step_order"] = [
+            "category",
+            "subcategory",
+            "content",
+        ]
     else:
-        context.user_data["step_order"] = ["category", "name", "city", "content"]
+        context.user_data["step_order"] = [
+            "category",
+            "subcategory",
+            "name",
+            "city",
+            "content",
+        ]
 
     context.user_data["step_index"] = 0
     context.user_data["post_step"] = context.user_data["step_order"][0]
@@ -112,7 +143,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["step_index"] = step_index
             prev_step = step_order[step_index]
             context.user_data["post_step"] = prev_step
-            await send_step_prompt(update, prev_step)
+            await send_step_prompt(update, context, prev_step)
             return
 
         if context.user_data.get("edit_post_id"):
@@ -123,8 +154,10 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        context.user_data.clear()
         await update.message.reply_text(
-            "این ابتدای فرآیند ثبت آگهی است."
+            "↩️ فرآیند ثبت آگهی لغو شد.",
+            reply_markup=ReplyKeyboardRemove(),
         )
         return
 
@@ -134,7 +167,16 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["step_index"] = step_index
         next_step = step_order[step_index]
         context.user_data["post_step"] = next_step
-        await send_step_prompt(update, next_step)
+        await send_step_prompt(update, context, next_step)
+        return
+
+    if step == "subcategory":
+        context.user_data["subcategory"] = text
+        step_index += 1
+        context.user_data["step_index"] = step_index
+        next_step = step_order[step_index]
+        context.user_data["post_step"] = next_step
+        await send_step_prompt(update, context, next_step)
         return
 
     if step == "name":
@@ -143,7 +185,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["step_index"] = step_index
         next_step = step_order[step_index]
         context.user_data["post_step"] = next_step
-        await send_step_prompt(update, next_step)
+        await send_step_prompt(update, context, next_step)
         return
 
     if step == "city":
@@ -152,12 +194,10 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["step_index"] = step_index
         next_step = step_order[step_index]
         context.user_data["post_step"] = next_step
-        await send_step_prompt(update, next_step)
+        await send_step_prompt(update, context, next_step)
         return
 
     if step == "content":
-        await update.message.reply_text("مرحله 1")
-
         username = update.effective_user.username
         if username:
             telegram_id = f"@{username}"
@@ -184,6 +224,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             post_id = save_post(
                 user_id=user_id,
                 category=context.user_data["category"],
+                subcategory=context.user_data.get("subcategory", ""),
                 city=context.user_data["city"],
                 display_name=context.user_data["display_name"],
                 telegram_id=telegram_id,
@@ -203,21 +244,18 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"پس از تایید ادمین منتشر خواهد شد."
             )
 
-        await update.message.reply_text("مرحله 2")
-
         await send_post_to_admin(
             context=context,
             post_id=post_id,
             post_data={
                 "category": context.user_data["category"],
+                "subcategory": context.user_data.get("subcategory", ""),
                 "city": context.user_data["city"],
                 "display_name": context.user_data["display_name"],
                 "telegram_id": telegram_id,
                 "content": text,
             },
         )
-
-        await update.message.reply_text("مرحله 3")
 
         await update.message.reply_text(
             confirmation_text,
