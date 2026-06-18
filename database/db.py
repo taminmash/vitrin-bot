@@ -39,6 +39,9 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+    cur.execute("""
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS subcategory TEXT
+    """)
     conn.commit()
     cur.close()
     conn.close()
@@ -47,6 +50,7 @@ def init_db():
 def save_post(
     user_id,
     category,
+    subcategory,
     city,
     display_name,
     telegram_id,
@@ -60,18 +64,20 @@ def save_post(
         (
             user_id,
             category,
+            subcategory,
             city,
             display_name,
             telegram_id,
             content,
             status
         )
-        VALUES (%s,%s,%s,%s,%s,%s,'pending')
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')
         RETURNING id
         """,
         (
             user_id,
             category,
+            subcategory,
             city,
             display_name,
             telegram_id,
@@ -88,6 +94,7 @@ def save_post(
 def update_post(
     post_id,
     category,
+    subcategory,
     city,
     display_name,
     telegram_id,
@@ -100,6 +107,7 @@ def update_post(
         UPDATE posts
         SET
             category = %s,
+            subcategory = %s,
             city = %s,
             display_name = %s,
             telegram_id = %s,
@@ -109,6 +117,7 @@ def update_post(
         """,
         (
             category,
+            subcategory,
             city,
             display_name,
             telegram_id,
@@ -151,6 +160,7 @@ def get_post(post_id):
             id,
             user_id,
             category,
+            subcategory,
             city,
             display_name,
             telegram_id,
