@@ -10,7 +10,6 @@ from config_v2 import CHANNEL_VITRIN
 from database.db import get_post
 from database.db import update_post_status
 from database.db import save_channel_message
-from database.db import get_user_id_by_post
 
 BOT_USERNAME = "@VitrinSpainBot"
 
@@ -172,7 +171,10 @@ async def admin_callback(
 
         await context.bot.send_message(
             chat_id=user_id,
-            text="✅ آگهی شما تایید و منتشر شد.",
+            text=(
+                "✅ آگهی شما تایید و منتشر شد.\n\n"
+                f"📂 دسته: {category_label}"
+            ),
         )
 
         await query.edit_message_text(
@@ -197,18 +199,36 @@ async def admin_callback(
 
         post_id = int(data.split(":")[1])
 
+        post = get_post(post_id)
+
         update_post_status(
             post_id,
             "rejected",
         )
 
-        user_id = get_user_id_by_post(post_id)
+        if post:
 
-        if user_id:
+            (
+                _id,
+                user_id,
+                category,
+                subcategory,
+                city,
+                display_name,
+                telegram_id,
+                content,
+                status,
+                channel_message_id,
+            ) = post
+
+            category_label = build_category_label(category, subcategory)
 
             await context.bot.send_message(
                 chat_id=user_id,
-                text="❌ آگهی شما تایید نشد.",
+                text=(
+                    "❌ آگهی شما تایید نشد.\n\n"
+                    f"📂 دسته: {category_label}"
+                ),
             )
 
         await query.edit_message_text(
@@ -238,14 +258,30 @@ async def admin_edit_reason_handler(
         "need_edit",
     )
 
-    user_id = get_user_id_by_post(post_id)
+    post = get_post(post_id)
 
-    if user_id:
+    if post:
+
+        (
+            _id,
+            user_id,
+            category,
+            subcategory,
+            city,
+            display_name,
+            telegram_id,
+            content,
+            status,
+            channel_message_id,
+        ) = post
+
+        category_label = build_category_label(category, subcategory)
 
         await context.bot.send_message(
             chat_id=user_id,
             text=(
                 "📝 آگهی شما نیاز به ویرایش دارد.\n\n"
+                f"📂 دسته: {category_label}\n\n"
                 f"دلیل ویرایش:\n{reason}\n\n"
                 "لطفاً پیام خود را ویرایش و مجدداً ارسال کنید."
             ),
