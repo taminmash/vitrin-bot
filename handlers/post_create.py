@@ -11,7 +11,7 @@ from database.db import (
     get_user_profile,
     save_user_profile,
 )
-from handlers.admin import send_post_to_admin
+from handlers.admin import send_post_to_admin, build_category_label
 
 BACK_BUTTON = "🔙 بازگشت"
 
@@ -206,6 +206,11 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         edit_post_id = context.user_data.get("edit_post_id")
 
+        category_label = build_category_label(
+            context.user_data.get("category", ""),
+            context.user_data.get("subcategory", ""),
+        )
+
         if edit_post_id:
             post_id = edit_post_id
 
@@ -216,6 +221,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             confirmation_text = (
                 "✅ آگهی ویرایش‌شده شما ثبت شد.\n\n"
+                f"📂 دسته: {category_label}\n\n"
                 "پس از تایید ادمین در کانال منتشر خواهد شد."
             )
         else:
@@ -241,6 +247,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             confirmation_text = (
                 f"✅ آگهی شما ثبت شد.\n\n"
                 f"شماره آگهی: {post_id}\n\n"
+                f"📂 دسته: {category_label}\n\n"
                 f"پس از تایید ادمین منتشر خواهد شد."
             )
 
