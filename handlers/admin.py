@@ -12,6 +12,8 @@ from database.db import update_post_status
 from database.db import save_channel_message
 from database.db import get_user_id_by_post
 
+BOT_USERNAME = "@VitrinSpainBot"
+
 
 def build_admin_keyboard(post_id):
 
@@ -39,11 +41,22 @@ def build_admin_keyboard(post_id):
     return InlineKeyboardMarkup(keyboard)
 
 
+def build_category_label(category, subcategory):
+    if subcategory:
+        return f"{category} » {subcategory}"
+    return category
+
+
 async def send_post_to_admin(
     context: ContextTypes.DEFAULT_TYPE,
     post_id: int,
     post_data: dict,
 ):
+
+    category_label = build_category_label(
+        post_data.get("category", ""),
+        post_data.get("subcategory", ""),
+    )
 
     text = f"""
 📥 آگهی جدید
@@ -51,7 +64,7 @@ async def send_post_to_admin(
 🆔 {post_id}
 
 📂 دسته:
-{post_data['category']}
+{category_label}
 
 📍 شهر:
 {post_data['city']}
@@ -108,6 +121,7 @@ async def admin_callback(
             _id,
             user_id,
             category,
+            subcategory,
             city,
             display_name,
             telegram_id,
@@ -116,18 +130,29 @@ async def admin_callback(
             channel_message_id,
         ) = post
 
-        channel_text = f"""
-📂 {category}
+        category_label = build_category_label(category, subcategory)
 
-📍 {city}
+        channel_text = f"""🆔 ID: {post_id}
 
-👤 {display_name}
-
-📨 {telegram_id}
+📂 دسته:
+{category_label}
 
 ━━━━━━━━━━━━━━
 
+📝 متن آگهی:
+
 {content}
+
+━━━━━━━━━━━━━━
+
+📍 شهر:
+{city}
+
+👤 کاربر:
+{telegram_id}
+
+🤖 ربات:
+{BOT_USERNAME}
 """
 
         msg = await context.bot.send_message(
@@ -220,9 +245,9 @@ async def admin_edit_reason_handler(
         await context.bot.send_message(
             chat_id=user_id,
             text=(
-                "📝 آگهی شما نیاز به اصلاح دارد.\n\n"
-                f"دلیل اصلاح: {reason}\n\n"
-                "لطفاً آگهی را اصلاح و مجدداً ثبت کنید."
+                "📝 آگهی شما نیاز به ویرایش دارد.\n\n"
+                f"دلیل ویرایش:\n{reason}\n\n"
+                "لطفاً پیام خود را ویرایش و مجدداً ارسال کنید."
             ),
         )
 
