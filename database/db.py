@@ -1,7 +1,8 @@
+import os
 import psycopg2
-from psycopg2.extras import RealDictCursor
 
-from config_v2 import DATABASE_URL, POST_STATUS_DELETED, POST_STATUS_PENDING
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def get_connection():
@@ -11,192 +12,290 @@ def get_connection():
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id BIGINT PRIMARY KEY,
+        display_name TEXT,
+        city TEXT,
+        username TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS posts (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
+        post_type TEXT,
+        category TEXT,
+        display_name TEXT,
+        city TEXT,
+        content TEXT,
+        telegram_id TEXT,
+        hashtags TEXT,
+        status TEXT DEFAULT 'pending',
+        channel_message_id BIGINT,
+        approved_by BIGINT,
+        approved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("""
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS subcategory TEXT
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
 
+
+def save_post(
+    user_id,
+    category,
+    subcategory,
+    city,
+    display_name,
+    telegram_id,
+    content,
+):
+    conn = get_connection()
+    cur = conn.cursor()
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS users (
-            telegram_id BIGINT PRIMARY KEY,
-            full_name TEXT,
-            username TEXT,
-            city TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        INSERT INTO posts
+        (
+            user_id,
+            category,
+            subcategory,
+            city,
+            display_name,
+            telegram_id,
+            content,
+            status
         )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS posts (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            category TEXT NOT NULL,
-            subcategory TEXT,
-            content TEXT NOT NULL,
-            city TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            channel_message_id BIGINT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-
-    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS subcategory TEXT")
-    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS channel_message_id BIGINT")
-    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS city TEXT")
-    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'")
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT")
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT")
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def get_user(telegram_id):
-    conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
-    user = cur.fetchone()
-    cur.close()
-    conn.close()
-    return user
-
-
-def upsert_user(telegram_id, full_name, username, city):
-    conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        """
-        INSERT INTO users (telegram_id, full_name, username, city, updated_at)
-        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
-        ON CONFLICT (telegram_id)
-        DO UPDATE SET
-            full_name = EXCLUDED.full_name,
-            username = EXCLUDED.username,
-            city = EXCLUDED.city,
-            updated_at = CURRENT_TIMESTAMP
-        RETURNING *
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')
+        RETURNING id
         """,
-        (telegram_id, full_name, username, city),
+        (
+            user_id,
+            category,
+            subcategory,
+            city,
+            display_name,
+            telegram_id,
+            content,
+        ),
     )
-    user = cur.fetchone()
+    post_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
     conn.close()
-    return user
+    return post_id
 
 
-def create_post(telegram_id, category, subcategory, content, city):
+def update_post(
+    post_id,
+    category,
+    subcategory,
+    city,
+    display_name,
+    telegram_id,
+    content,
+):
     conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO posts (telegram_id, category, subcategory, content, city, status)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING *
+        UPDATE posts
+        SET
+            category = %s,
+            subcategory = %s,
+            city = %s,
+            display_name = %s,
+            telegram_id = %s,
+            content = %s,
+            status = 'pending'
+        WHERE id = %s
         """,
-        (telegram_id, category, subcategory, content, city, POST_STATUS_PENDING),
+        (
+            category,
+            subcategory,
+            city,
+            display_name,
+            telegram_id,
+            content,
+            post_id,
+        ),
     )
-    post = cur.fetchone()
     conn.commit()
     cur.close()
     conn.close()
-    return post
-
-
-def get_post(post_id):
-    conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM posts WHERE id = %s", (post_id,))
-    post = cur.fetchone()
-    cur.close()
-    conn.close()
-    return post
 
 
 def update_post_content(post_id, content):
     conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute(
         """
         UPDATE posts
-        SET content = %s,
-            status = %s,
-            updated_at = CURRENT_TIMESTAMP
+        SET
+            content = %s,
+            status = 'pending'
         WHERE id = %s
-        RETURNING *
         """,
-        (content, POST_STATUS_PENDING, post_id),
+        (
+            content,
+            post_id,
+        ),
     )
-    post = cur.fetchone()
     conn.commit()
     cur.close()
     conn.close()
-    return post
+
+
+def get_post(post_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            id,
+            user_id,
+            category,
+            subcategory,
+            city,
+            display_name,
+            telegram_id,
+            content,
+            status,
+            channel_message_id
+        FROM posts
+        WHERE id = %s
+        """,
+        (post_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row
+
+
+def get_pending_edit_post(user_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id
+        FROM posts
+        WHERE user_id = %s
+        AND status = 'need_edit'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row:
+        return row[0]
+    return None
 
 
 def update_post_status(post_id, status):
     conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute(
         """
         UPDATE posts
-        SET status = %s,
-            updated_at = CURRENT_TIMESTAMP
+        SET status = %s
         WHERE id = %s
-        RETURNING *
         """,
-        (status, post_id),
+        (
+            status,
+            post_id,
+        ),
     )
-    post = cur.fetchone()
     conn.commit()
     cur.close()
     conn.close()
-    return post
 
 
-def mark_post_published(post_id, channel_message_id):
+def save_channel_message(post_id, message_id):
     conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute(
         """
         UPDATE posts
-        SET status = %s,
-            channel_message_id = %s,
-            updated_at = CURRENT_TIMESTAMP
+        SET channel_message_id = %s
         WHERE id = %s
-        RETURNING *
         """,
-        ("published", channel_message_id, post_id),
+        (
+            message_id,
+            post_id,
+        ),
     )
-    post = cur.fetchone()
     conn.commit()
     cur.close()
     conn.close()
-    return post
 
 
-def delete_post(post_id):
-    return update_post_status(post_id, POST_STATUS_DELETED)
-
-
-def get_latest_user_post(telegram_id):
+def get_user_id_by_post(post_id):
     conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute(
         """
-        SELECT *
+        SELECT user_id
         FROM posts
-        WHERE telegram_id = %s
-        ORDER BY id DESC
-        LIMIT 1
+        WHERE id = %s
         """,
-        (telegram_id,),
+        (post_id,),
     )
-    post = cur.fetchone()
+    row = cur.fetchone()
     cur.close()
     conn.close()
-    return post
+    if row:
+        return row[0]
+    return None
+
+
+def get_user_profile(user_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT display_name, city
+        FROM users
+        WHERE id = %s
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row and row[0] and row[1]:
+        return row[0], row[1]
+    return None
+
+
+def save_user_profile(user_id, display_name, city, username=None):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO users (id, display_name, city, username)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE
+        SET
+            display_name = EXCLUDED.display_name,
+            city = EXCLUDED.city,
+            username = EXCLUDED.username
+        """,
+        (
+            user_id,
+            display_name,
+            city,
+            username,
+        ),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()

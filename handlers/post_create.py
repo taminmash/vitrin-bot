@@ -1,386 +1,273 @@
-from telegram import ReplyKeyboardRemove, Update
+from telegram import ReplyKeyboardMarkup
+from telegram import ReplyKeyboardRemove
+from telegram import Update
 from telegram.ext import ContextTypes
-
-from config_v2 import (
-    ADMIN_ID,
-    BACK_BUTTON,
-    CATEGORIES,
-    POST_STATUS_DELETED,
-    POST_STATUS_NEEDS_EDIT,
-    POST_STATUS_PENDING,
-    POST_STATUS_PUBLISHED,
-    STATUS_LABELS,
-    SUBCATEGORIES,
-)
+from config_v2 import SUBCATEGORIES
 from database.db import (
-    create_post,
-    delete_post,
-    get_post,
-    get_user,
+    save_post,
     update_post_content,
-    upsert_user,
+    get_pending_edit_post,
+    get_post,
+    get_user_profile,
+    save_user_profile,
 )
-from handlers.common import admin_keyboard, admin_post_text, back_keyboard, list_keyboard, user_manage_keyboard
+from handlers.admin import send_post_to_admin, build_category_label
+
+BACK_BUTTON = "🔙 بازگشت"
+
+CATEGORY_OPTIONS = [
+    "💼 کار و درآمد",
+    "🏠 خانه و اجاره",
+    "🛒 خرید و فروش",
+    "🔧 خدمات",
+    "🚚 ارسال بار",
+    "💰 سرمایه گذاری",
+    "💶 خرید و فروش یورو",
+    "📢 آگهی ویژه",
+]
+
+CATEGORY_KEYBOARD = ReplyKeyboardMarkup(
+    [[option] for option in CATEGORY_OPTIONS] + [[BACK_BUTTON]],
+    resize_keyboard=True,
+)
+
+BACK_KEYBOARD = ReplyKeyboardMarkup(
+    [[BACK_BUTTON]],
+    resize_keyboard=True,
+)
+
+STEP_PROMPTS = {
+    "category": ("📂 دسته آگهی را انتخاب کنید:", CATEGORY_KEYBOARD),
+    "name": ("👤 نام نمایشی خود را وارد کنید:", BACK_KEYBOARD),
+    "city": ("📍 شهر خود را وارد کنید:", BACK_KEYBOARD),
+    "content": ("📝 متن آگهی را وارد کنید:", BACK_KEYBOARD),
+}
 
 
-STATE_CATEGORY = "category"
-STATE_SUBCATEGORY = "subcategory"
-STATE_NAME = "name"
-STATE_CITY = "city"
-STATE_CONTENT = "content"
-STATE_EDIT_CONTENT = "edit_content"
+def build_subcategory_keyboard(category):
+    options = SUBCATEGORIES.get(category, [])
+    keyboard = [[option] for option in options]
+    keyboard.append([BACK_BUTTON])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def reset_flow(context):
-    context.user_data.pop("state", None)
-    context.user_data.pop("category", None)
-    context.user_data.pop("subcategory", None)
-    context.user_data.pop("name", None)
-    context.user_data.pop("city", None)
-    context.user_data.pop("editing_post_id", None)
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reset_flow(context)
-    context.user_data["state"] = STATE_CATEGORY
-    await update.message.reply_text(
-        "لطفاً دسته اصلی آگهی را انتخاب کنید.",
-        reply_markup=list_keyboard(CATEGORIES),
-    )
-
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reset_flow(context)
-    await update.message.reply_text(
-        "عملیات لغو شد.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    state = context.user_data.get("state")
-
-    if not state:
-        await start(update, context)
-        return
-
-    if text == BACK_BUTTON:
-        await go_back(update, context)
-        return
-
-    if state == STATE_CATEGORY:
-        await handle_category(update, context, text)
-        return
-
-    if state == STATE_SUBCATEGORY:
-        await handle_subcategory(update, context, text)
-        return
-
-    if state == STATE_NAME:
-        await handle_name(update, context, text)
-        return
-
-    if state == STATE_CITY:
-        await handle_city(update, context, text)
-        return
-
-    if state == STATE_CONTENT:
-        await handle_content(update, context, text)
-        return
-
-    if state == STATE_EDIT_CONTENT:
-        await handle_edit_content(update, context, text)
-        return
-
-    await start(update, context)
-
-
-async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    state = context.user_data.get("state")
-
-    if state == STATE_CATEGORY:
-        await update.message.reply_text(
-            "شما در مرحله انتخاب دسته هستید.",
-            reply_markup=list_keyboard(CATEGORIES),
-        )
-        return
-
-    if state == STATE_SUBCATEGORY:
-        context.user_data["state"] = STATE_CATEGORY
-        await update.message.reply_text(
-            "لطفاً دسته اصلی آگهی را انتخاب کنید.",
-            reply_markup=list_keyboard(CATEGORIES),
-        )
-        return
-
-    if state == STATE_NAME:
-        context.user_data["state"] = STATE_SUBCATEGORY
+async def send_step_prompt(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    step: str,
+):
+    if step == "subcategory":
         category = context.user_data.get("category")
         await update.message.reply_text(
-            "لطفاً ساب‌دسته آگهی را انتخاب کنید.",
-            reply_markup=list_keyboard(SUBCATEGORIES.get(category, [])),
+            "📂 ساب‌دسته را انتخاب کنید:",
+            reply_markup=build_subcategory_keyboard(category),
         )
         return
 
-    if state == STATE_CITY:
-        context.user_data["state"] = STATE_NAME
+    prompt_text, keyboard = STEP_PROMPTS[step]
+    await update.message.reply_text(
+        prompt_text,
+        reply_markup=keyboard,
+    )
+
+
+async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
+    user_id = update.effective_user.id
+
+    edit_post_id = get_pending_edit_post(user_id)
+
+    if edit_post_id:
+        old_post = get_post(edit_post_id)
+
+        context.user_data["edit_post_id"] = edit_post_id
+        context.user_data["category"] = old_post[2]
+        context.user_data["subcategory"] = old_post[3]
+        context.user_data["city"] = old_post[4]
+        context.user_data["display_name"] = old_post[5]
+
+        context.user_data["step_order"] = ["content"]
+        context.user_data["step_index"] = 0
+        context.user_data["post_step"] = "content"
+
         await update.message.reply_text(
-            "لطفاً نام خود را وارد کنید.",
-            reply_markup=back_keyboard(),
+            "لطفاً پیام خود را ویرایش کرده و مجدداً ارسال نمایید.",
+            reply_markup=BACK_KEYBOARD,
         )
         return
 
-    if state == STATE_CONTENT:
-        user = get_user(update.effective_user.id)
-        if user:
-            context.user_data["state"] = STATE_SUBCATEGORY
-            category = context.user_data.get("category")
+    profile = get_user_profile(user_id)
+
+    if profile:
+        display_name, city = profile
+        context.user_data["display_name"] = display_name
+        context.user_data["city"] = city
+        context.user_data["step_order"] = [
+            "category",
+            "subcategory",
+            "content",
+        ]
+    else:
+        context.user_data["step_order"] = [
+            "category",
+            "subcategory",
+            "name",
+            "city",
+            "content",
+        ]
+
+    context.user_data["step_index"] = 0
+    context.user_data["post_step"] = context.user_data["step_order"][0]
+
+    await update.message.reply_text(
+        "📂 دسته آگهی را انتخاب کنید:",
+        reply_markup=CATEGORY_KEYBOARD,
+    )
+
+
+async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if "post_step" not in context.user_data:
+        return
+    if not update.message:
+        return
+
+    text = update.message.text
+    step = context.user_data["post_step"]
+    step_order = context.user_data.get("step_order", [])
+    step_index = context.user_data.get("step_index", 0)
+
+    if text == BACK_BUTTON:
+        if step_index > 0:
+            step_index -= 1
+            context.user_data["step_index"] = step_index
+            prev_step = step_order[step_index]
+            context.user_data["post_step"] = prev_step
+            await send_step_prompt(update, context, prev_step)
+            return
+
+        if context.user_data.get("edit_post_id"):
+            context.user_data.clear()
             await update.message.reply_text(
-                "لطفاً ساب‌دسته آگهی را انتخاب کنید.",
-                reply_markup=list_keyboard(SUBCATEGORIES.get(category, [])),
+                "↩️ فرآیند ویرایش آگهی لغو شد.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
+        context.user_data.clear()
+        await update.message.reply_text(
+            "↩️ فرآیند ثبت آگهی لغو شد.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
+    if step == "category":
+        context.user_data["category"] = text
+        step_index += 1
+        context.user_data["step_index"] = step_index
+        next_step = step_order[step_index]
+        context.user_data["post_step"] = next_step
+        await send_step_prompt(update, context, next_step)
+        return
+
+    if step == "subcategory":
+        context.user_data["subcategory"] = text
+        step_index += 1
+        context.user_data["step_index"] = step_index
+        next_step = step_order[step_index]
+        context.user_data["post_step"] = next_step
+        await send_step_prompt(update, context, next_step)
+        return
+
+    if step == "name":
+        context.user_data["display_name"] = text
+        step_index += 1
+        context.user_data["step_index"] = step_index
+        next_step = step_order[step_index]
+        context.user_data["post_step"] = next_step
+        await send_step_prompt(update, context, next_step)
+        return
+
+    if step == "city":
+        context.user_data["city"] = text
+        step_index += 1
+        context.user_data["step_index"] = step_index
+        next_step = step_order[step_index]
+        context.user_data["post_step"] = next_step
+        await send_step_prompt(update, context, next_step)
+        return
+
+    if step == "content":
+        username = update.effective_user.username
+        if username:
+            telegram_id = f"@{username}"
+        else:
+            telegram_id = "بدون یوزرنیم"
+
+        edit_post_id = context.user_data.get("edit_post_id")
+
+        category_label = build_category_label(
+            context.user_data.get("category", ""),
+            context.user_data.get("subcategory", ""),
+        )
+
+        if edit_post_id:
+            post_id = edit_post_id
+
+            update_post_content(
+                post_id=post_id,
+                content=text,
+            )
+
+            confirmation_text = (
+                "✅ آگهی ویرایش‌شده شما ثبت شد.\n\n"
+                f"📂 دسته: {category_label}\n\n"
+                "پس از تایید ادمین در کانال منتشر خواهد شد."
             )
         else:
-            context.user_data["state"] = STATE_CITY
-            await update.message.reply_text(
-                "لطفاً شهر خود را وارد کنید.",
-                reply_markup=back_keyboard(),
+            user_id = update.effective_user.id
+
+            post_id = save_post(
+                user_id=user_id,
+                category=context.user_data["category"],
+                subcategory=context.user_data.get("subcategory", ""),
+                city=context.user_data["city"],
+                display_name=context.user_data["display_name"],
+                telegram_id=telegram_id,
+                content=text,
             )
-        return
 
-    if state == STATE_EDIT_CONTENT:
-        post_id = context.user_data.get("editing_post_id")
-        reset_flow(context)
-        await update.message.reply_text(
-            "ویرایش لغو شد.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        if post_id:
-            await update.message.reply_text(
-                "پنل مدیریت آگهی:",
-                reply_markup=user_manage_keyboard(post_id),
+            save_user_profile(
+                user_id=user_id,
+                display_name=context.user_data["display_name"],
+                city=context.user_data["city"],
+                username=username,
             )
-        return
 
+            confirmation_text = (
+                f"✅ آگهی شما ثبت شد.\n\n"
+                f"شماره آگهی: {post_id}\n\n"
+                f"📂 دسته: {category_label}\n\n"
+                f"پس از تایید ادمین منتشر خواهد شد."
+            )
 
-async def handle_category(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    if text not in CATEGORIES:
+        await send_post_to_admin(
+            context=context,
+            post_id=post_id,
+            post_data={
+                "category": context.user_data["category"],
+                "subcategory": context.user_data.get("subcategory", ""),
+                "city": context.user_data["city"],
+                "display_name": context.user_data["display_name"],
+                "telegram_id": telegram_id,
+                "content": text,
+            },
+        )
+
         await update.message.reply_text(
-            "لطفاً یکی از دسته‌های موجود را انتخاب کنید.",
-            reply_markup=list_keyboard(CATEGORIES),
-        )
-        return
-
-    context.user_data["category"] = text
-    context.user_data["state"] = STATE_SUBCATEGORY
-    await update.message.reply_text(
-        "لطفاً ساب‌دسته آگهی را انتخاب کنید.",
-        reply_markup=list_keyboard(SUBCATEGORIES.get(text, [])),
-    )
-
-
-async def handle_subcategory(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    category = context.user_data.get("category")
-    subcategories = SUBCATEGORIES.get(category, [])
-
-    if text not in subcategories:
-        await update.message.reply_text(
-            "لطفاً یکی از ساب‌دسته‌های موجود را انتخاب کنید.",
-            reply_markup=list_keyboard(subcategories),
-        )
-        return
-
-    context.user_data["subcategory"] = text
-
-    user = get_user(update.effective_user.id)
-    if user and user.get("city"):
-        context.user_data["name"] = user.get("full_name")
-        context.user_data["city"] = user.get("city")
-        context.user_data["state"] = STATE_CONTENT
-        await update.message.reply_text(
-            "لطفاً متن آگهی را ارسال کنید.",
-            reply_markup=back_keyboard(),
-        )
-        return
-
-    context.user_data["state"] = STATE_NAME
-    await update.message.reply_text(
-        "لطفاً نام خود را وارد کنید.",
-        reply_markup=back_keyboard(),
-    )
-
-
-async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    context.user_data["name"] = text
-    context.user_data["state"] = STATE_CITY
-    await update.message.reply_text(
-        "لطفاً شهر خود را وارد کنید.",
-        reply_markup=back_keyboard(),
-    )
-
-
-async def handle_city(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    context.user_data["city"] = text
-    tg_user = update.effective_user
-
-    upsert_user(
-        telegram_id=tg_user.id,
-        full_name=context.user_data.get("name") or tg_user.full_name,
-        username=tg_user.username,
-        city=text,
-    )
-
-    context.user_data["state"] = STATE_CONTENT
-    await update.message.reply_text(
-        "لطفاً متن آگهی را ارسال کنید.",
-        reply_markup=back_keyboard(),
-    )
-
-
-async def handle_content(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    tg_user = update.effective_user
-    user = get_user(tg_user.id)
-
-    if not user:
-        upsert_user(
-            telegram_id=tg_user.id,
-            full_name=tg_user.full_name,
-            username=tg_user.username,
-            city=context.user_data.get("city"),
-        )
-        user = get_user(tg_user.id)
-
-    post = create_post(
-        telegram_id=tg_user.id,
-        category=context.user_data["category"],
-        subcategory=context.user_data["subcategory"],
-        content=text,
-        city=user.get("city"),
-    )
-
-    reset_flow(context)
-
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=admin_post_text(post),
-        reply_markup=admin_keyboard(post["id"]),
-    )
-
-    await update.message.reply_text(
-        "آگهی شما ثبت شد و برای بررسی به ادمین ارسال شد.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await update.message.reply_text(
-        "پنل مدیریت آگهی:",
-        reply_markup=user_manage_keyboard(post["id"]),
-    )
-
-
-async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    parts = query.data.split(":")
-    action = parts[1]
-    post_id = int(parts[2])
-
-    post = get_post(post_id)
-    if not post:
-        await query.message.reply_text("آگهی پیدا نشد.")
-        return
-
-    if post["telegram_id"] != query.from_user.id:
-        await query.message.reply_text("این آگهی متعلق به شما نیست.")
-        return
-
-    if action == "status":
-        await query.message.reply_text(STATUS_LABELS.get(post["status"], post["status"]))
-        return
-
-    if action == "edit":
-        if post["status"] == POST_STATUS_PUBLISHED:
-            await query.message.reply_text("این آگهی منتشر شده و قابل ویرایش نیست.")
-            return
-
-        if post["status"] == POST_STATUS_DELETED:
-            await query.message.reply_text("این آگهی حذف شده و قابل ویرایش نیست.")
-            return
-
-        context.user_data["state"] = STATE_EDIT_CONTENT
-        context.user_data["editing_post_id"] = post_id
-        await query.message.reply_text(
-            "📝 لطفاً پیام خود را ویرایش کرده و مجدداً ارسال نمایید.",
-            reply_markup=back_keyboard(),
-        )
-        return
-
-    if action == "delete":
-        if post["status"] == POST_STATUS_PUBLISHED:
-            await query.message.reply_text("این آگهی منتشر شده و از این پنل قابل حذف نیست.")
-            return
-
-        if post["status"] == POST_STATUS_DELETED:
-            await query.message.reply_text("این آگهی قبلاً حذف شده است.")
-            return
-
-        post = delete_post(post_id)
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"🗑️ کاربر آگهی زیر را حذف کرد:\n\n{admin_post_text(post)}",
-        )
-        await query.message.reply_text("🗑️ آگهی شما حذف شد.")
-        return
-
-
-async def handle_edit_content(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    post_id = context.user_data.get("editing_post_id")
-    if not post_id:
-        reset_flow(context)
-        await update.message.reply_text(
-            "آگهی برای ویرایش پیدا نشد.",
+            confirmation_text,
             reply_markup=ReplyKeyboardRemove(),
         )
+
+        context.user_data.clear()
         return
-
-    post = get_post(post_id)
-    if not post:
-        reset_flow(context)
-        await update.message.reply_text(
-            "آگهی پیدا نشد.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return
-
-    if post["telegram_id"] != update.effective_user.id:
-        reset_flow(context)
-        await update.message.reply_text(
-            "این آگهی متعلق به شما نیست.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return
-
-    if post["status"] in (POST_STATUS_PUBLISHED, POST_STATUS_DELETED):
-        reset_flow(context)
-        await update.message.reply_text(
-            "این آگهی دیگر قابل ویرایش نیست.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return
-
-    post = update_post_content(post_id, text)
-    reset_flow(context)
-
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=admin_post_text(post),
-        reply_markup=admin_keyboard(post["id"]),
-    )
-
-    await update.message.reply_text(
-        "آگهی ویرایش شد و دوباره برای بررسی به ادمین ارسال شد.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await update.message.reply_text(
-        "پنل مدیریت آگهی:",
-        reply_markup=user_manage_keyboard(post["id"]),
-    )
