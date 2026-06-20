@@ -76,27 +76,6 @@ async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
 
-    edit_post_id = get_pending_edit_post(user_id)
-
-    if edit_post_id:
-        old_post = get_post(edit_post_id)
-
-        context.user_data["edit_post_id"] = edit_post_id
-        context.user_data["category"] = old_post[2]
-        context.user_data["subcategory"] = old_post[3]
-        context.user_data["city"] = old_post[4]
-        context.user_data["display_name"] = old_post[5]
-
-        context.user_data["step_order"] = ["content"]
-        context.user_data["step_index"] = 0
-        context.user_data["post_step"] = "content"
-
-        await update.message.reply_text(
-            "لطفاً پیام خود را ویرایش کرده و مجدداً ارسال نمایید.",
-            reply_markup=BACK_KEYBOARD,
-        )
-        return
-
     profile = get_user_profile(user_id)
 
     if profile:
