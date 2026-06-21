@@ -114,24 +114,34 @@ def build_welcome_text(now):
     gregorian_date = f"{now.day} {GREGORIAN_MONTHS_FA[now.month]} {now.year}"
 
     return (
-        "به ویترین اسپانیا خوش آمدید\n\n"
         f"📅 تاریخ شمسی: {jalali_date}\n"
         f"📅 تاریخ میلادی: {gregorian_date}\n"
-        f"🍃 {SEASON_GREETINGS[season]}\n\n"
-        "اولین و کامل‌ترین مجموعه دیجیتالی اسپانیا برای همه فارسی‌زبانان"
+        f"{SEASON_GREETINGS[season]}\n\n"
+        "اولین و کامل‌ترین مجموعه دیجیتالی اسپانیا برای همه فارسی‌زبانان\n\n"
+        "کانال ویترین:\n"
+        "https://t.me/vitrinspain\n\n"
+        "کانال حیاط خلوت:\n"
+        "https://t.me/hayatkhalvatspain\n\n"
+        "پشتیبانی:\n"
+        "@VitrinSpainAdmin"
     )
 
 
-async def send_start_banner(update: Update, season: str):
+async def send_start_banner(update: Update, season: str, caption: str):
     image_path = SEASONAL_BANNERS[season]
     if not image_path.exists():
-        return
+        return False
 
     try:
         with image_path.open("rb") as image:
-            await update.message.reply_photo(photo=image)
+            await update.message.reply_photo(
+                photo=image,
+                caption=caption,
+                reply_markup=MAIN_MENU,
+            )
+        return True
     except Exception:
-        return
+        return False
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,10 +149,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = datetime.now(ZoneInfo("Europe/Madrid"))
     season = season_for_month(now.month)
+    welcome_text = build_welcome_text(now)
 
-    await send_start_banner(update, season)
-    await update.message.reply_text(
-        build_welcome_text(now),
-        reply_markup=MAIN_MENU,
-        disable_web_page_preview=True,
-    )
+    if not await send_start_banner(update, season, welcome_text):
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=MAIN_MENU,
+            disable_web_page_preview=True,
+        )
