@@ -73,6 +73,7 @@ def channel_post_text(post):
     display_name = linked_display_name(post)
 
     return (
+        f"🆔 {post['id']}\n\n"
         f"{hashtags}\n\n"
         f"{category}\n\n"
         f"{SEPARATOR}\n\n"

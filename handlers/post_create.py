@@ -1,4 +1,4 @@
-from telegram import ReplyKeyboardRemove, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from config_v2 import BACK_BUTTON, CATEGORY_OPTIONS, HOME_BUTTON, SUBCATEGORIES
@@ -11,12 +11,12 @@ from database.db import (
     soft_delete_post_by_owner,
 )
 from handlers.admin import send_post_to_admin
-from handlers.common import list_keyboard, user_manage_keyboard
+from handlers.common import list_keyboard
 from handlers.start import MAIN_MENU
 
 
-CONFIRM_PREVIEW = "✅ تایید و ارسال برای بررسی"
-EDIT_PREVIEW_TEXT = "✏️ ویرایش متن آگهی"
+CONFIRM_PREVIEW = "✅ تایید و ارسال آگهی"
+EDIT_PREVIEW_TEXT = "✏️ ویرایش آگهی"
 DELETE_PREVIEW = "🗑️ حذف آگهی"
 
 STEP_PROMPTS = {
@@ -34,6 +34,7 @@ PREVIEW_KEYBOARD = list_keyboard(
         DELETE_PREVIEW,
     ],
     include_back=False,
+    include_home=True,
 )
 
 
@@ -154,11 +155,7 @@ async def confirm_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
         "آگهی شما ثبت شد و پس از تایید ادمین منتشر می‌شود.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await update.message.reply_text(
-        "مدیریت آگهی:",
-        reply_markup=user_manage_keyboard(post_id),
+        reply_markup=MAIN_MENU,
     )
 
 
