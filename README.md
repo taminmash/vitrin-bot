@@ -1,33 +1,30 @@
-# راهنمای نصب بات ویترین اسپانیا
+# Vitrin Spain Bot
 
-## فایل‌ها
-- `bot.py` — کد اصلی بات
-- `config.py` — تنظیمات (توکن، آی‌دی ادمین، آی‌دی کانال)
-- `texts.py` — همه متن‌های بات (برای ویرایش متن‌ها فقط این فایل رو تغییر بده)
-- `requirements.txt` — کتابخانه‌های مورد نیاز
+Railway MVP Telegram bot for Vitrin Spain.
 
-## نصب روی سرور
+## Active Architecture
 
-### قدم ۱: نصب Python
-```bash
-python3 --version
-```
+- Entrypoint: `bot.py`
+- Runtime config: `config_v2.py`
+- Database layer: `database/db.py`
+- Handlers: `handlers/`
+- Railway process: `worker: python bot.py`
 
-### قدم ۲: نصب کتابخانه‌ها
+## Environment Variables
+
+Set these in Railway:
+
+- `BOT_TOKEN`
+- `DATABASE_URL`
+
+## Run Locally
+
 ```bash
 pip install -r requirements.txt
+python bot.py
 ```
 
-### قدم ۳: اجرای بات
-```bash
-python3 bot.py
-```
+## Deployment
 
-### قدم ۴: اجرای همیشگی (در پس‌زمینه)
-```bash
-nohup python3 bot.py &
-```
-
-## تغییر متن‌ها
-فقط فایل `texts.py` رو باز کن و متن موردنظر رو تغییر بده.
-نیازی به دست زدن به `bot.py` نیست.
+The app uses long polling. Railway only needs the worker process from `Procfile`.
+Database tables and additive columns are created on startup by `init_db()`.

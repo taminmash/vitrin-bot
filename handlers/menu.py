@@ -1,39 +1,33 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from handlers.profile import profile_start
+from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
 from handlers.post_create import start_post
+from handlers.profile import profile_start
 
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     if not update.message:
         return
 
-    if "profile_step" in context.user_data:
-        return
-
-    if "post_step" in context.user_data:
+    if "profile_step" in context.user_data or "post_step" in context.user_data:
         return
 
     text = update.message.text
 
-    if text == "🟡 ثبت آگهی در ویترین":
-
+    if text == MENU_CREATE_VITRIN:
         await start_post(update, context)
+        return
 
-    elif text == "🟣 ثبت پیام در حیاط خلوت":
+    if text == MENU_CREATE_HAYAT:
+        await update.message.reply_text("بخش حیاط خلوت به زودی تکمیل می‌شود.")
+        return
 
-        await update.message.reply_text(
-            "بخش حیاط خلوت به زودی تکمیل می‌شود."
-        )
-
-    elif text == "👤 پروفایل من":
-
+    if text == MENU_PROFILE:
         await profile_start(update, context)
+        return
 
-    elif text == "ℹ️ راهنما":
-
+    if text == MENU_HELP:
         await update.message.reply_text(
-            "راهنمای ویترین اسپانیا به زودی تکمیل می‌شود."
+            "برای ثبت آگهی، گزینه «ثبت آگهی در ویترین» را انتخاب کنید و مراحل را کامل کنید."
         )

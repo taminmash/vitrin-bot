@@ -1,292 +1,115 @@
-from telegram import InlineKeyboardButton
-from telegram import InlineKeyboardMarkup
 from telegram import Update
-
 from telegram.ext import ContextTypes
 
-from config_v2 import ADMIN_IDS
-from config_v2 import CHANNEL_VITRIN
-
-from database.db import get_post
-from database.db import update_post_status
-from database.db import save_channel_message
-
-BOT_USERNAME = "@VitrinSpainBot"
+from config_v2 import ADMIN_IDS, CHANNEL_VITRIN, MENU_CREATE_VITRIN
+from database.db import get_post, save_channel_message, update_post_status
+from handlers.common import admin_keyboard, admin_post_text, category_label, channel_post_text
 
 
-def build_admin_keyboard(post_id):
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "✅ تایید انتشار",
-                callback_data=f"approve:{post_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📝 ویرایش آگهی",
-                callback_data=f"edit:{post_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "❌ حذف آگهی",
-                callback_data=f"reject:{post_id}",
-            )
-        ],
-    ]
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-def build_category_label(category, subcategory):
-    if subcategory:
-        return f"{category} » {subcategory}"
-    return category
-
-
-async def send_post_to_admin(
-    context: ContextTypes.DEFAULT_TYPE,
-    post_id: int,
-    post_data: dict,
-):
-
-    category_label = build_category_label(
-        post_data.get("category", ""),
-        post_data.get("subcategory", ""),
-    )
-
-    text = f"""
-📥 آگهی جدید
-
-🆔 {post_id}
-
-📂 دسته:
-{category_label}
-
-📍 شهر:
-{post_data['city']}
-
-👤 نام:
-{post_data['display_name']}
-
-📨 تلگرام:
-{post_data['telegram_id']}
-
-📝 متن:
-
-{post_data['content']}
-"""
+async def send_post_to_admin(context: ContextTypes.DEFAULT_TYPE, post_id: int):
+    post = get_post(post_id)
+    if not post:
+        return
 
     for admin_id in ADMIN_IDS:
-
         await context.bot.send_message(
             chat_id=admin_id,
-            text=text,
-            reply_markup=build_admin_keyboard(post_id),
+            text=admin_post_text(post),
+            reply_markup=admin_keyboard(post_id),
         )
 
 
-async def admin_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-
     if not query:
         return
 
     await query.answer()
 
-    data = query.data
+    if query.from_user.id not in ADMIN_IDS:
+        await query.edit_message_text("شما دسترسی ادمین ندارید.")
+        return
 
-    if data.startswith("approve:"):
+    parts = query.data.split(":")
+    if len(parts) != 3:
+        return
 
-        post_id = int(data.split(":")[1])
+    _, action, post_id_text = parts
+    post_id = int(post_id_text)
+    post = get_post(post_id)
 
-        post = get_post(post_id)
+    if not post:
+        await query.edit_message_text("❌ آگهی پیدا نشد.")
+        return
 
-        if not post:
-
-            await query.edit_message_text(
-                "❌ آگهی پیدا نشد."
-            )
-
+    if action == "approve":
+        if post["status"] != "pending":
+            await query.edit_message_text("این آگهی دیگر در وضعیت pending نیست.")
             return
-
-        (
-            _id,
-            user_id,
-            category,
-            subcategory,
-            city,
-            display_name,
-            telegram_id,
-            content,
-            status,
-            channel_message_id,
-        ) = post
-
-        category_label = build_category_label(category, subcategory)
-
-        channel_text = f"""🆔 ID: {post_id}
-
-📂 دسته:
-{category_label}
-
-━━━━━━━━━━━━━━
-
-📝 متن آگهی:
-
-{content}
-
-━━━━━━━━━━━━━━
-
-📍 شهر:
-{city}
-
-👤 کاربر:
-{telegram_id}
-
-🤖 ربات:
-{BOT_USERNAME}
-"""
 
         msg = await context.bot.send_message(
             chat_id=CHANNEL_VITRIN,
-            text=channel_text,
+            text=channel_post_text(post),
         )
-
-        save_channel_message(
-            post_id,
-            msg.message_id,
-        )
-
-        update_post_status(
-            post_id,
-            "approved",
-        )
+        save_channel_message(post_id, msg.message_id)
+        update_post_status(post_id, "approved", approved_by=query.from_user.id)
 
         await context.bot.send_message(
-            chat_id=user_id,
+            chat_id=post["user_id"],
             text=(
                 "✅ آگهی شما تایید و منتشر شد.\n\n"
-                f"📂 دسته: {category_label}"
+                f"📂 {category_label(post['category'], post.get('subcategory'))}"
             ),
         )
-
-        await query.edit_message_text(
-            f"✅ آگهی {post_id} منتشر شد."
-        )
-
+        await query.edit_message_text(f"✅ آگهی {post_id} منتشر شد.")
         return
 
-    if data.startswith("edit:"):
+    if action == "need_edit":
+        if post["status"] != "pending":
+            await query.edit_message_text("فقط آگهی pending می‌تواند نیاز به ویرایش بگیرد.")
+            return
 
-        post_id = int(data.split(":")[1])
-
-        context.user_data["awaiting_edit_reason"] = post_id
-
-        await query.edit_message_text(
-            "📝 لطفاً دلیل درخواست ویرایش را وارد کنید:"
-        )
-
+        context.user_data["awaiting_edit_reason_post_id"] = post_id
+        await query.edit_message_text("📝 دلیل نیاز به ویرایش را ارسال کنید:")
         return
 
-    if data.startswith("reject:"):
-
-        post_id = int(data.split(":")[1])
-
-        post = get_post(post_id)
-
-        update_post_status(
-            post_id,
-            "rejected",
+    if action == "delete":
+        update_post_status(post_id, "deleted_by_admin")
+        await context.bot.send_message(
+            chat_id=post["user_id"],
+            text=(
+                "❌ آگهی شما حذف شد.\n\n"
+                f"📂 {category_label(post['category'], post.get('subcategory'))}"
+            ),
         )
-
-        if post:
-
-            (
-                _id,
-                user_id,
-                category,
-                subcategory,
-                city,
-                display_name,
-                telegram_id,
-                content,
-                status,
-                channel_message_id,
-            ) = post
-
-            category_label = build_category_label(category, subcategory)
-
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    "❌ آگهی شما تایید نشد.\n\n"
-                    f"📂 دسته: {category_label}"
-                ),
-            )
-
-        await query.edit_message_text(
-            f"❌ آگهی {post_id} رد شد."
-        )
-
-        return
+        await query.edit_message_text(f"❌ آگهی {post_id} حذف شد.")
 
 
-async def admin_edit_reason_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
+async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    if "awaiting_edit_reason" not in context.user_data:
+    if update.effective_user.id not in ADMIN_IDS:
         return
 
-    post_id = context.user_data.pop("awaiting_edit_reason")
+    post_id = context.user_data.pop("awaiting_edit_reason_post_id", None)
+    if not post_id:
+        return
 
-    reason = update.message.text
-
-    update_post_status(
-        post_id,
-        "need_edit",
-    )
-
+    reason = update.message.text.strip()
     post = get_post(post_id)
+    if not post:
+        await update.message.reply_text("❌ آگهی پیدا نشد.")
+        return
 
-    if post:
-
-        (
-            _id,
-            user_id,
-            category,
-            subcategory,
-            city,
-            display_name,
-            telegram_id,
-            content,
-            status,
-            channel_message_id,
-        ) = post
-
-        category_label = build_category_label(category, subcategory)
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=(
-                "📝 آگهی شما نیاز به ویرایش دارد.\n\n"
-                f"📂 دسته: {category_label}\n\n"
-                f"دلیل ویرایش:\n{reason}\n\n"
-                "لطفاً پیام خود را ویرایش و مجدداً ارسال کنید."
-            ),
-        )
-
-    await update.message.reply_text(
-        f"✅ درخواست ویرایش برای آگهی {post_id} ارسال شد."
+    update_post_status(post_id, "need_edit")
+    await context.bot.send_message(
+        chat_id=post["user_id"],
+        text=(
+            "📝 آگهی شما نیاز به ویرایش دارد.\n\n"
+            f"📂 {category_label(post['category'], post.get('subcategory'))}\n\n"
+            f"دلیل:\n{reason}\n\n"
+            f"لطفا از منوی اصلی گزینه «{MENU_CREATE_VITRIN}» را بزنید و آگهی را دوباره ثبت کنید."
+        ),
     )
+    await update.message.reply_text(f"✅ درخواست ویرایش برای آگهی {post_id} ارسال شد.")
