@@ -17,6 +17,14 @@ def back_keyboard():
     )
 
 
+def home_keyboard():
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(HOME_BUTTON)]],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
 def list_keyboard(items, include_back=True, include_home=True):
     rows = [[KeyboardButton(item)] for item in items]
     if include_back:
