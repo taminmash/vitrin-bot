@@ -5,8 +5,10 @@ from zoneinfo import ZoneInfo
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE, WELCOME_TEXT
+from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
 
+
+START_BANNER_PATH = Path("assets/start_banner.jpg")
 
 MAIN_MENU = ReplyKeyboardMarkup(
     [
@@ -16,13 +18,6 @@ MAIN_MENU = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
-
-SEASONAL_IMAGES = {
-    "winter": Path("assets/welcome_winter.jpg"),
-    "spring": Path("assets/welcome_spring.jpg"),
-    "summer": Path("assets/welcome_summer.jpg"),
-    "autumn": Path("assets/welcome_autumn.jpg"),
-}
 
 GREGORIAN_MONTHS_FA = {
     1: "ژانویه",
@@ -114,20 +109,20 @@ def build_welcome_text(now):
     gregorian_date = f"{now.day} {GREGORIAN_MONTHS_FA[now.month]} {now.year}"
 
     return (
+        "به ویترین اسپانیا خوش آمدید\n\n"
         f"📅 تاریخ شمسی: {jalali_date}\n"
         f"📅 تاریخ میلادی: {gregorian_date}\n"
         f"🍃 {SEASON_GREETINGS[season]}\n\n"
-        f"{WELCOME_TEXT}"
+        "اولین و کامل‌ترین مجموعه دیجیتالی اسپانیا برای همه فارسی‌زبانان"
     )
 
 
-async def send_seasonal_image(update: Update, season: str):
-    image_path = SEASONAL_IMAGES[season]
-    if not image_path.exists():
+async def send_start_banner(update: Update):
+    if not START_BANNER_PATH.exists():
         return
 
     try:
-        with image_path.open("rb") as image:
+        with START_BANNER_PATH.open("rb") as image:
             await update.message.reply_photo(photo=image)
     except Exception:
         return
@@ -137,9 +132,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
     now = datetime.now(ZoneInfo("Europe/Madrid"))
-    season = season_for_month(now.month)
 
-    await send_seasonal_image(update, season)
+    await send_start_banner(update)
     await update.message.reply_text(
         build_welcome_text(now),
         reply_markup=MAIN_MENU,
