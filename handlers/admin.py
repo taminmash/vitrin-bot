@@ -1,9 +1,16 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config_v2 import ADMIN_IDS, CHANNEL_VITRIN, MENU_CREATE_VITRIN
+from config_v2 import ADMIN_IDS, CHANNEL_VITRIN
 from database.db import get_post, save_channel_message, update_post_status
-from handlers.common import admin_keyboard, admin_post_text, category_label, channel_post_text
+from handlers.common import (
+    SEPARATOR,
+    admin_keyboard,
+    admin_post_text,
+    category_label,
+    channel_post_text,
+    user_manage_keyboard,
+)
 
 
 async def send_post_to_admin(context: ContextTypes.DEFAULT_TYPE, post_id: int):
@@ -17,6 +24,24 @@ async def send_post_to_admin(context: ContextTypes.DEFAULT_TYPE, post_id: int):
             text=admin_post_text(post),
             reply_markup=admin_keyboard(post_id),
         )
+
+
+def edit_request_text(post, reason):
+    return (
+        "✏️ درخواست ویرایش آگهی\n\n"
+        f"🆔 شماره آگهی: {post['id']}\n\n"
+        "📂 دسته » زیر‌دسته:\n"
+        f"{category_label(post['category'], post.get('subcategory'))}\n\n"
+        f"{SEPARATOR}\n\n"
+        "📝 متن آگهی:\n"
+        f"{post['content']}\n\n"
+        f"{SEPARATOR}\n\n"
+        f"📍 شهر: {post.get('city') or '-'}\n"
+        f"👤 نام نمایشی: {post.get('display_name') or '-'}\n\n"
+        f"{SEPARATOR}\n\n"
+        "✏️ دلیل ویرایش:\n"
+        f"{reason}"
+    )
 
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -50,6 +75,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await context.bot.send_message(
             chat_id=CHANNEL_VITRIN,
             text=channel_post_text(post),
+            parse_mode="HTML",
         )
         save_channel_message(post_id, msg.message_id)
         update_post_status(post_id, "approved", approved_by=query.from_user.id)
@@ -105,11 +131,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     update_post_status(post_id, "need_edit")
     await context.bot.send_message(
         chat_id=post["user_id"],
-        text=(
-            "📝 آگهی شما نیاز به ویرایش دارد.\n\n"
-            f"📂 {category_label(post['category'], post.get('subcategory'))}\n\n"
-            f"دلیل:\n{reason}\n\n"
-            f"لطفا از منوی اصلی گزینه «{MENU_CREATE_VITRIN}» را بزنید و آگهی را دوباره ثبت کنید."
-        ),
+        text=edit_request_text(post, reason),
+        reply_markup=user_manage_keyboard(post_id),
     )
     await update.message.reply_text(f"✅ درخواست ویرایش برای آگهی {post_id} ارسال شد.")

@@ -1,7 +1,7 @@
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import BACK_BUTTON, CATEGORY_OPTIONS, MENU_CREATE_VITRIN, SUBCATEGORIES
+from config_v2 import BACK_BUTTON, CATEGORY_OPTIONS, HOME_BUTTON, SUBCATEGORIES
 from database.db import (
     get_post,
     get_user_profile,
@@ -11,7 +11,7 @@ from database.db import (
     soft_delete_post_by_owner,
 )
 from handlers.admin import send_post_to_admin
-from handlers.common import category_label, list_keyboard
+from handlers.common import list_keyboard, user_manage_keyboard
 from handlers.start import MAIN_MENU
 
 
@@ -43,7 +43,7 @@ def step_keyboard(context: ContextTypes.DEFAULT_TYPE, step: str):
     if step == "subcategory":
         category = context.user_data.get("category")
         return list_keyboard(SUBCATEGORIES.get(category, []))
-    return list_keyboard([], include_back=True)
+    return list_keyboard([])
 
 
 def build_preview_text(context: ContextTypes.DEFAULT_TYPE):
@@ -69,6 +69,14 @@ async def send_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         build_preview_text(context),
         reply_markup=PREVIEW_KEYBOARD,
+    )
+
+
+async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text(
+        "به منوی اصلی برگشتید.",
+        reply_markup=MAIN_MENU,
     )
 
 
@@ -148,9 +156,17 @@ async def confirm_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "آگهی شما ثبت شد و پس از تایید ادمین منتشر می‌شود.",
         reply_markup=ReplyKeyboardRemove(),
     )
+    await update.message.reply_text(
+        "مدیریت آگهی:",
+        reply_markup=user_manage_keyboard(post_id),
+    )
 
 
 async def handle_preview_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    if text == HOME_BUTTON:
+        await go_home(update, context)
+        return
+
     if text == CONFIRM_PREVIEW:
         await confirm_preview(update, context)
         return
@@ -184,6 +200,10 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
     step = context.user_data["post_step"]
+
+    if text == HOME_BUTTON:
+        await go_home(update, context)
+        return
 
     if step == "preview":
         await handle_preview_choice(update, context, text)
@@ -251,6 +271,15 @@ async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     _, action, post_id_text = parts
+
+    if action == "home":
+        context.user_data.clear()
+        await query.message.reply_text(
+            "به منوی اصلی برگشتید.",
+            reply_markup=MAIN_MENU,
+        )
+        return
+
     post_id = int(post_id_text)
     post = get_post(post_id)
 
@@ -270,14 +299,27 @@ async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     if action == "edit":
-        if post["status"] != "pending":
-            await query.edit_message_text("فقط آگهی‌های pending قابل ویرایش هستند.")
+        if post["status"] not in ("pending", "need_edit"):
+            await query.edit_message_text("فقط آگهی‌های در انتظار بررسی یا نیازمند ویرایش قابل ویرایش هستند.")
             return
 
-        if mark_pending_post_for_resubmission(post_id, query.from_user.id):
-            await query.edit_message_text(
-                "✏️ برای ویرایش، آگهی قبلی از صف بررسی خارج شد.\n"
-                f"لطفا از منوی اصلی گزینه «{MENU_CREATE_VITRIN}» را انتخاب کنید و آگهی جدید ثبت کنید."
-            )
-        else:
-            await query.edit_message_text("امکان ویرایش این آگهی وجود ندارد.")
+        if post["status"] == "pending":
+            mark_pending_post_for_resubmission(post_id, query.from_user.id)
+
+        context.user_data.clear()
+        context.user_data["category"] = post["category"]
+        context.user_data["subcategory"] = post.get("subcategory") or ""
+        context.user_data["display_name"] = post.get("display_name") or ""
+        context.user_data["city"] = post.get("city") or ""
+        context.user_data["step_order"] = ["content"]
+        context.user_data["step_index"] = 0
+        context.user_data["post_step"] = "content"
+
+        await query.edit_message_text(
+            "✏️ لطفا متن اصلاح‌شده آگهی را ارسال کنید.\n"
+            "بعد از ارسال متن، پیش‌نمایش را می‌بینید و می‌توانید برای بررسی ادمین تایید کنید."
+        )
+        await query.message.reply_text(
+            "📝 متن آگهی را وارد کنید:",
+            reply_markup=step_keyboard(context, "content"),
+        )

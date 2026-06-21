@@ -1,7 +1,7 @@
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE, WELCOME_TEXT
+from config_v2 import HOME_BUTTON, MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE, WELCOME_TEXT
 
 
 MAIN_MENU = ReplyKeyboardMarkup(
@@ -9,6 +9,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
         [MENU_CREATE_VITRIN],
         [MENU_CREATE_HAYAT],
         [MENU_PROFILE, MENU_HELP],
+        [HOME_BUTTON],
     ],
     resize_keyboard=True,
 )
