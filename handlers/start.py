@@ -8,7 +8,12 @@ from telegram.ext import ContextTypes
 from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
 
 
-START_BANNER_PATH = Path("assets/start_banner.jpg")
+SEASONAL_BANNERS = {
+    "spring": Path("assets/spring.png"),
+    "summer": Path("assets/summer.png"),
+    "autumn": Path("assets/autumn.png"),
+    "winter": Path("assets/winter.png"),
+}
 
 MAIN_MENU = ReplyKeyboardMarkup(
     [
@@ -117,12 +122,13 @@ def build_welcome_text(now):
     )
 
 
-async def send_start_banner(update: Update):
-    if not START_BANNER_PATH.exists():
+async def send_start_banner(update: Update, season: str):
+    image_path = SEASONAL_BANNERS[season]
+    if not image_path.exists():
         return
 
     try:
-        with START_BANNER_PATH.open("rb") as image:
+        with image_path.open("rb") as image:
             await update.message.reply_photo(photo=image)
     except Exception:
         return
@@ -132,8 +138,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
     now = datetime.now(ZoneInfo("Europe/Madrid"))
+    season = season_for_month(now.month)
 
-    await send_start_banner(update)
+    await send_start_banner(update, season)
     await update.message.reply_text(
         build_welcome_text(now),
         reply_markup=MAIN_MENU,
