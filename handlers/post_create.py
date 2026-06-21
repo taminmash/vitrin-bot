@@ -11,9 +11,13 @@ from database.db import (
     soft_delete_post_by_owner,
 )
 from handlers.admin import send_post_to_admin
-from handlers.common import category_label, list_keyboard, user_manage_keyboard
+from handlers.common import category_label, list_keyboard
 from handlers.start import MAIN_MENU
 
+
+CONFIRM_PREVIEW = "✅ تایید و ارسال برای بررسی"
+EDIT_PREVIEW_TEXT = "✏️ ویرایش متن آگهی"
+DELETE_PREVIEW = "🗑️ حذف آگهی"
 
 STEP_PROMPTS = {
     "category": "📂 دسته آگهی را انتخاب کنید:",
@@ -22,6 +26,15 @@ STEP_PROMPTS = {
     "city": "📍 شهر خود را وارد کنید:",
     "content": "📝 متن آگهی را وارد کنید:",
 }
+
+PREVIEW_KEYBOARD = list_keyboard(
+    [
+        CONFIRM_PREVIEW,
+        EDIT_PREVIEW_TEXT,
+        DELETE_PREVIEW,
+    ],
+    include_back=False,
+)
 
 
 def step_keyboard(context: ContextTypes.DEFAULT_TYPE, step: str):
@@ -33,10 +46,29 @@ def step_keyboard(context: ContextTypes.DEFAULT_TYPE, step: str):
     return list_keyboard([], include_back=True)
 
 
+def build_preview_text(context: ContextTypes.DEFAULT_TYPE):
+    return (
+        "پیش‌نمایش آگهی شما:\n\n"
+        f"📂 دسته: {context.user_data['category']}\n"
+        f"📂 زیردسته: {context.user_data['subcategory']}\n\n"
+        f"📝 متن آگهی:\n{context.user_data['content']}\n\n"
+        f"📍 شهر: {context.user_data['city']}\n"
+        f"👤 نام نمایشی: {context.user_data['display_name']}"
+    )
+
+
 async def send_step_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, step: str):
     await update.message.reply_text(
         STEP_PROMPTS[step],
         reply_markup=step_keyboard(context, step),
+    )
+
+
+async def send_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["post_step"] = "preview"
+    await update.message.reply_text(
+        build_preview_text(context),
+        reply_markup=PREVIEW_KEYBOARD,
     )
 
 
@@ -88,6 +120,61 @@ async def advance_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_step_prompt(update, context, step_order[step_index])
 
 
+async def confirm_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    telegram_id = f"@{user.username}" if user.username else "بدون یوزرنیم"
+
+    post_id = save_post(
+        user_id=user.id,
+        category=context.user_data["category"],
+        subcategory=context.user_data["subcategory"],
+        city=context.user_data["city"],
+        display_name=context.user_data["display_name"],
+        telegram_id=telegram_id,
+        content=context.user_data["content"],
+    )
+
+    save_user_profile(
+        user_id=user.id,
+        display_name=context.user_data["display_name"],
+        city=context.user_data["city"],
+        username=user.username,
+    )
+
+    await send_post_to_admin(context=context, post_id=post_id)
+
+    context.user_data.clear()
+    await update.message.reply_text(
+        "آگهی شما ثبت شد و پس از تایید ادمین منتشر می‌شود.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def handle_preview_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    if text == CONFIRM_PREVIEW:
+        await confirm_preview(update, context)
+        return
+
+    if text == EDIT_PREVIEW_TEXT:
+        context.user_data.pop("content", None)
+        context.user_data["post_step"] = "content"
+        await send_step_prompt(update, context, "content")
+        return
+
+    if text == DELETE_PREVIEW:
+        context.user_data.clear()
+        await update.message.reply_text(
+            "آگهی حذف شد و چیزی ذخیره نشد.",
+            reply_markup=MAIN_MENU,
+        )
+        return
+
+    await update.message.reply_text(
+        "لطفا یکی از گزینه‌های پیش‌نمایش را انتخاب کنید.",
+        reply_markup=PREVIEW_KEYBOARD,
+    )
+
+
 async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "post_step" not in context.user_data:
         return
@@ -96,12 +183,15 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text.strip()
+    step = context.user_data["post_step"]
+
+    if step == "preview":
+        await handle_preview_choice(update, context, text)
+        return
 
     if text == BACK_BUTTON:
         await handle_back(update, context)
         return
-
-    step = context.user_data["post_step"]
 
     if step == "category":
         if text not in SUBCATEGORIES:
@@ -145,40 +235,8 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("متن آگهی خیلی کوتاه است.")
             return
 
-        user = update.effective_user
-        telegram_id = f"@{user.username}" if user.username else "بدون یوزرنیم"
-
-        post_id = save_post(
-            user_id=user.id,
-            category=context.user_data["category"],
-            subcategory=context.user_data["subcategory"],
-            city=context.user_data["city"],
-            display_name=context.user_data["display_name"],
-            telegram_id=telegram_id,
-            content=text,
-        )
-
-        save_user_profile(
-            user_id=user.id,
-            display_name=context.user_data["display_name"],
-            city=context.user_data["city"],
-            username=user.username,
-        )
-
-        await send_post_to_admin(context=context, post_id=post_id)
-
-        await update.message.reply_text(
-            "✅ آگهی شما ثبت شد و پس از تایید ادمین منتشر می‌شود.\n\n"
-            f"شماره آگهی: {post_id}\n"
-            f"📂 {category_label(context.user_data['category'], context.user_data['subcategory'])}",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await update.message.reply_text(
-            "مدیریت آگهی:",
-            reply_markup=user_manage_keyboard(post_id),
-        )
-
-        context.user_data.clear()
+        context.user_data["content"] = text
+        await send_preview(update, context)
 
 
 async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
