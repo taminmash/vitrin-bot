@@ -60,7 +60,16 @@ def init_db():
     conn.close()
 
 
-def save_post(user_id, category, subcategory, city, display_name, telegram_id, content):
+def save_post(
+    user_id,
+    category,
+    subcategory,
+    city,
+    display_name,
+    telegram_id,
+    content,
+    post_type="vitrin",
+):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -76,10 +85,19 @@ def save_post(user_id, category, subcategory, city, display_name, telegram_id, c
             content,
             status
         )
-        VALUES (%s, 'vitrin', %s, %s, %s, %s, %s, %s, 'pending')
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending')
         RETURNING id
         """,
-        (user_id, category, subcategory, city, display_name, telegram_id, content),
+        (
+            user_id,
+            post_type,
+            category,
+            subcategory,
+            city,
+            display_name,
+            telegram_id,
+            content,
+        ),
     )
     post_id = cur.fetchone()[0]
     conn.commit()

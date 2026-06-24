@@ -81,8 +81,13 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_post(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    post_type: str = "vitrin",
+):
     context.user_data.clear()
+    context.user_data["post_type"] = post_type
 
     user_id = update.effective_user.id
     profile = get_user_profile(user_id)
@@ -141,6 +146,7 @@ async def confirm_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_name=context.user_data["display_name"],
         telegram_id=telegram_id,
         content=context.user_data["content"],
+        post_type=context.user_data.get("post_type", "vitrin"),
     )
 
     save_user_profile(
@@ -308,6 +314,7 @@ async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["subcategory"] = post.get("subcategory") or ""
         context.user_data["display_name"] = post.get("display_name") or ""
         context.user_data["city"] = post.get("city") or ""
+        context.user_data["post_type"] = post.get("post_type") or "vitrin"
         context.user_data["step_order"] = ["content"]
         context.user_data["step_index"] = 0
         context.user_data["post_step"] = "content"

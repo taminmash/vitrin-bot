@@ -26,14 +26,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == MENU_CREATE_VITRIN:
-        await start_post(update, context)
+        await start_post(update, context, post_type="vitrin")
         return
 
     if text == MENU_CREATE_HAYAT:
-        await update.message.reply_text(
-            "بخش حیاط خلوت به زودی تکمیل می‌شود.",
-            reply_markup=home_keyboard(),
-        )
+        await start_post(update, context, post_type="hayat")
         return
 
     if text == MENU_PROFILE:

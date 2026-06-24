@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config_v2 import ADMIN_IDS, CHANNEL_VITRIN
+from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN
 from database.db import get_post, save_channel_message, update_post_status
 from handlers.common import (
     SEPARATOR,
@@ -71,8 +71,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("این آگهی دیگر در وضعیت pending نیست.")
             return
 
+        channel_id = CHANNEL_HAYAT if post.get("post_type") == "hayat" else CHANNEL_VITRIN
+
         msg = await context.bot.send_message(
-            chat_id=CHANNEL_VITRIN,
+            chat_id=channel_id,
             text=channel_post_text(post),
             parse_mode="HTML",
         )
