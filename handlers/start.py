@@ -108,7 +108,6 @@ def season_for_month(month):
 
 def build_welcome_text(now):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
-    season = season_for_month(now.month)
 
     jalali_date = f"{jd} {JALALI_MONTHS_FA[jm]} {jy}"
     gregorian_date = f"{now.day} {GREGORIAN_MONTHS_FA[now.month]} {now.year}"
@@ -116,18 +115,21 @@ def build_welcome_text(now):
     return (
         f"📅 تاریخ شمسی: {jalali_date}\n"
         f"📅 تاریخ میلادی: {gregorian_date}\n"
-        f"{SEASON_GREETINGS[season]}\n\n"
-        "اولین و کامل‌ترین مجموعه دیجیتالی اسپانیا برای همه فارسی‌زبانان\n\n"
-        "کانال ویترین:\n"
+        "\n"
+        "💥اولین و کامل‌ترین مجموعه دیجیتالی اسپانیا برای همه فارسی‌زبانان💥\n\n"
+        "---\n\n"
+        "🔴 «ثبت آگهی در ویترین» و «پیام ناشناس در حیاط خلوت»:\n"
+        "@VitrinSpainBot\n\n"
+        "🟡کانـال ویتـریـن:\n"
         "https://t.me/vitrinspain\n\n"
-        "کانال حیاط خلوت:\n"
+        "🟣کانـال حیاط خلـوت:\n"
         "https://t.me/hayatkhalvatspain\n\n"
-        "پشتیبانی:\n"
-        "@VitrinSpainAdmin\n\n"
-        "⚠️ توجه\n\n"
-        "در حال حاضر بخش «ثبت آگهی در ویترین» فعال است.\n\n"
+        "پشتیــHELPــبانی:\n"
+        "🆘 @VitrinSpainAdmin\n\n"
+        "---\n\n"
+        "⚠️ در حال حاضر بخش «ثبت آگهی در ویترین» و «ارسال پیام ناشناس در حیاط خلوت» فعال است.\n\n"
         "سایر بخش‌ها در حال طراحی، توسعه و کدنویسی هستند و به‌زودی تکمیل خواهند شد.\n\n"
-        "از شکیبایی و همراهی شما سپاسگزاریم. 🙏"
+        "از شکیبایی و همراهی شما سپاسگزاریم. ✨"
     )
 
 
