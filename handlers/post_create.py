@@ -1,7 +1,9 @@
+import re
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config_v2 import BACK_BUTTON, CATEGORY_OPTIONS, HOME_BUTTON, SUBCATEGORIES
+from config_v2 import ADMIN_IDS, BACK_BUTTON, CATEGORY_OPTIONS, HOME_BUTTON, SUBCATEGORIES
 from database.db import (
     get_post,
     get_user_profile,
@@ -18,6 +20,21 @@ from handlers.start import MAIN_MENU
 CONFIRM_PREVIEW = "✅ تایید و ارسال آگهی"
 EDIT_PREVIEW_TEXT = "✏️ ویرایش آگهی"
 DELETE_PREVIEW = "🗑️ حذف آگهی"
+CONTENT_RESTRICTION_WARNING = "⚠️ ارسال لینک، تصویر و شماره تلفن مجاز نمی‌باشد."
+TEXT_RESTRICTION_ERROR = (
+    "❌ ارسال لینک، آیدی تلگرام، تصویر، ویدیو یا شماره تلفن مجاز نمی‌باشد.\n\n"
+    "لطفاً متن را بدون اطلاعات تماس ارسال کنید."
+)
+MEDIA_RESTRICTION_ERROR = (
+    "❌ ارسال تصویر یا ویدیو برای کاربران عادی مجاز نیست.\n\n"
+    "لطفاً متن پیام را بدون تصویر یا ویدیو ارسال کنید."
+)
+URL_PATTERN = re.compile(
+    r"(?:https?://|www\.|t\.me/|telegram\.me/)",
+    re.IGNORECASE,
+)
+TELEGRAM_HANDLE_PATTERN = re.compile(r"(?<!\w)@[A-Za-z0-9_]{5,32}\b")
+PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+|00)?\d[\d\s().-]{7,}\d(?!\w)")
 HAYAT_CATEGORIES = [
     "🕊️ پیام ناشناس",
     "📖 دورهمی و تجربه",
@@ -44,11 +61,11 @@ STEP_PROMPTS = {
     "subcategory": "📂 زیردسته آگهی را انتخاب کنید:",
     "display_name": "👤 نام نمایشی خود را وارد کنید:",
     "city": "📍 شهر خود را وارد کنید:",
-    "content": "📝 متن آگهی را وارد کنید:",
+    "content": f"📝 متن آگهی را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
     "hayat_category": "📂 دسته پیام حیاط خلوت را انتخاب کنید:",
     "hayat_author_choice": "می‌خواهید نام نویسنده نمایش داده شود؟",
     "hayat_writer_name": "✍️ نام نویسنده را وارد کنید:",
-    "hayat_content": "📝 متن پیام را وارد کنید:",
+    "hayat_content": f"📝 متن پیام را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
 }
 
 PREVIEW_KEYBOARD = list_keyboard(
@@ -111,6 +128,31 @@ def remove_next_hayat_writer_step(context: ContextTypes.DEFAULT_TYPE):
     next_index = context.user_data["step_index"] + 1
     if next_index < len(step_order) and step_order[next_index] == "hayat_writer_name":
         step_order.pop(next_index)
+
+
+def is_admin_user(update: Update):
+    return bool(update.effective_user and update.effective_user.id in ADMIN_IDS)
+
+
+def has_phone_like_number(text: str):
+    for match in PHONE_PATTERN.finditer(text):
+        candidate = match.group()
+        digits = re.sub(r"\D", "", candidate)
+        if len(digits) < 9:
+            continue
+        if candidate.strip().startswith(("+", "00")):
+            return True
+        if len(digits) >= 9:
+            return True
+    return False
+
+
+def has_restricted_text_content(text: str):
+    return bool(
+        URL_PATTERN.search(text)
+        or TELEGRAM_HANDLE_PATTERN.search(text)
+        or has_phone_like_number(text)
+    )
 
 
 async def send_step_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, step: str):
@@ -294,8 +336,18 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    text = update.message.text.strip()
     step = context.user_data["post_step"]
+    has_restricted_media = bool(update.message.photo or update.message.video)
+
+    if has_restricted_media:
+        if not is_admin_user(update):
+            await update.message.reply_text(MEDIA_RESTRICTION_ERROR)
+        return
+
+    if not update.message.text:
+        return
+
+    text = update.message.text.strip()
 
     if text == HOME_BUTTON:
         await go_home(update, context)
@@ -359,6 +411,10 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if step == "hayat_content":
+        if not is_admin_user(update) and has_restricted_text_content(text):
+            await update.message.reply_text(TEXT_RESTRICTION_ERROR)
+            return
+
         if len(text) < 5:
             await update.message.reply_text("متن پیام خیلی کوتاه است.")
             return
@@ -405,6 +461,10 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if step == "content":
+        if not is_admin_user(update) and has_restricted_text_content(text):
+            await update.message.reply_text(TEXT_RESTRICTION_ERROR)
+            return
+
         if len(text) < 5:
             await update.message.reply_text("متن آگهی خیلی کوتاه است.")
             return

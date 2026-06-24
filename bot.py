@@ -35,6 +35,7 @@ def main():
     )
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, profile_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, post_handler), group=1)
+    app.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, post_handler), group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler), group=2)
 
     logging.info("Vitrin Spain Bot started")
