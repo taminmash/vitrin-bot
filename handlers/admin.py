@@ -27,6 +27,21 @@ async def send_post_to_admin(context: ContextTypes.DEFAULT_TYPE, post_id: int):
 
 
 def edit_request_text(post, reason):
+    if post.get("post_type") == "hayat":
+        return (
+            "✏️ درخواست ویرایش پیام حیاط خلوت\n\n"
+            f"🆔 {post['id']}\n\n"
+            f"📂 {post.get('category') or '-'}\n\n"
+            f"{SEPARATOR}\n\n"
+            "📝 متن پیام:\n"
+            f"{post['content']}\n\n"
+            f"{SEPARATOR}\n\n"
+            f"✍️ نویسنده: {post.get('display_name') or 'ناشناس'}\n\n"
+            f"{SEPARATOR}\n\n"
+            "✏️ دلیل ویرایش:\n"
+            f"{reason}"
+        )
+
     return (
         "✏️ درخواست ویرایش آگهی\n\n"
         f"🆔 {post['id']}\n\n"
@@ -81,14 +96,15 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_channel_message(post_id, msg.message_id)
         update_post_status(post_id, "approved", approved_by=query.from_user.id)
 
+        item_label = "پیام" if post.get("post_type") == "hayat" else "آگهی"
         await context.bot.send_message(
             chat_id=post["user_id"],
             text=(
-                "✅ آگهی شما تایید و منتشر شد.\n\n"
+                f"✅ {item_label} شما تایید و منتشر شد.\n\n"
                 f"📂 {category_label(post['category'], post.get('subcategory'))}"
             ),
         )
-        await query.edit_message_text(f"✅ آگهی {post_id} منتشر شد.")
+        await query.edit_message_text(f"✅ {item_label} {post_id} منتشر شد.")
         return
 
     if action == "need_edit":
@@ -102,14 +118,15 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "delete":
         update_post_status(post_id, "deleted_by_admin")
+        item_label = "پیام" if post.get("post_type") == "hayat" else "آگهی"
         await context.bot.send_message(
             chat_id=post["user_id"],
             text=(
-                "❌ آگهی شما حذف شد.\n\n"
+                f"❌ {item_label} شما حذف شد.\n\n"
                 f"📂 {category_label(post['category'], post.get('subcategory'))}"
             ),
         )
-        await query.edit_message_text(f"❌ آگهی {post_id} حذف شد.")
+        await query.edit_message_text(f"❌ {item_label} {post_id} حذف شد.")
 
 
 async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,6 +150,6 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     await context.bot.send_message(
         chat_id=post["user_id"],
         text=edit_request_text(post, reason),
-        reply_markup=user_manage_keyboard(post_id),
+        reply_markup=user_manage_keyboard(post_id, post.get("post_type") or "vitrin"),
     )
     await update.message.reply_text(f"✅ درخواست ویرایش برای آگهی {post_id} ارسال شد.")

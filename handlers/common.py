@@ -74,6 +74,19 @@ def linked_display_name(post):
 
 
 def channel_post_text(post):
+    if post.get("post_type") == "hayat":
+        category = html.escape(post.get("category") or "-")
+        content = html.escape(post.get("content") or "")
+        display_name = html.escape(post.get("display_name") or "ناشناس")
+
+        return (
+            "🟣 حیاط خلوت\n\n"
+            f"📂 دسته: {category}\n\n"
+            "متن پیام:\n"
+            f"{content}\n\n"
+            f"✍️ نویسنده: {display_name}"
+        )
+
     hashtags = post_hashtags(post)
     category = html.escape(category_label(clean_label(post.get("category")), clean_label(post.get("subcategory"))))
     content = html.escape(post.get("content") or "")
@@ -94,6 +107,18 @@ def channel_post_text(post):
 
 
 def admin_post_text(post):
+    if post.get("post_type") == "hayat":
+        return (
+            "📥 پیام جدید حیاط خلوت\n\n"
+            f"🆔 ID: {post['id']}\n"
+            "نوع پست: hayat\n\n"
+            f"📂 دسته: {post.get('category') or '-'}\n\n"
+            f"{SEPARATOR}\n\n"
+            f"📝 {post.get('content') or '-'}\n\n"
+            f"{SEPARATOR}\n\n"
+            f"✍️ نویسنده: {post.get('display_name') or 'ناشناس'}"
+        )
+
     return (
         "📥 آگهی جدید\n\n"
         f"🆔 ID: {post['id']}\n\n"
@@ -118,11 +143,14 @@ def admin_keyboard(post_id):
     )
 
 
-def user_manage_keyboard(post_id):
+def user_manage_keyboard(post_id, post_type="vitrin"):
+    edit_label = "✏️ ویرایش پیام" if post_type == "hayat" else "✏️ ویرایش آگهی"
+    delete_label = "🗑️ حذف پیام" if post_type == "hayat" else "🗑️ حذف آگهی"
+
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("✏️ ویرایش آگهی", callback_data=f"userpost:edit:{post_id}")],
-            [InlineKeyboardButton("🗑️ حذف آگهی", callback_data=f"userpost:delete:{post_id}")],
+            [InlineKeyboardButton(edit_label, callback_data=f"userpost:edit:{post_id}")],
+            [InlineKeyboardButton(delete_label, callback_data=f"userpost:delete:{post_id}")],
             [InlineKeyboardButton(HOME_BUTTON, callback_data="userpost:home:0")],
         ]
     )
