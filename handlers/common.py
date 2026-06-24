@@ -73,18 +73,49 @@ def linked_display_name(post):
     return display_name
 
 
+def hayat_hashtags(category):
+    if category == "🕊️ پیام ناشناس":
+        return [
+            "#حیاط_خلوت",
+            "#پیام_ناشناس",
+            "#اسپانیا",
+            "#تجربه_های_زندگی",
+            "#همدلی",
+        ]
+    if category == "📖 دورهمی و تجربه":
+        return [
+            "#حیاط_خلوت",
+            "#دورهمی",
+            "#تجربه",
+            "#زندگی_در_اسپانیا",
+        ]
+    if category == "🧠 دانستنی‌ها و خبرها":
+        return [
+            "#حیاط_خلوت",
+            "#خبر",
+            "#دانستنی",
+            "#اسپانیا",
+            "#اطلاع_رسانی",
+        ]
+
+    return ["#حیاط_خلوت", "#اسپانیا"]
+
+
 def channel_post_text(post):
     if post.get("post_type") == "hayat":
-        category = html.escape(post.get("category") or "-")
+        category = html.escape(clean_label(post.get("category")) or "-")
         content = html.escape(post.get("content") or "")
         display_name = html.escape(post.get("display_name") or "ناشناس")
+        hashtags = "\n".join(hayat_hashtags(post.get("category")))
 
         return (
-            "🟣 حیاط خلوت\n\n"
-            f"📂 دسته: {category}\n\n"
-            "متن پیام:\n"
+            f"{category}\n\n"
+            "────────────────────\n\n"
             f"{content}\n\n"
-            f"✍️ نویسنده: {display_name}"
+            "────────────────────\n\n"
+            f"نویسنده: {display_name}\n\n"
+            f"{hashtags}\n\n"
+            "🦉 @VitrinSpainBot"
         )
 
     hashtags = post_hashtags(post)
