@@ -31,6 +31,29 @@ def row_to_dict(row):
     return dict(row) if row else None
 
 
+def column_exists(cur, table_name, column_name):
+    cur.execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = %s
+          AND column_name = %s
+        """,
+        (table_name, column_name),
+    )
+    return cur.fetchone() is not None
+
+
+def ensure_column(cur, table_name, column_name, column_definition, default_sql=None):
+    if not column_exists(cur, table_name, column_name):
+        cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
+        return
+
+    if default_sql is not None:
+        cur.execute(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} SET DEFAULT {default_sql}")
+
+
 def init_db():
     with db_cursor() as (_, cur):
         cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
@@ -57,11 +80,11 @@ def init_db():
             )
             """
         )
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS internal_id UUID DEFAULT gen_random_uuid()")
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS human_id TEXT")
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT")
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'")
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        ensure_column(cur, "users", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "users", "human_id", "TEXT")
+        ensure_column(cur, "users", "first_name", "TEXT")
+        ensure_column(cur, "users", "status", "TEXT DEFAULT 'active'", "'active'")
+        ensure_column(cur, "users", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
         cur.execute(
             """
@@ -84,11 +107,20 @@ def init_db():
             )
             """
         )
-        cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS post_type TEXT")
-        cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS subcategory TEXT")
-        cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS approved_by BIGINT")
-        cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP")
-        cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS channel_message_id BIGINT")
+        ensure_column(cur, "posts", "user_id", "BIGINT")
+        ensure_column(cur, "posts", "post_type", "TEXT")
+        ensure_column(cur, "posts", "category", "TEXT")
+        ensure_column(cur, "posts", "subcategory", "TEXT")
+        ensure_column(cur, "posts", "display_name", "TEXT")
+        ensure_column(cur, "posts", "city", "TEXT")
+        ensure_column(cur, "posts", "content", "TEXT")
+        ensure_column(cur, "posts", "telegram_id", "TEXT")
+        ensure_column(cur, "posts", "hashtags", "TEXT")
+        ensure_column(cur, "posts", "status", "TEXT DEFAULT 'pending'", "'pending'")
+        ensure_column(cur, "posts", "channel_message_id", "BIGINT")
+        ensure_column(cur, "posts", "approved_by", "BIGINT")
+        ensure_column(cur, "posts", "approved_at", "TIMESTAMP")
+        ensure_column(cur, "posts", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
         cur.execute(
             """
@@ -113,6 +145,23 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "content_objects", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "content_objects", "human_id", "TEXT")
+        ensure_column(cur, "content_objects", "user_telegram_id", "BIGINT")
+        ensure_column(cur, "content_objects", "content_type", "TEXT")
+        ensure_column(cur, "content_objects", "status", "TEXT DEFAULT 'draft'", "'draft'")
+        ensure_column(cur, "content_objects", "category", "TEXT")
+        ensure_column(cur, "content_objects", "city", "TEXT")
+        ensure_column(cur, "content_objects", "title", "TEXT")
+        ensure_column(cur, "content_objects", "description", "TEXT")
+        ensure_column(cur, "content_objects", "price", "TEXT")
+        ensure_column(cur, "content_objects", "media_file_id", "TEXT")
+        ensure_column(cur, "content_objects", "media_type", "TEXT")
+        ensure_column(cur, "content_objects", "anonymous_author", "TEXT")
+        ensure_column(cur, "content_objects", "published_channel_id", "BIGINT")
+        ensure_column(cur, "content_objects", "published_message_id", "BIGINT")
+        ensure_column(cur, "content_objects", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "content_objects", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
         cur.execute(
             """
@@ -129,6 +178,15 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "drafts", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "drafts", "human_id", "TEXT")
+        ensure_column(cur, "drafts", "content_id", "UUID")
+        ensure_column(cur, "drafts", "user_telegram_id", "BIGINT")
+        ensure_column(cur, "drafts", "status", "TEXT DEFAULT 'active'", "'active'")
+        ensure_column(cur, "drafts", "current_step", "TEXT")
+        ensure_column(cur, "drafts", "payload", "JSONB DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "drafts", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "drafts", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
         cur.execute(
             """
@@ -145,6 +203,15 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "reviews", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "reviews", "human_id", "TEXT")
+        ensure_column(cur, "reviews", "content_id", "UUID")
+        ensure_column(cur, "reviews", "admin_telegram_id", "BIGINT")
+        ensure_column(cur, "reviews", "action", "TEXT")
+        ensure_column(cur, "reviews", "status", "TEXT DEFAULT 'pending'", "'pending'")
+        ensure_column(cur, "reviews", "reason", "TEXT")
+        ensure_column(cur, "reviews", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "reviews", "resolved_at", "TIMESTAMP")
 
         cur.execute(
             """
@@ -158,6 +225,12 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "publications", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "publications", "human_id", "TEXT")
+        ensure_column(cur, "publications", "content_id", "UUID")
+        ensure_column(cur, "publications", "channel_id", "BIGINT")
+        ensure_column(cur, "publications", "channel_message_id", "BIGINT")
+        ensure_column(cur, "publications", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
         cur.execute(
             """
@@ -175,7 +248,16 @@ def init_db():
             )
             """
         )
-        cur.execute("ALTER TABLE comments ALTER COLUMN status SET DEFAULT 'pending_review'")
+        ensure_column(cur, "comments", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "comments", "human_id", "TEXT")
+        ensure_column(cur, "comments", "content_id", "UUID")
+        ensure_column(cur, "comments", "user_telegram_id", "BIGINT")
+        ensure_column(cur, "comments", "body", "TEXT")
+        ensure_column(cur, "comments", "status", "TEXT DEFAULT 'pending_review'", "'pending_review'")
+        ensure_column(cur, "comments", "admin_telegram_id", "BIGINT")
+        ensure_column(cur, "comments", "reason", "TEXT")
+        ensure_column(cur, "comments", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "comments", "reviewed_at", "TIMESTAMP")
 
         cur.execute(
             """
@@ -191,6 +273,13 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "reactions", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "reactions", "human_id", "TEXT")
+        ensure_column(cur, "reactions", "content_id", "UUID")
+        ensure_column(cur, "reactions", "user_telegram_id", "BIGINT")
+        ensure_column(cur, "reactions", "reaction", "TEXT")
+        ensure_column(cur, "reactions", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "reactions", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
         cur.execute(
             """
@@ -206,6 +295,14 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "reports", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "reports", "human_id", "TEXT")
+        ensure_column(cur, "reports", "content_id", "UUID")
+        ensure_column(cur, "reports", "user_telegram_id", "BIGINT")
+        ensure_column(cur, "reports", "reason", "TEXT")
+        ensure_column(cur, "reports", "status", "TEXT DEFAULT 'active'", "'active'")
+        ensure_column(cur, "reports", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "reports", "reviewed_at", "TIMESTAMP")
 
         cur.execute(
             """
@@ -220,6 +317,13 @@ def init_db():
             )
             """
         )
+        ensure_column(cur, "admin_logs", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "admin_logs", "human_id", "TEXT")
+        ensure_column(cur, "admin_logs", "admin_telegram_id", "BIGINT")
+        ensure_column(cur, "admin_logs", "action", "TEXT")
+        ensure_column(cur, "admin_logs", "object_id", "TEXT")
+        ensure_column(cur, "admin_logs", "reason", "TEXT")
+        ensure_column(cur, "admin_logs", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
 
 
 def next_human_id(cur, prefix, sequence_name):
