@@ -2,60 +2,77 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN
-from database.db import get_post, save_channel_message, update_post_status
+from database.db import (
+    get_comment,
+    get_content,
+    list_active_reports,
+    list_pending_content,
+    resolve_comment,
+    resolve_review,
+    save_publication,
+    submit_for_review,
+)
 from handlers.common import (
-    SEPARATOR,
-    admin_keyboard,
-    admin_post_text,
+    admin_comment_keyboard,
+    admin_content_text,
+    admin_review_keyboard,
     category_label,
     channel_post_text,
-    user_manage_keyboard,
+    published_keyboard,
 )
 
 
-async def send_post_to_admin(context: ContextTypes.DEFAULT_TYPE, post_id: int):
-    post = get_post(post_id)
-    if not post:
-        return
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
 
+
+async def send_content_to_admin(context: ContextTypes.DEFAULT_TYPE, content):
     for admin_id in ADMIN_IDS:
         await context.bot.send_message(
             chat_id=admin_id,
-            text=admin_post_text(post),
-            reply_markup=admin_keyboard(post_id),
+            text=admin_content_text(content),
+            reply_markup=admin_review_keyboard(content["human_id"]),
         )
 
 
-def edit_request_text(post, reason):
-    if post.get("post_type") == "hayat":
-        return (
-            "✏️ درخواست ویرایش پیام حیاط خلوت\n\n"
-            f"🆔 {post['id']}\n\n"
-            f"📂 {post.get('category') or '-'}\n\n"
-            f"{SEPARATOR}\n\n"
-            "📝 متن پیام:\n"
-            f"{post['content']}\n\n"
-            f"{SEPARATOR}\n\n"
-            f"✍️ نویسنده: {post.get('display_name') or 'ناشناس'}\n\n"
-            f"{SEPARATOR}\n\n"
-            "✏️ دلیل ویرایش:\n"
-            f"{reason}"
+async def submit_content_to_admin(context: ContextTypes.DEFAULT_TYPE, content_human_id):
+    content, _ = submit_for_review(content_human_id)
+    await send_content_to_admin(context, content)
+    return content
+
+
+async def send_comment_to_admin(context: ContextTypes.DEFAULT_TYPE, comment):
+    for admin_id in ADMIN_IDS:
+        await context.bot.send_message(
+            chat_id=admin_id,
+            text=(
+                "💬 نظر جدید برای بررسی\n\n"
+                f"🆔 {comment['human_id']}\n"
+                f"محتوا: {comment.get('content_human_id') or '-'}\n\n"
+                f"{comment['body']}"
+            ),
+            reply_markup=admin_comment_keyboard(comment["human_id"]),
         )
 
-    return (
-        "✏️ درخواست ویرایش آگهی\n\n"
-        f"🆔 {post['id']}\n\n"
-        f"📂 {category_label(post['category'], post.get('subcategory'))}\n\n"
-        f"{SEPARATOR}\n\n"
-        "📝 متن آگهی:\n"
-        f"{post['content']}\n\n"
-        f"{SEPARATOR}\n\n"
-        f"📍 {post.get('city') or '-'}\n"
-        f"👤 {post.get('display_name') or '-'}\n\n"
-        f"{SEPARATOR}\n\n"
-        "✏️ دلیل ویرایش:\n"
-        f"{reason}"
-    )
+
+async def publish_content(context: ContextTypes.DEFAULT_TYPE, content):
+    channel_id = CHANNEL_HAYAT if content["content_type"] == "hayat" else CHANNEL_VITRIN
+    kwargs = {
+        "chat_id": channel_id,
+        "caption" if content.get("media_file_id") else "text": channel_post_text(content),
+        "parse_mode": "HTML",
+        "reply_markup": published_keyboard(content["human_id"]),
+    }
+
+    if content.get("media_file_id") and content.get("media_type") == "photo":
+        msg = await context.bot.send_photo(photo=content["media_file_id"], **kwargs)
+    elif content.get("media_file_id") and content.get("media_type") == "video":
+        msg = await context.bot.send_video(video=content["media_file_id"], **kwargs)
+    else:
+        msg = await context.bot.send_message(**kwargs)
+
+    save_publication(content["human_id"], channel_id, msg.message_id)
+    return msg
 
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -65,7 +82,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
 
-    if query.from_user.id not in ADMIN_IDS:
+    if not is_admin(query.from_user.id):
         await query.edit_message_text("شما دسترسی ادمین ندارید.")
         return
 
@@ -73,83 +90,145 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) != 3:
         return
 
-    _, action, post_id_text = parts
-    post_id = int(post_id_text)
-    post = get_post(post_id)
+    _, action, object_id = parts
 
-    if not post:
-        await query.edit_message_text("❌ آگهی پیدا نشد.")
+    if action == "approve":
+        content = get_content(object_id)
+        if not content or content["status"] != "pending_review":
+            await query.edit_message_text("این محتوا دیگر در وضعیت بررسی نیست.")
+            return
+
+        await publish_content(context, content)
+        resolve_review(object_id, query.from_user.id, "approve")
+        label = "پیام" if content["content_type"] == "hayat" else "آگهی"
+        await context.bot.send_message(
+            chat_id=content["user_telegram_id"],
+            text=f"✅ {label} شما تایید و منتشر شد.\n\n🆔 {content['human_id']}",
+        )
+        await query.edit_message_text(f"✅ منتشر شد: {content['human_id']}")
+        return
+
+    if action in ("need_edit", "reject", "delete"):
+        content = get_content(object_id)
+        if not content:
+            await query.edit_message_text("❌ محتوا پیدا نشد.")
+            return
+
+        context.user_data["admin_reason_action"] = action
+        context.user_data["admin_reason_content_id"] = object_id
+        prompt = {
+            "need_edit": "📝 دلیل نیاز به ویرایش را ارسال کنید:",
+            "reject": "📝 دلیل رد شدن محتوا را ارسال کنید:",
+            "delete": "📝 دلیل حذف محتوا را ارسال کنید:",
+        }[action]
+        await query.edit_message_text(prompt)
+        return
+
+
+async def comment_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        await query.edit_message_text("شما دسترسی ادمین ندارید.")
+        return
+
+    _, action, comment_id = query.data.split(":")
+    comment = get_comment(comment_id)
+    if not comment:
+        await query.edit_message_text("❌ نظر پیدا نشد.")
         return
 
     if action == "approve":
-        if post["status"] != "pending":
-            await query.edit_message_text("این آگهی دیگر در وضعیت pending نیست.")
-            return
-
-        channel_id = CHANNEL_HAYAT if post.get("post_type") == "hayat" else CHANNEL_VITRIN
-
-        msg = await context.bot.send_message(
-            chat_id=channel_id,
-            text=channel_post_text(post),
-            parse_mode="HTML",
-        )
-        save_channel_message(post_id, msg.message_id)
-        update_post_status(post_id, "approved", approved_by=query.from_user.id)
-
-        item_label = "پیام" if post.get("post_type") == "hayat" else "آگهی"
-        await context.bot.send_message(
-            chat_id=post["user_id"],
-            text=(
-                f"✅ {item_label} شما تایید و منتشر شد.\n\n"
-                f"📂 {category_label(post['category'], post.get('subcategory'))}"
-            ),
-        )
-        await query.edit_message_text(f"✅ {item_label} {post_id} منتشر شد.")
+        resolve_comment(comment_id, query.from_user.id, "approve")
+        await query.edit_message_text(f"✅ نظر {comment_id} تایید شد.")
         return
 
-    if action == "need_edit":
-        if post["status"] != "pending":
-            await query.edit_message_text("فقط آگهی pending می‌تواند نیاز به ویرایش بگیرد.")
-            return
-
-        context.user_data["awaiting_edit_reason_post_id"] = post_id
-        await query.edit_message_text("📝 دلیل نیاز به ویرایش را ارسال کنید:")
-        return
-
-    if action == "delete":
-        update_post_status(post_id, "deleted_by_admin")
-        item_label = "پیام" if post.get("post_type") == "hayat" else "آگهی"
-        await context.bot.send_message(
-            chat_id=post["user_id"],
-            text=(
-                f"❌ {item_label} شما حذف شد.\n\n"
-                f"📂 {category_label(post['category'], post.get('subcategory'))}"
-            ),
-        )
-        await query.edit_message_text(f"❌ {item_label} {post_id} حذف شد.")
+    context.user_data["admin_comment_reject_id"] = comment_id
+    await query.edit_message_text("📝 دلیل رد نظر را ارسال کنید:")
 
 
 async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
+    if not update.message or not is_admin(update.effective_user.id):
         return
 
-    if update.effective_user.id not in ADMIN_IDS:
+    comment_id = context.user_data.pop("admin_comment_reject_id", None)
+    if comment_id:
+        reason = update.message.text.strip()
+        resolve_comment(comment_id, update.effective_user.id, "reject", reason)
+        await update.message.reply_text(f"❌ نظر {comment_id} رد شد.")
         return
 
-    post_id = context.user_data.pop("awaiting_edit_reason_post_id", None)
-    if not post_id:
+    action = context.user_data.pop("admin_reason_action", None)
+    content_id = context.user_data.pop("admin_reason_content_id", None)
+    if not action or not content_id:
         return
 
     reason = update.message.text.strip()
-    post = get_post(post_id)
-    if not post:
-        await update.message.reply_text("❌ آگهی پیدا نشد.")
+    content = get_content(content_id)
+    if not content:
+        await update.message.reply_text("❌ محتوا پیدا نشد.")
         return
 
-    update_post_status(post_id, "need_edit")
+    resolve_review(content_id, update.effective_user.id, action, reason)
+    label = "پیام" if content["content_type"] == "hayat" else "آگهی"
+
+    if action == "need_edit":
+        await context.bot.send_message(
+            chat_id=content["user_telegram_id"],
+            text=(
+                f"↩️ {label} شما نیاز به ویرایش دارد.\n\n"
+                f"🆔 {content['human_id']}\n\n"
+                f"دلیل ادمین:\n{reason}"
+            ),
+        )
+        await update.message.reply_text(f"✅ {content_id} به draft برگشت.")
+        return
+
+    if action == "reject":
+        await context.bot.send_message(
+            chat_id=content["user_telegram_id"],
+            text=(
+                f"❌ {label} شما رد شد.\n\n"
+                f"🆔 {content['human_id']}\n\n"
+                f"دلیل ادمین:\n{reason}"
+            ),
+        )
+        await update.message.reply_text(f"✅ {content_id} رد شد.")
+        return
+
     await context.bot.send_message(
-        chat_id=post["user_id"],
-        text=edit_request_text(post, reason),
-        reply_markup=user_manage_keyboard(post_id, post.get("post_type") or "vitrin"),
+        chat_id=content["user_telegram_id"],
+        text=(
+            f"🗑 {label} شما حذف شد.\n\n"
+            f"🆔 {content['human_id']}\n\n"
+            f"دلیل ادمین:\n{reason}"
+        ),
     )
-    await update.message.reply_text(f"✅ درخواست ویرایش برای آگهی {post_id} ارسال شد.")
+    await update.message.reply_text(f"✅ {content_id} حذف شد.")
+
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not is_admin(update.effective_user.id):
+        return
+
+    pending = list_pending_content()
+    reports = list_active_reports()
+    if not pending and not reports:
+        await update.message.reply_text("پنل ادمین: مورد فعالی برای بررسی وجود ندارد.")
+        return
+
+    for content in pending:
+        await update.message.reply_text(
+            admin_content_text(content),
+            reply_markup=admin_review_keyboard(content["human_id"]),
+        )
+
+    if reports:
+        text = "🚩 گزارش‌های فعال\n\n" + "\n".join(
+            f"{report['human_id']} برای {report['content_human_id']}: {report['reason']}"
+            for report in reports
+        )
+        await update.message.reply_text(text)

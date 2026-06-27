@@ -5,9 +5,9 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 
 from config_v2 import BOT_TOKEN
 from database.db import init_db
-from handlers.admin import admin_callback, admin_edit_reason_handler
+from handlers.admin import admin_callback, admin_edit_reason_handler, admin_panel, comment_admin_callback
 from handlers.menu import menu_handler
-from handlers.post_create import post_handler, user_post_callback
+from handlers.post_create import draft_callback, post_handler, published_callback, user_post_callback
 from handlers.profile import profile_handler
 from handlers.start import start
 
@@ -27,7 +27,11 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
+    app.add_handler(CallbackQueryHandler(comment_admin_callback, pattern=r"^comment:"))
+    app.add_handler(CallbackQueryHandler(draft_callback, pattern=r"^draft:"))
+    app.add_handler(CallbackQueryHandler(published_callback, pattern=r"^pub:"))
     app.add_handler(CallbackQueryHandler(user_post_callback, pattern=r"^userpost:"))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, admin_edit_reason_handler),

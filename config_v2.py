@@ -4,18 +4,28 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-ADMIN_IDS = [
-    8747305714,
-]
+def parse_int_list(value, fallback):
+    if not value:
+        return fallback
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def parse_int(value, fallback):
+    return int(value) if value else fallback
+
+
+ADMIN_IDS = parse_int_list(os.getenv("ADMIN_USER_IDS"), [8747305714])
 
 TECH_SUPPORT_IDS = [
     41792255,
 ]
 
-CHANNEL_VITRIN = -1003945260173
-CHANNEL_HAYAT = -1003854428039
+CHANNEL_VITRIN = parse_int(os.getenv("VITRIN_CHANNEL_ID"), -1003945260173)
+CHANNEL_HAYAT = parse_int(os.getenv("HAYAT_CHANNEL_ID"), -1003854428039)
 CHANNEL_VITRIN_LINK = "https://t.me/vitrinspain"
 CHANNEL_HAYAT_LINK = "https://t.me/hayatkhalvatspain"
+CHANNEL_VITRIN_USERNAME = "@vitrinspain"
+CHANNEL_HAYAT_USERNAME = "@hayatkhalvatspain"
 
 BOT_USERNAME = "VitrinSpainBot"
 PROJECT_NAME = "ویترین اسپانیا"

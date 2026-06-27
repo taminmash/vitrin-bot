@@ -3,131 +3,59 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config_v2 import ADMIN_IDS, BACK_BUTTON, CATEGORY_OPTIONS, HOME_BUTTON, SUBCATEGORIES
-from database.db import (
-    get_post,
-    get_user_profile,
-    mark_pending_post_for_resubmission,
-    save_post,
-    save_user_profile,
-    soft_delete_post_by_owner,
+from config_v2 import (
+    ADMIN_IDS,
+    BACK_BUTTON,
+    CATEGORY_OPTIONS,
+    CHANNEL_HAYAT_LINK,
+    CHANNEL_HAYAT_USERNAME,
+    CHANNEL_VITRIN_LINK,
+    CHANNEL_VITRIN_USERNAME,
+    HOME_BUTTON,
 )
-from handlers.admin import send_post_to_admin
-from handlers.common import list_keyboard
+from database.db import (
+    archive_content,
+    create_comment,
+    create_content,
+    create_report,
+    get_content,
+    get_or_create_user,
+    list_approved_comments,
+    save_reaction,
+    update_content,
+    update_draft,
+)
+from handlers.admin import send_comment_to_admin, submit_content_to_admin
+from handlers.common import draft_actions_keyboard, list_keyboard, preview_keyboard, content_preview_text
 from handlers.start import MAIN_MENU
 
 
-CONFIRM_PREVIEW = "✅ تایید و ارسال آگهی"
-EDIT_PREVIEW_TEXT = "✏️ ویرایش آگهی"
-DELETE_PREVIEW = "🗑️ حذف آگهی"
-CONTENT_RESTRICTION_WARNING = "⚠️ ارسال لینک، تصویر و شماره تلفن مجاز نمی‌باشد."
+SKIP_PRICE = "بدون قیمت"
+SKIP_MEDIA = "بدون عکس/ویدیو"
+SKIP_CITY = "بدون شهر"
+CONFIRM_HAYAT = "تایید پیام"
+EDIT_HAYAT = "ویرایش پیام"
+ARCHIVE_HAYAT = "آرشیو پیام"
+CONTENT_RESTRICTION_WARNING = "⚠️ ارسال لینک و شماره تلفن در متن مجاز نمی‌باشد."
 TEXT_RESTRICTION_ERROR = (
-    "❌ ارسال لینک، آیدی تلگرام، تصویر، ویدیو یا شماره تلفن مجاز نمی‌باشد.\n\n"
+    "❌ ارسال لینک، آیدی تلگرام یا شماره تلفن مجاز نمی‌باشد.\n\n"
     "لطفاً متن را بدون اطلاعات تماس ارسال کنید."
 )
-MEDIA_RESTRICTION_ERROR = (
-    "❌ ارسال تصویر یا ویدیو برای کاربران عادی مجاز نیست.\n\n"
-    "لطفاً متن پیام را بدون تصویر یا ویدیو ارسال کنید."
-)
-URL_PATTERN = re.compile(
-    r"(?:https?://|www\.|t\.me/|telegram\.me/)",
-    re.IGNORECASE,
-)
+URL_PATTERN = re.compile(r"(?:https?://|www\.|t\.me/|telegram\.me/)", re.IGNORECASE)
 TELEGRAM_HANDLE_PATTERN = re.compile(r"(?<!\w)@[A-Za-z0-9_]{5,32}\b")
 PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+|00)?\d[\d\s().-]{7,}\d(?!\w)")
-HAYAT_CATEGORIES = [
-    "🕊️ پیام ناشناس",
-    "📖 دورهمی و تجربه",
-    "🧠 دانستنی‌ها و خبرها",
-]
-HAYAT_AUTHOR_ANONYMOUS = "ناشناس"
-HAYAT_AUTHOR_PROFILE = "نام نمایشی من"
-HAYAT_AUTHOR_CUSTOM = "نام دلخواه"
-HAYAT_AUTHOR_OPTIONS = [
-    HAYAT_AUTHOR_ANONYMOUS,
-    HAYAT_AUTHOR_PROFILE,
-    HAYAT_AUTHOR_CUSTOM,
-]
-HAYAT_BLOCKED_AUTHOR_PARTS = (
-    "@",
-    "t.me/",
-    "telegram.me/",
-    "http://",
-    "https://",
-)
+
 
 STEP_PROMPTS = {
-    "category": "📂 دسته آگهی را انتخاب کنید:",
-    "subcategory": "📂 زیردسته آگهی را انتخاب کنید:",
-    "display_name": "👤 نام نمایشی خود را وارد کنید:",
-    "city": "📍 شهر خود را وارد کنید:",
-    "content": f"📝 متن آگهی را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
-    "hayat_category": "📂 دسته پیام حیاط خلوت را انتخاب کنید:",
-    "hayat_author_choice": "می‌خواهید نام نویسنده نمایش داده شود؟",
-    "hayat_writer_name": "✍️ نام نویسنده را وارد کنید:",
-    "hayat_content": f"📝 متن پیام را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
+    "vitrin_category": "📂 دسته آگهی را انتخاب کنید:",
+    "vitrin_city": "📍 شهر آگهی را وارد کنید:",
+    "vitrin_title": "🏷 عنوان آگهی را وارد کنید:",
+    "vitrin_description": f"📝 توضیحات آگهی را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
+    "vitrin_price": "💶 قیمت را وارد کنید یا «بدون قیمت» را بزنید:",
+    "vitrin_media": "🖼 عکس یا ویدیو را ارسال کنید یا «بدون عکس/ویدیو» را بزنید:",
+    "hayat_city": "📍 شهر را وارد کنید یا «بدون شهر» را بزنید:",
+    "hayat_message": f"📝 متن پیام ناشناس را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
 }
-
-PREVIEW_KEYBOARD = list_keyboard(
-    [
-        CONFIRM_PREVIEW,
-        EDIT_PREVIEW_TEXT,
-        DELETE_PREVIEW,
-    ],
-    include_back=False,
-    include_home=True,
-)
-
-
-def step_keyboard(context: ContextTypes.DEFAULT_TYPE, step: str):
-    if step == "category":
-        return list_keyboard(CATEGORY_OPTIONS)
-    if step == "subcategory":
-        category = context.user_data.get("category")
-        return list_keyboard(SUBCATEGORIES.get(category, []))
-    if step == "hayat_category":
-        return list_keyboard(HAYAT_CATEGORIES)
-    if step == "hayat_author_choice":
-        return list_keyboard(HAYAT_AUTHOR_OPTIONS)
-    return list_keyboard([])
-
-
-def build_preview_text(context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("post_type") == "hayat":
-        return (
-            "پیش‌نمایش پیام حیاط خلوت:\n\n"
-            f"📂 دسته: {context.user_data['category']}\n\n"
-            f"متن پیام:\n{context.user_data['content']}\n\n"
-            f"✍️ نویسنده: {context.user_data['display_name']}"
-        )
-
-    return (
-        "پیش‌نمایش آگهی شما:\n\n"
-        f"📂 دسته: {context.user_data['category']}\n"
-        f"📂 زیردسته: {context.user_data['subcategory']}\n\n"
-        f"📝 متن آگهی:\n{context.user_data['content']}\n\n"
-        f"📍 شهر: {context.user_data['city']}\n"
-        f"👤 نام نمایشی: {context.user_data['display_name']}"
-    )
-
-
-def is_safe_hayat_writer_name(text: str):
-    lowered = text.lower()
-    return not any(part in lowered for part in HAYAT_BLOCKED_AUTHOR_PARTS)
-
-
-def safe_hayat_writer_name(text: str):
-    text = (text or "").strip()
-    if len(text) < 2 or not is_safe_hayat_writer_name(text):
-        return HAYAT_AUTHOR_ANONYMOUS
-    return text
-
-
-def remove_next_hayat_writer_step(context: ContextTypes.DEFAULT_TYPE):
-    step_order = context.user_data["step_order"]
-    next_index = context.user_data["step_index"] + 1
-    if next_index < len(step_order) and step_order[next_index] == "hayat_writer_name":
-        step_order.pop(next_index)
 
 
 def is_admin_user(update: Update):
@@ -136,12 +64,7 @@ def is_admin_user(update: Update):
 
 def has_phone_like_number(text: str):
     for match in PHONE_PATTERN.finditer(text):
-        candidate = match.group()
-        digits = re.sub(r"\D", "", candidate)
-        if len(digits) < 9:
-            continue
-        if candidate.strip().startswith(("+", "00")):
-            return True
+        digits = re.sub(r"\D", "", match.group())
         if len(digits) >= 9:
             return True
     return False
@@ -155,391 +78,380 @@ def has_restricted_text_content(text: str):
     )
 
 
-async def send_step_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, step: str):
-    await update.message.reply_text(
-        STEP_PROMPTS[step],
-        reply_markup=step_keyboard(context, step),
-    )
+def step_keyboard(step):
+    if step == "vitrin_category":
+        return list_keyboard(CATEGORY_OPTIONS)
+    if step == "vitrin_price":
+        return list_keyboard([SKIP_PRICE])
+    if step == "vitrin_media":
+        return list_keyboard([SKIP_MEDIA])
+    if step == "hayat_city":
+        return list_keyboard([SKIP_CITY])
+    return list_keyboard([])
 
 
-async def send_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["post_step"] = "preview"
+def next_step(step):
+    order = [
+        "vitrin_category",
+        "vitrin_city",
+        "vitrin_title",
+        "vitrin_description",
+        "vitrin_price",
+        "vitrin_media",
+    ]
+    if step in order:
+        index = order.index(step)
+        return order[index + 1] if index + 1 < len(order) else "preview"
+
+    hayat_order = ["hayat_city", "hayat_message", "hayat_confirm"]
+    index = hayat_order.index(step)
+    return hayat_order[index + 1] if index + 1 < len(hayat_order) else "preview"
+
+
+def missing_required_fields(content):
+    if content["content_type"] == "hayat":
+        required = [("description", "متن پیام")]
+    else:
+        required = [
+            ("category", "دسته"),
+            ("city", "شهر"),
+            ("title", "عنوان"),
+            ("description", "توضیحات"),
+        ]
+    return [label for key, label in required if not content.get(key)]
+
+
+async def ensure_channel_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type):
+    if is_admin_user(update):
+        return True
+
+    channel = CHANNEL_HAYAT_USERNAME if content_type == "hayat" else CHANNEL_VITRIN_USERNAME
+    link = CHANNEL_HAYAT_LINK if content_type == "hayat" else CHANNEL_VITRIN_LINK
+    try:
+        member = await context.bot.get_chat_member(channel, update.effective_user.id)
+        if member.status in ("member", "administrator", "creator"):
+            return True
+    except Exception:
+        pass
+
     await update.message.reply_text(
-        build_preview_text(context),
-        reply_markup=PREVIEW_KEYBOARD,
+        "برای ارسال محتوا ابتدا عضو کانال مربوطه شوید:\n\n"
+        f"{link}\n\n"
+        "بعد از عضویت، دوباره از منوی اصلی شروع کنید.",
+        reply_markup=MAIN_MENU,
+        disable_web_page_preview=True,
     )
+    return False
+
+
+async def send_step_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, step):
+    context.user_data["post_step"] = step
+    update_draft(context.user_data["content_id"], current_step=step)
+    await update.message.reply_text(STEP_PROMPTS[step], reply_markup=step_keyboard(step))
+
+
+async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE, post_type="vitrin"):
+    if not await ensure_channel_membership(update, context, "vitrin"):
+        return
+
+    get_or_create_user(update.effective_user)
+    content = create_content(update.effective_user.id, "vitrin")
+    context.user_data.clear()
+    context.user_data["flow"] = "vitrin"
+    context.user_data["content_id"] = content["human_id"]
+    await send_step_prompt(update, context, "vitrin_category")
+
+
+async def start_hayat_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await ensure_channel_membership(update, context, "hayat"):
+        return
+
+    get_or_create_user(update.effective_user)
+    content = create_content(update.effective_user.id, "hayat")
+    context.user_data.clear()
+    context.user_data["flow"] = "hayat"
+    context.user_data["content_id"] = content["human_id"]
+    await send_step_prompt(update, context, "hayat_city")
 
 
 async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    await update.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
+
+
+async def show_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, content):
+    context.user_data["post_step"] = "preview"
     await update.message.reply_text(
-        "به منوی اصلی برگشتید.",
+        content_preview_text(content),
+        reply_markup=preview_keyboard(content),
+    )
+
+
+async def submit_content(update: Update, context: ContextTypes.DEFAULT_TYPE, content_id):
+    content_before_submit = get_content(content_id)
+    missing = missing_required_fields(content_before_submit)
+    if missing:
+        await update.message.reply_text(
+            "این draft هنوز کامل نیست.\n\n"
+            "فیلدهای ناقص: " + "، ".join(missing),
+        )
+        return
+
+    content = await submit_content_to_admin(context, content_id)
+    context.user_data.clear()
+    label = "پیام" if content["content_type"] == "hayat" else "آگهی"
+    await update.message.reply_text(
+        f"✅ {label} شما برای بررسی ادمین ارسال شد.\n\n🆔 {content['human_id']}",
         reply_markup=MAIN_MENU,
     )
 
 
-async def start_post(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    post_type: str = "vitrin",
-):
-    context.user_data.clear()
-    context.user_data["post_type"] = post_type
+async def handle_interaction_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    step = context.user_data.get("interaction_step")
+    content_id = context.user_data.get("interaction_content_id")
+    if not step or not content_id:
+        return False
 
-    user_id = update.effective_user.id
-    profile = get_user_profile(user_id)
-
-    if profile:
-        display_name, city = profile
-        context.user_data["display_name"] = display_name
-        context.user_data["city"] = city
-        step_order = ["category", "subcategory", "content"]
-    else:
-        step_order = ["category", "subcategory", "display_name", "city", "content"]
-
-    context.user_data["step_order"] = step_order
-    context.user_data["step_index"] = 0
-    context.user_data["post_step"] = step_order[0]
-
-    await send_step_prompt(update, context, step_order[0])
-
-
-async def start_hayat_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    context.user_data["post_type"] = "hayat"
-    context.user_data["step_order"] = [
-        "hayat_category",
-        "hayat_author_choice",
-        "hayat_content",
-    ]
-    context.user_data["step_index"] = 0
-    context.user_data["post_step"] = "hayat_category"
-
-    await send_step_prompt(update, context, "hayat_category")
-
-
-async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    step_order = context.user_data.get("step_order", [])
-    step_index = context.user_data.get("step_index", 0)
-
-    if step_index <= 0:
-        context.user_data.clear()
-        await update.message.reply_text(
-            "فرایند ثبت آگهی لغو شد.",
-            reply_markup=MAIN_MENU,
-        )
-        return
-
-    step_index -= 1
-    previous_step = step_order[step_index]
-    context.user_data["step_index"] = step_index
-    context.user_data["post_step"] = previous_step
-    await send_step_prompt(update, context, previous_step)
-
-
-async def advance_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    step_order = context.user_data["step_order"]
-    step_index = context.user_data["step_index"] + 1
-    context.user_data["step_index"] = step_index
-    context.user_data["post_step"] = step_order[step_index]
-    await send_step_prompt(update, context, step_order[step_index])
-
-
-async def confirm_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    post_type = context.user_data.get("post_type", "vitrin")
-
-    if post_type == "hayat":
-        post_id = save_post(
-            user_id=user.id,
-            category=context.user_data["category"],
-            subcategory=None,
-            city=None,
-            display_name=context.user_data["display_name"],
-            telegram_id=None,
-            content=context.user_data["content"],
-            post_type="hayat",
-        )
-
-        await send_post_to_admin(context=context, post_id=post_id)
-
-        context.user_data.clear()
-        await update.message.reply_text(
-            "پیام شما ثبت شد و پس از تایید ادمین منتشر می‌شود.",
-            reply_markup=MAIN_MENU,
-        )
-        return
-
-    telegram_id = f"@{user.username}" if user.username else "بدون یوزرنیم"
-
-    post_id = save_post(
-        user_id=user.id,
-        category=context.user_data["category"],
-        subcategory=context.user_data["subcategory"],
-        city=context.user_data["city"],
-        display_name=context.user_data["display_name"],
-        telegram_id=telegram_id,
-        content=context.user_data["content"],
-        post_type=context.user_data.get("post_type", "vitrin"),
-    )
-
-    save_user_profile(
-        user_id=user.id,
-        display_name=context.user_data["display_name"],
-        city=context.user_data["city"],
-        username=user.username,
-    )
-
-    await send_post_to_admin(context=context, post_id=post_id)
-
-    context.user_data.clear()
-    await update.message.reply_text(
-        "آگهی شما ثبت شد و پس از تایید ادمین منتشر می‌شود.",
-        reply_markup=MAIN_MENU,
-    )
-
-
-async def handle_preview_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    text = (update.message.text or "").strip()
     if text == HOME_BUTTON:
         await go_home(update, context)
-        return
+        return True
 
-    if text == CONFIRM_PREVIEW:
-        await confirm_preview(update, context)
-        return
-
-    if text == EDIT_PREVIEW_TEXT:
-        context.user_data.pop("content", None)
-        content_step = "hayat_content" if context.user_data.get("post_type") == "hayat" else "content"
-        context.user_data["post_step"] = content_step
-        await send_step_prompt(update, context, content_step)
-        return
-
-    if text == DELETE_PREVIEW:
+    if step == "comment":
+        comment = create_comment(content_id, update.effective_user.id, text)
         context.user_data.clear()
-        await update.message.reply_text(
-            "آگهی حذف شد و چیزی ذخیره نشد.",
-            reply_markup=MAIN_MENU,
-        )
-        return
+        await send_comment_to_admin(context, comment)
+        await update.message.reply_text("✅ نظر شما ثبت شد و پس از تایید ادمین نمایش داده می‌شود.")
+        return True
 
-    await update.message.reply_text(
-        "لطفا یکی از گزینه‌های پیش‌نمایش را انتخاب کنید.",
-        reply_markup=PREVIEW_KEYBOARD,
-    )
+    if step == "report":
+        report = create_report(content_id, update.effective_user.id, text)
+        context.user_data.clear()
+        await update.message.reply_text(f"✅ گزارش شما ثبت شد.\n\n🆔 {report['human_id']}")
+        return True
+
+    return False
 
 
 async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if "post_step" not in context.user_data:
-        return
-
     if not update.message:
         return
 
+    if "interaction_step" in context.user_data:
+        handled = await handle_interaction_text(update, context)
+        if handled:
+            return
+
+    if "post_step" not in context.user_data:
+        return
+
+    text = (update.message.text or "").strip()
     step = context.user_data["post_step"]
-    has_restricted_media = bool(update.message.photo or update.message.video)
-
-    if has_restricted_media:
-        if not is_admin_user(update):
-            await update.message.reply_text(MEDIA_RESTRICTION_ERROR)
-        return
-
-    if not update.message.text:
-        return
-
-    text = update.message.text.strip()
+    content_id = context.user_data["content_id"]
 
     if text == HOME_BUTTON:
         await go_home(update, context)
         return
 
-    if step == "preview":
-        await handle_preview_choice(update, context, text)
-        return
-
     if text == BACK_BUTTON:
-        await handle_back(update, context)
+        await go_home(update, context)
         return
 
-    if step == "hayat_category":
-        if text not in HAYAT_CATEGORIES:
-            await update.message.reply_text("لطفا یک دسته معتبر برای حیاط خلوت انتخاب کنید.")
-            return
-
-        context.user_data["category"] = text
-        await advance_step(update, context)
+    content = get_content(content_id)
+    if not content:
+        context.user_data.clear()
+        await update.message.reply_text("❌ draft پیدا نشد.", reply_markup=MAIN_MENU)
         return
 
-    if step == "hayat_author_choice":
-        if text not in HAYAT_AUTHOR_OPTIONS:
-            await update.message.reply_text("لطفا یکی از گزینه‌های نام نویسنده را انتخاب کنید.")
+    if step == "vitrin_category":
+        if text not in CATEGORY_OPTIONS:
+            await update.message.reply_text("لطفاً یک دسته معتبر انتخاب کنید.")
             return
-
-        if text == HAYAT_AUTHOR_ANONYMOUS:
-            remove_next_hayat_writer_step(context)
-            context.user_data["display_name"] = HAYAT_AUTHOR_ANONYMOUS
-            await advance_step(update, context)
-            return
-
-        if text == HAYAT_AUTHOR_PROFILE:
-            remove_next_hayat_writer_step(context)
-            profile = get_user_profile(update.effective_user.id)
-            if profile:
-                context.user_data["display_name"] = safe_hayat_writer_name(profile[0])
-            else:
-                context.user_data["display_name"] = safe_hayat_writer_name(update.effective_user.full_name)
-            await advance_step(update, context)
-            return
-
-        step_order = context.user_data["step_order"]
-        next_index = context.user_data["step_index"] + 1
-        if next_index >= len(step_order) or step_order[next_index] != "hayat_writer_name":
-            step_order.insert(next_index, "hayat_writer_name")
-        await advance_step(update, context)
+        update_content(content_id, category=text)
+        await send_step_prompt(update, context, "vitrin_city")
         return
 
-    if step == "hayat_writer_name":
-        if len(text) < 2:
-            await update.message.reply_text("نام نویسنده باید حداقل ۲ حرف باشد.")
-            return
-        if not is_safe_hayat_writer_name(text):
-            await update.message.reply_text("نام نویسنده نباید شامل یوزرنیم، لینک یا نشانی تلگرام باشد.")
-            return
-
-        context.user_data["display_name"] = text
-        await advance_step(update, context)
-        return
-
-    if step == "hayat_content":
-        if not is_admin_user(update) and has_restricted_text_content(text):
-            await update.message.reply_text(TEXT_RESTRICTION_ERROR)
-            return
-
-        if len(text) < 5:
-            await update.message.reply_text("متن پیام خیلی کوتاه است.")
-            return
-
-        context.user_data["content"] = text
-        await send_preview(update, context)
-        return
-
-    if step == "category":
-        if text not in SUBCATEGORIES:
-            await update.message.reply_text("لطفا یک دسته معتبر انتخاب کنید.")
-            return
-
-        context.user_data["category"] = text
-        await advance_step(update, context)
-        return
-
-    if step == "subcategory":
-        category = context.user_data.get("category")
-        if text not in SUBCATEGORIES.get(category, []):
-            await update.message.reply_text("لطفا یک زیردسته معتبر انتخاب کنید.")
-            return
-
-        context.user_data["subcategory"] = text
-        await advance_step(update, context)
-        return
-
-    if step == "display_name":
-        if len(text) < 2:
-            await update.message.reply_text("نام نمایشی باید حداقل ۲ حرف باشد.")
-            return
-
-        context.user_data["display_name"] = text
-        await advance_step(update, context)
-        return
-
-    if step == "city":
+    if step == "vitrin_city":
         if len(text) < 2:
             await update.message.reply_text("نام شهر باید حداقل ۲ حرف باشد.")
             return
-
-        context.user_data["city"] = text
-        await advance_step(update, context)
+        update_content(content_id, city=text)
+        await send_step_prompt(update, context, "vitrin_title")
         return
 
-    if step == "content":
+    if step == "vitrin_title":
+        if len(text) < 3:
+            await update.message.reply_text("عنوان باید حداقل ۳ حرف باشد.")
+            return
+        update_content(content_id, title=text)
+        await send_step_prompt(update, context, "vitrin_description")
+        return
+
+    if step == "vitrin_description":
         if not is_admin_user(update) and has_restricted_text_content(text):
             await update.message.reply_text(TEXT_RESTRICTION_ERROR)
             return
-
-        if len(text) < 5:
-            await update.message.reply_text("متن آگهی خیلی کوتاه است.")
+        if len(text) < 10:
+            await update.message.reply_text("توضیحات آگهی خیلی کوتاه است.")
             return
+        update_content(content_id, description=text)
+        await send_step_prompt(update, context, "vitrin_price")
+        return
 
-        context.user_data["content"] = text
-        await send_preview(update, context)
+    if step == "vitrin_price":
+        update_content(content_id, price=None if text == SKIP_PRICE else text)
+        await send_step_prompt(update, context, "vitrin_media")
+        return
+
+    if step == "vitrin_media":
+        if update.message.photo:
+            file_id = update.message.photo[-1].file_id
+            content = update_content(content_id, media_file_id=file_id, media_type="photo")
+            await show_preview(update, context, content)
+            return
+        if update.message.video:
+            content = update_content(content_id, media_file_id=update.message.video.file_id, media_type="video")
+            await show_preview(update, context, content)
+            return
+        if text == SKIP_MEDIA:
+            content = update_content(content_id)
+            await show_preview(update, context, content)
+            return
+        await update.message.reply_text("لطفاً عکس/ویدیو بفرستید یا «بدون عکس/ویدیو» را انتخاب کنید.")
+        return
+
+    if step == "hayat_city":
+        update_content(content_id, city=None if text == SKIP_CITY else text)
+        await send_step_prompt(update, context, "hayat_message")
+        return
+
+    if step == "hayat_message":
+        if not is_admin_user(update) and has_restricted_text_content(text):
+            await update.message.reply_text(TEXT_RESTRICTION_ERROR)
+            return
+        if len(text) < 5:
+            await update.message.reply_text("متن پیام خیلی کوتاه است.")
+            return
+        content = update_content(content_id, description=text, anonymous_author="ناشناس")
+        context.user_data["post_step"] = "hayat_confirm"
+        await update.message.reply_text(
+            content_preview_text(content),
+            reply_markup=list_keyboard([CONFIRM_HAYAT, EDIT_HAYAT, ARCHIVE_HAYAT], include_back=False),
+        )
+        return
+
+    if step == "hayat_confirm":
+        if text == CONFIRM_HAYAT:
+            await submit_content(update, context, content_id)
+            return
+        if text == EDIT_HAYAT:
+            await send_step_prompt(update, context, "hayat_message")
+            return
+        if text == ARCHIVE_HAYAT:
+            archive_content(content_id, update.effective_user.id)
+            context.user_data.clear()
+            await update.message.reply_text("🗄 پیام آرشیو شد.", reply_markup=MAIN_MENU)
+            return
+        await update.message.reply_text("لطفاً یکی از گزینه‌های تایید، ویرایش یا آرشیو را انتخاب کنید.")
 
 
-async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
         return
 
     await query.answer()
-
-    parts = query.data.split(":")
-    if len(parts) != 3:
+    _, action, content_id = query.data.split(":")
+    content = get_content(content_id)
+    if not content:
+        await query.edit_message_text("❌ محتوا پیدا نشد.")
         return
 
-    _, action, post_id_text = parts
-
-    if action == "home":
-        context.user_data.clear()
-        await query.message.reply_text(
-            "به منوی اصلی برگشتید.",
-            reply_markup=MAIN_MENU,
-        )
+    if content["user_telegram_id"] != query.from_user.id:
+        await query.edit_message_text("فقط صاحب محتوا می‌تواند این عملیات را انجام دهد.")
         return
 
-    post_id = int(post_id_text)
-    post = get_post(post_id)
-
-    if not post:
-        await query.edit_message_text("❌ آگهی پیدا نشد.")
+    if action == "preview":
+        await query.message.reply_text(content_preview_text(content), reply_markup=preview_keyboard(content))
         return
 
-    if post["user_id"] != query.from_user.id:
-        await query.edit_message_text("فقط صاحب آگهی می‌تواند این عملیات را انجام دهد.")
+    if action == "archive":
+        archive_content(content_id, query.from_user.id)
+        await query.edit_message_text("🗄 محتوا آرشیو شد.")
         return
 
-    if action == "delete":
-        item_label = "پیام" if post.get("post_type") == "hayat" else "آگهی"
-        if soft_delete_post_by_owner(post_id, query.from_user.id):
-            await query.edit_message_text(f"🗑️ {item_label} شما حذف شد.")
-        else:
-            await query.edit_message_text(f"حذف {item_label} انجام نشد.")
+    if action == "submit":
+        missing = missing_required_fields(content)
+        if missing:
+            await query.edit_message_text(
+                "این draft هنوز کامل نیست.\n\n"
+                "فیلدهای ناقص: " + "، ".join(missing),
+            )
+            return
+
+        await submit_content_to_admin(context, content_id)
+        await query.edit_message_text(f"✅ برای بررسی ادمین ارسال شد.\n\n🆔 {content_id}")
         return
 
     if action == "edit":
-        if post["status"] not in ("pending", "need_edit"):
-            item_label = "پیام" if post.get("post_type") == "hayat" else "آگهی"
-            await query.edit_message_text(f"فقط {item_label}های در انتظار بررسی یا نیازمند ویرایش قابل ویرایش هستند.")
-            return
-
-        if post["status"] == "pending":
-            mark_pending_post_for_resubmission(post_id, query.from_user.id)
-
         context.user_data.clear()
-        context.user_data["category"] = post["category"]
-        context.user_data["subcategory"] = post.get("subcategory") or ""
-        context.user_data["display_name"] = post.get("display_name") or ""
-        context.user_data["city"] = post.get("city") or ""
-        context.user_data["post_type"] = post.get("post_type") or "vitrin"
-        is_hayat = context.user_data["post_type"] == "hayat"
-        content_step = "hayat_content" if is_hayat else "content"
-        context.user_data["step_order"] = [content_step]
-        context.user_data["step_index"] = 0
-        context.user_data["post_step"] = content_step
+        context.user_data["content_id"] = content_id
+        context.user_data["flow"] = content["content_type"]
+        if content["content_type"] == "hayat":
+            await query.message.reply_text(STEP_PROMPTS["hayat_message"], reply_markup=step_keyboard("hayat_message"))
+            context.user_data["post_step"] = "hayat_message"
+        else:
+            await query.message.reply_text(STEP_PROMPTS["vitrin_title"], reply_markup=step_keyboard("vitrin_title"))
+            context.user_data["post_step"] = "vitrin_title"
 
-        item_label = "پیام" if is_hayat else "آگهی"
-        await query.edit_message_text(
-            f"✏️ لطفا متن اصلاح‌شده {item_label} را ارسال کنید.\n"
-            "بعد از ارسال متن، پیش‌نمایش را می‌بینید و می‌توانید برای بررسی ادمین تایید کنید."
+
+async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+    _, action, content_id = query.data.split(":")
+    content = get_content(content_id)
+    if not content:
+        await query.answer("محتوا پیدا نشد.", show_alert=True)
+        return
+
+    if action in ("like", "dislike"):
+        save_reaction(content_id, query.from_user.id, action)
+        await query.answer("رأی شما ثبت شد.", show_alert=False)
+        return
+
+    if action == "comment":
+        context.user_data.clear()
+        context.user_data["interaction_step"] = "comment"
+        context.user_data["interaction_content_id"] = content_id
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=f"💬 نظر خود را برای {content_id} بنویسید:",
         )
-        await query.message.reply_text(
-            STEP_PROMPTS[content_step],
-            reply_markup=step_keyboard(context, content_step),
+        return
+
+    if action == "report":
+        context.user_data.clear()
+        context.user_data["interaction_step"] = "report"
+        context.user_data["interaction_content_id"] = content_id
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=f"🚩 دلیل گزارش {content_id} را بنویسید:",
         )
+        return
+
+    if action == "comments":
+        comments = list_approved_comments(content_id)
+        if not comments:
+            await context.bot.send_message(chat_id=query.from_user.id, text="هنوز نظری تایید نشده است.")
+            return
+        text = "💬 نظرات تاییدشده\n\n" + "\n\n".join(
+            f"{comment['human_id']}:\n{comment['body']}" for comment in comments
+        )
+        await context.bot.send_message(chat_id=query.from_user.id, text=text)
+
+
+async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await draft_callback(update, context)

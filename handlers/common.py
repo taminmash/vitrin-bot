@@ -9,14 +9,6 @@ from config_v2 import BACK_BUTTON, BOT_USERNAME, HOME_BUTTON
 SEPARATOR = "━━━━━━━━━━━━━━"
 
 
-def back_keyboard():
-    return ReplyKeyboardMarkup(
-        [[KeyboardButton(BACK_BUTTON)], [KeyboardButton(HOME_BUTTON)]],
-        resize_keyboard=True,
-        one_time_keyboard=False,
-    )
-
-
 def home_keyboard():
     return ReplyKeyboardMarkup(
         [[KeyboardButton(HOME_BUTTON)]],
@@ -34,8 +26,8 @@ def list_keyboard(items, include_back=True, include_home=True):
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=False)
 
 
-def category_label(category, subcategory):
-    return f"{category} » {subcategory}" if subcategory else category
+def category_label(category, subcategory=None):
+    return f"{category} » {subcategory}" if subcategory else category or "-"
 
 
 def clean_label(value):
@@ -50,138 +42,174 @@ def hashtagify(value):
     return f"#{tag}" if tag else None
 
 
-def post_hashtags(post):
+def vitrin_hashtags(content):
     tags = []
-    for value in (post.get("category"), post.get("subcategory"), post.get("city")):
+    for value in (content.get("category"), content.get("city"), "ویترین_اسپانیا"):
         tag = hashtagify(value)
         if tag and tag not in tags:
             tags.append(tag)
-        if len(tags) == 3:
-            break
-    return " ".join(tags)
+    return " ".join(tags[:5])
 
 
-def linked_display_name(post):
-    display_name = html.escape(post.get("display_name") or "-")
-    telegram_id = post.get("telegram_id") or ""
-
-    if telegram_id.startswith("@") and len(telegram_id) > 1:
-        username = telegram_id[1:]
-        if re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
-            return f'<a href="https://t.me/{username}">{display_name}</a>'
-
-    return display_name
-
-
-def hayat_hashtags(category):
-    if category == "🕊️ پیام ناشناس":
-        return [
+def hayat_hashtags():
+    return "\n".join(
+        [
             "#حیاط_خلوت",
             "#پیام_ناشناس",
             "#اسپانیا",
-            "#تجربه_های_زندگی",
-            "#همدلی",
-        ]
-    if category == "📖 دورهمی و تجربه":
-        return [
-            "#حیاط_خلوت",
-            "#دورهمی",
-            "#تجربه",
             "#زندگی_در_اسپانیا",
         ]
-    if category == "🧠 دانستنی‌ها و خبرها":
-        return [
-            "#حیاط_خلوت",
-            "#خبر",
-            "#دانستنی",
-            "#اسپانیا",
-            "#اطلاع_رسانی",
-        ]
-
-    return ["#حیاط_خلوت", "#اسپانیا"]
+    )
 
 
-def channel_post_text(post):
-    if post.get("post_type") == "hayat":
-        category = html.escape(clean_label(post.get("category")) or "-")
-        content = html.escape(post.get("content") or "")
-        display_name = html.escape(post.get("display_name") or "ناشناس")
-        hashtags = "\n".join(hayat_hashtags(post.get("category")))
+def content_label(content):
+    return "پیام حیاط خلوت" if content.get("content_type") == "hayat" else "آگهی ویترین"
 
+
+def content_preview_text(content):
+    if content.get("content_type") == "hayat":
+        city = content.get("city") or "ثبت نشده"
         return (
-            f"{category}\n\n"
-            "────────────────────\n\n"
-            f"{content}\n\n"
-            "────────────────────\n\n"
-            f"نویسنده: {display_name}\n\n"
-            f"{hashtags}\n\n"
-            "🦉 @VitrinSpainBot"
+            "پیش‌نمایش پیام ناشناس حیاط خلوت\n\n"
+            f"🆔 {content['human_id']}\n"
+            f"📍 شهر: {city}\n\n"
+            f"{SEPARATOR}\n\n"
+            f"{content.get('description') or '-'}\n\n"
+            f"{SEPARATOR}\n\n"
+            "هیچ نام کاربری، آیدی تلگرام یا لینک پروفایل منتشر نمی‌شود."
         )
 
-    hashtags = post_hashtags(post)
-    category = html.escape(category_label(clean_label(post.get("category")), clean_label(post.get("subcategory"))))
-    content = html.escape(post.get("content") or "")
-    city = html.escape(post.get("city") or "-")
-    display_name = linked_display_name(post)
-
+    price = content.get("price") or "توافقی / ثبت نشده"
+    media = "دارد" if content.get("media_file_id") else "ندارد"
     return (
-        f"🆔 {post['id']}\n\n"
+        "پیش‌نمایش آگهی ویترین\n\n"
+        f"🆔 {content['human_id']}\n"
+        f"📂 دسته: {content.get('category') or '-'}\n"
+        f"📍 شهر: {content.get('city') or '-'}\n"
+        f"🏷 عنوان: {content.get('title') or '-'}\n"
+        f"💶 قیمت: {price}\n"
+        f"🖼 رسانه: {media}\n\n"
+        f"{SEPARATOR}\n\n"
+        f"{content.get('description') or '-'}"
+    )
+
+
+def vitrin_channel_text(content):
+    hashtags = vitrin_hashtags(content)
+    price = content.get("price") or "توافقی"
+    return (
+        f"🟡 {html.escape(content.get('title') or 'آگهی ویترین')}\n\n"
         f"{hashtags}\n\n"
-        f"{category}\n\n"
+        f"📂 {html.escape(content.get('category') or '-')}\n"
+        f"📍 {html.escape(content.get('city') or '-')}\n"
+        f"💶 {html.escape(price)}\n\n"
         f"{SEPARATOR}\n\n"
-        f"📝 {content}\n\n"
+        f"{html.escape(content.get('description') or '')}\n\n"
         f"{SEPARATOR}\n\n"
-        f"📍 {city}\n"
-        f"👤 {display_name}\n"
-        f"🤖 @{BOT_USERNAME}"
+        f"🆔 {content['human_id']}\n"
+        f"🦉 @{BOT_USERNAME}"
     )
 
 
-def admin_post_text(post):
-    if post.get("post_type") == "hayat":
+def hayat_channel_text(content):
+    city = content.get("city")
+    city_line = f"\n📍 {html.escape(city)}\n" if city else "\n"
+    return (
+        "پیام ناشناس\n\n"
+        "────────────────────\n\n"
+        f"{html.escape(content.get('description') or '')}\n\n"
+        "────────────────────\n"
+        f"{city_line}"
+        "نویسنده: ناشناس\n\n"
+        f"{hayat_hashtags()}\n\n"
+        f"🦉 @{BOT_USERNAME}"
+    )
+
+
+def channel_post_text(content):
+    if content.get("content_type") == "hayat":
+        return hayat_channel_text(content)
+    return vitrin_channel_text(content)
+
+
+def admin_content_text(content):
+    if content.get("content_type") == "hayat":
         return (
-            "📥 پیام جدید حیاط خلوت\n\n"
-            f"🆔 ID: {post['id']}\n"
-            "نوع پست: hayat\n\n"
-            f"📂 دسته: {post.get('category') or '-'}\n\n"
+            "📥 بررسی پیام حیاط خلوت\n\n"
+            f"🆔 {content['human_id']}\n"
+            "نوع: hayat\n"
+            f"📍 شهر: {content.get('city') or 'ثبت نشده'}\n\n"
             f"{SEPARATOR}\n\n"
-            f"📝 {post.get('content') or '-'}\n\n"
-            f"{SEPARATOR}\n\n"
-            f"✍️ نویسنده: {post.get('display_name') or 'ناشناس'}"
+            f"{content.get('description') or '-'}"
         )
 
+    media = "دارد" if content.get("media_file_id") else "ندارد"
     return (
-        "📥 آگهی جدید\n\n"
-        f"🆔 ID: {post['id']}\n\n"
-        f"📂 {category_label(post['category'], post.get('subcategory'))}\n\n"
+        "📥 بررسی آگهی ویترین\n\n"
+        f"🆔 {content['human_id']}\n"
+        "نوع: vitrin\n"
+        f"📂 دسته: {content.get('category') or '-'}\n"
+        f"📍 شهر: {content.get('city') or '-'}\n"
+        f"🏷 عنوان: {content.get('title') or '-'}\n"
+        f"💶 قیمت: {content.get('price') or 'ثبت نشده'}\n"
+        f"🖼 رسانه: {media}\n\n"
         f"{SEPARATOR}\n\n"
-        f"📝 {post['content']}\n\n"
-        f"{SEPARATOR}\n\n"
-        f"📍 {post.get('city') or '-'}\n"
-        f"👤 {post.get('display_name') or '-'}\n"
-        f"🤖 @{BOT_USERNAME}\n\n"
-        f"تلگرام کاربر: {post.get('telegram_id') or '-'}"
+        f"{content.get('description') or '-'}"
     )
 
 
-def admin_keyboard(post_id):
+def draft_actions_keyboard(content):
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("✅ تایید انتشار", callback_data=f"admin:approve:{post_id}")],
-            [InlineKeyboardButton("📝 نیاز به ویرایش", callback_data=f"admin:need_edit:{post_id}")],
-            [InlineKeyboardButton("❌ حذف آگهی", callback_data=f"admin:delete:{post_id}")],
+            [InlineKeyboardButton("✏️ ادامه ویرایش", callback_data=f"draft:edit:{content['human_id']}")],
+            [InlineKeyboardButton("👁 پیش‌نمایش", callback_data=f"draft:preview:{content['human_id']}")],
+            [InlineKeyboardButton("📨 ارسال برای بررسی", callback_data=f"draft:submit:{content['human_id']}")],
+            [InlineKeyboardButton("🗄 آرشیو", callback_data=f"draft:archive:{content['human_id']}")],
         ]
     )
 
 
-def user_manage_keyboard(post_id, post_type="vitrin"):
-    edit_label = "✏️ ویرایش پیام" if post_type == "hayat" else "✏️ ویرایش آگهی"
-    delete_label = "🗑️ حذف پیام" if post_type == "hayat" else "🗑️ حذف آگهی"
-
+def preview_keyboard(content):
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(edit_label, callback_data=f"userpost:edit:{post_id}")],
-            [InlineKeyboardButton(delete_label, callback_data=f"userpost:delete:{post_id}")],
-            [InlineKeyboardButton(HOME_BUTTON, callback_data="userpost:home:0")],
+            [InlineKeyboardButton("✏️ ویرایش", callback_data=f"draft:edit:{content['human_id']}")],
+            [InlineKeyboardButton("🗄 حذف/آرشیو", callback_data=f"draft:archive:{content['human_id']}")],
+            [InlineKeyboardButton("📨 ارسال برای بررسی", callback_data=f"draft:submit:{content['human_id']}")],
+        ]
+    )
+
+
+def admin_review_keyboard(content_human_id):
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✅ Approve", callback_data=f"admin:approve:{content_human_id}")],
+            [InlineKeyboardButton("↩️ Needs Edit", callback_data=f"admin:need_edit:{content_human_id}")],
+            [InlineKeyboardButton("❌ Reject", callback_data=f"admin:reject:{content_human_id}")],
+            [InlineKeyboardButton("🗑 Delete", callback_data=f"admin:delete:{content_human_id}")],
+        ]
+    )
+
+
+def published_keyboard(content_human_id):
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("👍 پسندیدم", callback_data=f"pub:like:{content_human_id}"),
+                InlineKeyboardButton("👎 نپسندیدم", callback_data=f"pub:dislike:{content_human_id}"),
+            ],
+            [
+                InlineKeyboardButton("💬 ثبت نظر", callback_data=f"pub:comment:{content_human_id}"),
+                InlineKeyboardButton("مشاهده نظرات", callback_data=f"pub:comments:{content_human_id}"),
+            ],
+            [InlineKeyboardButton("🚩 گزارش", callback_data=f"pub:report:{content_human_id}")],
+        ]
+    )
+
+
+def admin_comment_keyboard(comment_human_id):
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✅ تایید نظر", callback_data=f"comment:approve:{comment_human_id}")],
+            [InlineKeyboardButton("❌ رد نظر", callback_data=f"comment:reject:{comment_human_id}")],
         ]
     )

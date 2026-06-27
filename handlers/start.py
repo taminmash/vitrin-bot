@@ -6,6 +6,7 @@ from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
+from database.db import get_or_create_user
 
 
 SEASONAL_BANNERS = {
@@ -106,30 +107,24 @@ def season_for_month(month):
     return "autumn"
 
 
-def build_welcome_text(now):
+def build_welcome_text(now, first_name=None):
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
 
     jalali_date = f"{jd} {JALALI_MONTHS_FA[jm]} {jy}"
     gregorian_date = f"{now.day} {GREGORIAN_MONTHS_FA[now.month]} {now.year}"
+    spain_time = now.strftime("%H:%M")
+    greeting_name = first_name or "دوست عزیز"
 
     return (
+        "Vitrin Spain OS\n\n"
+        f"سلام {greeting_name} 👋\n\n"
         f"📅 تاریخ شمسی: {jalali_date}\n"
         f"📅 تاریخ میلادی: {gregorian_date}\n"
-        "\n"
-        "💥اولین و کامل‌ترین مجموعه دیجیتالی اسپانیا برای همه فارسی‌زبانان💥\n\n"
-        "---\n\n"
-        "🔴 «ثبت آگهی در ویترین» و «پیام ناشناس در حیاط خلوت»:\n"
-        "@VitrinSpainBot\n\n"
-        "🟡کانـال ویتـریـن:\n"
-        "https://t.me/vitrinspain\n\n"
-        "🟣کانـال حیاط خلـوت:\n"
-        "https://t.me/hayatkhalvatspain\n\n"
-        "پشتیــHELPــبانی:\n"
-        "🆘 @VitrinSpainAdmin\n\n"
-        "---\n\n"
-        "⚠️ در حال حاضر بخش «ثبت آگهی در ویترین» و «ارسال پیام ناشناس در حیاط خلوت» فعال است.\n\n"
-        "سایر بخش‌ها در حال طراحی، توسعه و کدنویسی هستند و به‌زودی تکمیل خواهند شد.\n\n"
-        "از شکیبایی و همراهی شما سپاسگزاریم. ✨"
+        f"🕒 ساعت اسپانیا: {spain_time}\n\n"
+        "پشتیبانی:\n"
+        "🆘 @VitrinSpainAdmin\n"
+        "فنی: @Tamin.mashoori\n\n"
+        "از منوی زیر شروع کنید."
     )
 
 
@@ -152,10 +147,11 @@ async def send_start_banner(update: Update, season: str, caption: str):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    get_or_create_user(update.effective_user)
 
     now = datetime.now(ZoneInfo("Europe/Madrid"))
     season = season_for_month(now.month)
-    welcome_text = build_welcome_text(now)
+    welcome_text = build_welcome_text(now, update.effective_user.first_name)
 
     if not await send_start_banner(update, season, welcome_text):
         await update.message.reply_text(

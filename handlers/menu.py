@@ -12,7 +12,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    if "profile_step" in context.user_data or "post_step" in context.user_data:
+    if (
+        "profile_step" in context.user_data
+        or "post_step" in context.user_data
+        or "interaction_step" in context.user_data
+    ):
         return
 
     text = update.message.text
@@ -39,6 +43,10 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == MENU_HELP:
         await update.message.reply_text(
-            "برای ثبت آگهی، گزینه «ثبت آگهی در ویترین» را انتخاب کنید و مراحل را کامل کنید.",
+            "ℹ️ راهنما\n\n"
+            "برای ثبت آگهی، «ثبت آگهی در ویترین» را بزنید.\n"
+            "برای پیام ناشناس، «ثبت پیام ناشناس در حیاط خلوت» را بزنید.\n\n"
+            "قبل از ارسال، باید عضو کانال مربوطه باشید.\n"
+            "از «پروفایل من» می‌توانید draftها، موارد نیازمند ویرایش، pendingها و منتشرشده‌ها را ببینید.",
             reply_markup=home_keyboard(),
         )
