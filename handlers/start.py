@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -8,6 +9,8 @@ from telegram.ext import ContextTypes
 from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
 from database.db import get_or_create_user
 
+
+logger = logging.getLogger(__name__)
 
 SEASONAL_BANNERS = {
     "spring": Path("assets/spring.png"),
@@ -148,7 +151,10 @@ async def send_home_dashboard(update: Update):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    get_or_create_user(update.effective_user)
+    try:
+        get_or_create_user(update.effective_user)
+    except Exception:
+        logger.exception("Failed to create or update user on /start")
     await send_home_dashboard(update)
 
 
