@@ -89,4 +89,11 @@ SUBCATEGORIES = {
     ],
 }
 
-CATEGORY_OPTIONS = list(SUBCATEGORIES.keys())
+CATEGORY_OPTIONS = [
+    "🏠 املاک",
+    "💼 کار و استخدام",
+    "🛠 خدمات",
+    "🛍 خرید و فروش",
+    "🚚 ارسال بار",
+    "📦 سایر",
+]

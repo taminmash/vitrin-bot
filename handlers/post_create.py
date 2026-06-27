@@ -7,10 +7,10 @@ from config_v2 import (
     ADMIN_IDS,
     BACK_BUTTON,
     CATEGORY_OPTIONS,
+    CHANNEL_HAYAT,
     CHANNEL_HAYAT_LINK,
-    CHANNEL_HAYAT_USERNAME,
+    CHANNEL_VITRIN,
     CHANNEL_VITRIN_LINK,
-    CHANNEL_VITRIN_USERNAME,
     HOME_BUTTON,
 )
 from database.db import (
@@ -18,6 +18,7 @@ from database.db import (
     create_comment,
     create_content,
     create_report,
+    count_reactions,
     get_content,
     get_or_create_user,
     list_approved_comments,
@@ -30,12 +31,13 @@ from handlers.common import draft_actions_keyboard, list_keyboard, preview_keybo
 from handlers.start import MAIN_MENU
 
 
-SKIP_PRICE = "بدون قیمت"
-SKIP_MEDIA = "بدون عکس/ویدیو"
-SKIP_CITY = "بدون شهر"
+SKIP_PRICE = "ندارد"
+SKIP_MEDIA = "رد کردن"
+SKIP_CITY = "ندارد"
 CONFIRM_HAYAT = "تایید پیام"
 EDIT_HAYAT = "ویرایش پیام"
 ARCHIVE_HAYAT = "آرشیو پیام"
+REPORT_REASONS = ["اسپم", "محتوای نامناسب", "اطلاعات جعلی", "سایر"]
 CONTENT_RESTRICTION_WARNING = "⚠️ ارسال لینک و شماره تلفن در متن مجاز نمی‌باشد."
 TEXT_RESTRICTION_ERROR = (
     "❌ ارسال لینک، آیدی تلگرام یا شماره تلفن مجاز نمی‌باشد.\n\n"
@@ -47,14 +49,14 @@ PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+|00)?\d[\d\s().-]{7,}\d(?!\w)")
 
 
 STEP_PROMPTS = {
-    "vitrin_category": "📂 دسته آگهی را انتخاب کنید:",
-    "vitrin_city": "📍 شهر آگهی را وارد کنید:",
-    "vitrin_title": "🏷 عنوان آگهی را وارد کنید:",
-    "vitrin_description": f"📝 توضیحات آگهی را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
-    "vitrin_price": "💶 قیمت را وارد کنید یا «بدون قیمت» را بزنید:",
-    "vitrin_media": "🖼 عکس یا ویدیو را ارسال کنید یا «بدون عکس/ویدیو» را بزنید:",
-    "hayat_city": "📍 شهر را وارد کنید یا «بدون شهر» را بزنید:",
-    "hayat_message": f"📝 متن پیام ناشناس را وارد کنید:\n\n{CONTENT_RESTRICTION_WARNING}",
+    "vitrin_category": "دسته‌بندی آگهی را انتخاب کنید:",
+    "vitrin_city": "شهر را وارد کنید:\nExample: Madrid, Barcelona, Badajoz",
+    "vitrin_title": "عنوان آگهی را بنویسید.",
+    "vitrin_description": f"توضیحات آگهی را بنویسید.\n\n{CONTENT_RESTRICTION_WARNING}",
+    "vitrin_price": "قیمت را وارد کنید یا بنویسید «ندارد».",
+    "vitrin_media": "اگر عکس/ویدئو دارید ارسال کنید یا روی «رد کردن» بزنید.",
+    "hayat_city": "شهر را بنویسید یا «ندارد» بزنید.",
+    "hayat_message": f"متن پیام ناشناس خود را بنویسید.\n\n{CONTENT_RESTRICTION_WARNING}",
 }
 
 
@@ -109,7 +111,7 @@ def next_step(step):
 
 
 def missing_required_fields(content):
-    if content["content_type"] == "hayat":
+    if content["content_type"] in ("hayat", "hayat_message"):
         required = [("description", "متن پیام")]
     else:
         required = [
@@ -125,8 +127,8 @@ async def ensure_channel_membership(update: Update, context: ContextTypes.DEFAUL
     if is_admin_user(update):
         return True
 
-    channel = CHANNEL_HAYAT_USERNAME if content_type == "hayat" else CHANNEL_VITRIN_USERNAME
-    link = CHANNEL_HAYAT_LINK if content_type == "hayat" else CHANNEL_VITRIN_LINK
+    is_hayat = content_type in ("hayat", "hayat_message")
+    channel = CHANNEL_HAYAT if is_hayat else CHANNEL_VITRIN
     try:
         member = await context.bot.get_chat_member(channel, update.effective_user.id)
         if member.status in ("member", "administrator", "creator"):
@@ -134,10 +136,23 @@ async def ensure_channel_membership(update: Update, context: ContextTypes.DEFAUL
     except Exception:
         pass
 
+    if is_hayat:
+        message = (
+            "برای ثبت پیام ناشناس در حیاط خلوت، ابتدا باید عضو کانال حیاط خلوت شوید:\n\n"
+            "🟣 کانال حیاط خلوت:\n"
+            f"{CHANNEL_HAYAT_LINK}\n\n"
+            "بعد از عضویت، دوباره روی «ثبت پیام ناشناس در حیاط خلوت» بزنید."
+        )
+    else:
+        message = (
+            "برای ثبت آگهی در ویترین، ابتدا باید عضو کانال ویترین شوید:\n\n"
+            "🟡 کانال ویترین:\n"
+            f"{CHANNEL_VITRIN_LINK}\n\n"
+            "بعد از عضویت، دوباره روی «ثبت آگهی در ویترین» بزنید."
+        )
+
     await update.message.reply_text(
-        "برای ارسال محتوا ابتدا عضو کانال مربوطه شوید:\n\n"
-        f"{link}\n\n"
-        "بعد از عضویت، دوباره از منوی اصلی شروع کنید.",
+        message,
         reply_markup=MAIN_MENU,
         disable_web_page_preview=True,
     )
@@ -155,9 +170,9 @@ async def start_post(update: Update, context: ContextTypes.DEFAULT_TYPE, post_ty
         return
 
     get_or_create_user(update.effective_user)
-    content = create_content(update.effective_user.id, "vitrin")
+    content = create_content(update.effective_user.id, "vitrin_ad")
     context.user_data.clear()
-    context.user_data["flow"] = "vitrin"
+    context.user_data["flow"] = "vitrin_ad"
     context.user_data["content_id"] = content["human_id"]
     await send_step_prompt(update, context, "vitrin_category")
 
@@ -167,9 +182,9 @@ async def start_hayat_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     get_or_create_user(update.effective_user)
-    content = create_content(update.effective_user.id, "hayat")
+    content = create_content(update.effective_user.id, "hayat_message")
     context.user_data.clear()
-    context.user_data["flow"] = "hayat"
+    context.user_data["flow"] = "hayat_message"
     context.user_data["content_id"] = content["human_id"]
     await send_step_prompt(update, context, "hayat_city")
 
@@ -199,11 +214,11 @@ async def submit_content(update: Update, context: ContextTypes.DEFAULT_TYPE, con
 
     content = await submit_content_to_admin(context, content_id)
     context.user_data.clear()
-    label = "پیام" if content["content_type"] == "hayat" else "آگهی"
-    await update.message.reply_text(
-        f"✅ {label} شما برای بررسی ادمین ارسال شد.\n\n🆔 {content['human_id']}",
-        reply_markup=MAIN_MENU,
-    )
+    if content["content_type"] in ("hayat", "hayat_message"):
+        message = "پیام شما برای بررسی ادمین ارسال شد.\nپس از تأیید، در کانال حیاط خلوت منتشر می‌شود."
+    else:
+        message = "آگهی شما برای بررسی ادمین ارسال شد.\nپس از تأیید، در کانال ویترین منتشر می‌شود."
+    await update.message.reply_text(message, reply_markup=MAIN_MENU)
 
 
 async def handle_interaction_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -221,10 +236,13 @@ async def handle_interaction_text(update: Update, context: ContextTypes.DEFAULT_
         comment = create_comment(content_id, update.effective_user.id, text)
         context.user_data.clear()
         await send_comment_to_admin(context, comment)
-        await update.message.reply_text("✅ نظر شما ثبت شد و پس از تایید ادمین نمایش داده می‌شود.")
+        await update.message.reply_text("نظر شما برای بررسی ارسال شد.")
         return True
 
     if step == "report":
+        if text not in REPORT_REASONS:
+            await update.message.reply_text("لطفاً یکی از دلایل گزارش را انتخاب کنید.", reply_markup=list_keyboard(REPORT_REASONS))
+            return True
         report = create_report(content_id, update.effective_user.id, text)
         context.user_data.clear()
         await update.message.reply_text(f"✅ گزارش شما ثبت شد.\n\n🆔 {report['human_id']}")
@@ -371,6 +389,11 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("فقط صاحب محتوا می‌تواند این عملیات را انجام دهد.")
         return
 
+    if action == "home":
+        context.user_data.clear()
+        await query.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
+        return
+
     if action == "preview":
         await query.message.reply_text(content_preview_text(content), reply_markup=preview_keyboard(content))
         return
@@ -397,7 +420,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         context.user_data["content_id"] = content_id
         context.user_data["flow"] = content["content_type"]
-        if content["content_type"] == "hayat":
+        if content["content_type"] in ("hayat", "hayat_message"):
             await query.message.reply_text(STEP_PROMPTS["hayat_message"], reply_markup=step_keyboard("hayat_message"))
             context.user_data["post_step"] = "hayat_message"
         else:
@@ -419,7 +442,11 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if action in ("like", "dislike"):
         save_reaction(content_id, query.from_user.id, action)
-        await query.answer("رأی شما ثبت شد.", show_alert=False)
+        counts = count_reactions(content_id)
+        await query.answer(
+            f"نظر شما ثبت شد. 👍 {counts.get('like', 0)} | 👎 {counts.get('dislike', 0)}",
+            show_alert=False,
+        )
         return
 
     if action == "comment":
@@ -428,7 +455,7 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["interaction_content_id"] = content_id
         await context.bot.send_message(
             chat_id=query.from_user.id,
-            text=f"💬 نظر خود را برای {content_id} بنویسید:",
+            text="نظر خود را بنویسید:",
         )
         return
 
@@ -438,7 +465,8 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["interaction_content_id"] = content_id
         await context.bot.send_message(
             chat_id=query.from_user.id,
-            text=f"🚩 دلیل گزارش {content_id} را بنویسید:",
+            text="دلیل گزارش را انتخاب کنید:",
+            reply_markup=list_keyboard(REPORT_REASONS),
         )
         return
 

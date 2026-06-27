@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import logging
+import traceback
 
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
@@ -16,6 +17,18 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+FRIENDLY_ERROR = (
+    "مشکلی پیش آمد. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.\n"
+    "@VitrinSpainAdmin"
+)
+
+
+async def error_handler(update, context):
+    logging.error("Unhandled Telegram bot error: %s", context.error)
+    logging.error("".join(traceback.format_exception(None, context.error, context.error.__traceback__)))
+    if update and update.effective_chat:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=FRIENDLY_ERROR)
 
 
 def main():
@@ -41,6 +54,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, post_handler), group=1)
     app.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, post_handler), group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler), group=2)
+    app.add_error_handler(error_handler)
 
     logging.info("Vitrin Spain Bot started")
     app.run_polling()

@@ -2,7 +2,6 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config_v2 import HOME_BUTTON, MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
-from handlers.common import home_keyboard
 from handlers.post_create import start_hayat_post, start_post
 from handlers.profile import profile_start
 from handlers.start import MAIN_MENU
@@ -43,10 +42,14 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == MENU_HELP:
         await update.message.reply_text(
-            "ℹ️ راهنما\n\n"
-            "برای ثبت آگهی، «ثبت آگهی در ویترین» را بزنید.\n"
-            "برای پیام ناشناس، «ثبت پیام ناشناس در حیاط خلوت» را بزنید.\n\n"
-            "قبل از ارسال، باید عضو کانال مربوطه باشید.\n"
-            "از «پروفایل من» می‌توانید draftها، موارد نیازمند ویرایش، pendingها و منتشرشده‌ها را ببینید.",
-            reply_markup=home_keyboard(),
+            "ℹ️ راهنمای ویترین اسپانیا\n\n"
+            "🟡 ثبت آگهی در ویترین:\n"
+            "برای ثبت آگهی، روی دکمه «ثبت آگهی در ویترین» بزنید و مراحل را کامل کنید.\n\n"
+            "🟣 پیام ناشناس در حیاط خلوت:\n"
+            "برای ارسال پیام ناشناس، روی دکمه «ثبت پیام ناشناس در حیاط خلوت» بزنید.\n\n"
+            "👤 پروفایل من:\n"
+            "برای دیدن آگهی‌ها، پیش‌نویس‌ها و وضعیت ارسال‌ها.\n\n"
+            "🆘 پشتیبانی:\n"
+            "@VitrinSpainAdmin",
+            reply_markup=MAIN_MENU,
         )

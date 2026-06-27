@@ -116,16 +116,40 @@ def build_welcome_text(now, first_name=None):
     greeting_name = first_name or "دوست عزیز"
 
     return (
-        "Vitrin Spain OS\n\n"
-        f"سلام {greeting_name} 👋\n\n"
+        "🇪🇸 Vitrin Spain OS\n\n"
+        f"👋 سلام، {greeting_name}\n"
+        "خوش آمدی.\n\n"
         f"📅 تاریخ شمسی: {jalali_date}\n"
         f"📅 تاریخ میلادی: {gregorian_date}\n"
         f"🕒 ساعت اسپانیا: {spain_time}\n\n"
-        "پشتیبانی:\n"
-        "🆘 @VitrinSpainAdmin\n"
-        "فنی: @Tamin.mashoori\n\n"
-        "از منوی زیر شروع کنید."
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "💶 یورو: به‌زودی\n"
+        "💵 دلار: به‌زودی\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "✨ همه نیازها، در جامع‌ترین پلتفرم دیجیتال اسپانیا برای فارسی‌زبانان ✨\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "⚠️ در حال حاضر بخش «ثبت آگهی در ویترین» و «ثبت پیام ناشناس در حیاط خلوت» فعال است.\n\n"
+        "سایر بخش‌ها در حال طراحی، توسعه و کدنویسی هستند و به‌زودی تکمیل خواهند شد.\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🆘 پشتیبانی:\n"
+        "@VitrinSpainAdmin"
     )
+
+
+async def send_home_dashboard(update: Update):
+    now = datetime.now(ZoneInfo("Europe/Madrid"))
+    welcome_text = build_welcome_text(now, update.effective_user.first_name)
+    await update.message.reply_text(
+        welcome_text,
+        reply_markup=MAIN_MENU,
+        disable_web_page_preview=True,
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    get_or_create_user(update.effective_user)
+    await send_home_dashboard(update)
 
 
 async def send_start_banner(update: Update, season: str, caption: str):
@@ -143,19 +167,3 @@ async def send_start_banner(update: Update, season: str, caption: str):
         return True
     except Exception:
         return False
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    get_or_create_user(update.effective_user)
-
-    now = datetime.now(ZoneInfo("Europe/Madrid"))
-    season = season_for_month(now.month)
-    welcome_text = build_welcome_text(now, update.effective_user.first_name)
-
-    if not await send_start_banner(update, season, welcome_text):
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=MAIN_MENU,
-            disable_web_page_preview=True,
-        )

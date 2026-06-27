@@ -167,7 +167,7 @@ def init_db():
                 content_id UUID REFERENCES content_objects(internal_id),
                 user_telegram_id BIGINT NOT NULL,
                 body TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
+                status TEXT NOT NULL DEFAULT 'pending_review',
                 admin_telegram_id BIGINT,
                 reason TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -175,6 +175,7 @@ def init_db():
             )
             """
         )
+        cur.execute("ALTER TABLE comments ALTER COLUMN status SET DEFAULT 'pending_review'")
 
         cur.execute(
             """
@@ -287,8 +288,9 @@ def save_user_profile(user_id, display_name, city, username=None):
 
 def create_content(user_id, content_type):
     with db_cursor(dict_cursor=True) as (_, cur):
-        prefix = "MSG" if content_type == "hayat" else "CNT"
-        human_id = next_human_id(cur, prefix, "message_human_seq" if content_type == "hayat" else "content_human_seq")
+        prefix = "MSG" if content_type in ("hayat", "hayat_message") else "CNT"
+        sequence = "message_human_seq" if content_type in ("hayat", "hayat_message") else "content_human_seq"
+        human_id = next_human_id(cur, prefix, sequence)
         cur.execute(
             """
             INSERT INTO content_objects (human_id, user_telegram_id, content_type, status)
@@ -398,6 +400,21 @@ def list_user_content(user_id):
         return [dict(row) for row in cur.fetchall()]
 
 
+def count_user_content_by_status(user_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM content_objects
+            WHERE user_telegram_id = %s
+              AND status <> 'deleted'
+            GROUP BY status
+            """,
+            (user_id,),
+        )
+        return {row["status"]: row["count"] for row in cur.fetchall()}
+
+
 def list_pending_content():
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
@@ -437,7 +454,9 @@ def resolve_review(content_human_id, admin_id, action, reason=None):
     }
     content_status = status_by_action[action]
     content = update_content(content_human_id, status=content_status)
-    if action == "need_edit":
+    if action == "approve":
+        update_draft(content_human_id, status="published")
+    elif action == "need_edit":
         update_draft(content_human_id, status="needs_edit")
     elif action in ("reject", "delete"):
         update_draft(content_human_id, status=content_status)
@@ -510,7 +529,7 @@ def create_comment(content_human_id, user_id, body):
         cur.execute(
             """
             INSERT INTO comments (human_id, content_id, user_telegram_id, body, status)
-            VALUES (%s, %s, %s, %s, 'pending')
+            VALUES (%s, %s, %s, %s, 'pending_review')
             RETURNING *
             """,
             (human_id, content["internal_id"], user_id, body),
@@ -589,6 +608,26 @@ def save_reaction(content_human_id, user_id, reaction):
             (human_id, content["internal_id"], user_id, reaction),
         )
         return row_to_dict(cur.fetchone())
+
+
+def count_reactions(content_human_id):
+    content = get_content(content_human_id)
+    if not content:
+        return {"like": 0, "dislike": 0}
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT reaction, COUNT(*) AS count
+            FROM reactions
+            WHERE content_id = %s
+            GROUP BY reaction
+            """,
+            (content["internal_id"],),
+        )
+        counts = {"like": 0, "dislike": 0}
+        for row in cur.fetchall():
+            counts[row["reaction"]] = row["count"]
+        return counts
 
 
 def create_report(content_human_id, user_id, reason):

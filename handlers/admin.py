@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN
@@ -19,6 +19,20 @@ from handlers.common import (
     category_label,
     channel_post_text,
     published_keyboard,
+    is_hayat_content,
+)
+
+
+ADMIN_PENDING = "📥 موارد در انتظار بررسی"
+ADMIN_REPORTS = "🚩 گزارش‌ها"
+ADMIN_BACK = "🏠 بازگشت"
+ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton(ADMIN_PENDING)],
+        [KeyboardButton(ADMIN_REPORTS)],
+        [KeyboardButton(ADMIN_BACK)],
+    ],
+    resize_keyboard=True,
 )
 
 
@@ -56,7 +70,7 @@ async def send_comment_to_admin(context: ContextTypes.DEFAULT_TYPE, comment):
 
 
 async def publish_content(context: ContextTypes.DEFAULT_TYPE, content):
-    channel_id = CHANNEL_HAYAT if content["content_type"] == "hayat" else CHANNEL_VITRIN
+    channel_id = CHANNEL_HAYAT if is_hayat_content(content) else CHANNEL_VITRIN
     kwargs = {
         "chat_id": channel_id,
         "caption" if content.get("media_file_id") else "text": channel_post_text(content),
@@ -100,7 +114,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await publish_content(context, content)
         resolve_review(object_id, query.from_user.id, "approve")
-        label = "پیام" if content["content_type"] == "hayat" else "آگهی"
+        label = "پیام" if is_hayat_content(content) else "آگهی"
         await context.bot.send_message(
             chat_id=content["user_telegram_id"],
             text=f"✅ {label} شما تایید و منتشر شد.\n\n🆔 {content['human_id']}",
@@ -154,6 +168,24 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     if not update.message or not is_admin(update.effective_user.id):
         return
 
+    text = update.message.text
+    if context.user_data.get("admin_panel") and not (
+        context.user_data.get("admin_comment_reject_id")
+        or context.user_data.get("admin_reason_action")
+    ):
+        if text == ADMIN_PENDING:
+            await show_pending_admin_items(update)
+            return
+        if text == ADMIN_REPORTS:
+            await show_admin_reports(update)
+            return
+        if text == ADMIN_BACK:
+            context.user_data.pop("admin_panel", None)
+            from handlers.start import MAIN_MENU
+
+            await update.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
+            return
+
     comment_id = context.user_data.pop("admin_comment_reject_id", None)
     if comment_id:
         reason = update.message.text.strip()
@@ -173,7 +205,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     resolve_review(content_id, update.effective_user.id, action, reason)
-    label = "پیام" if content["content_type"] == "hayat" else "آگهی"
+    label = "پیام" if is_hayat_content(content) else "آگهی"
 
     if action == "need_edit":
         await context.bot.send_message(
@@ -211,13 +243,23 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not is_admin(update.effective_user.id):
+    if not update.message:
+        return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("شما دسترسی ادمین ندارید.")
         return
 
+    context.user_data["admin_panel"] = True
+    await update.message.reply_text(
+        "👨‍💼 پنل ادمین ویترین",
+        reply_markup=ADMIN_PANEL_KEYBOARD,
+    )
+
+
+async def show_pending_admin_items(update: Update):
     pending = list_pending_content()
-    reports = list_active_reports()
-    if not pending and not reports:
-        await update.message.reply_text("پنل ادمین: مورد فعالی برای بررسی وجود ندارد.")
+    if not pending:
+        await update.message.reply_text("موردی در انتظار بررسی وجود ندارد.", reply_markup=ADMIN_PANEL_KEYBOARD)
         return
 
     for content in pending:
@@ -226,9 +268,14 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=admin_review_keyboard(content["human_id"]),
         )
 
+
+async def show_admin_reports(update: Update):
+    reports = list_active_reports()
     if reports:
         text = "🚩 گزارش‌های فعال\n\n" + "\n".join(
             f"{report['human_id']} برای {report['content_human_id']}: {report['reason']}"
             for report in reports
         )
-        await update.message.reply_text(text)
+        await update.message.reply_text(text, reply_markup=ADMIN_PANEL_KEYBOARD)
+    else:
+        await update.message.reply_text("گزارش فعالی وجود ندارد.", reply_markup=ADMIN_PANEL_KEYBOARD)
