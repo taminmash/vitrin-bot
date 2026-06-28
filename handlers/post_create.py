@@ -12,6 +12,7 @@ from config_v2 import (
     CHANNEL_VITRIN,
     CHANNEL_VITRIN_LINK,
     HOME_BUTTON,
+    PAID_USER_IDS,
 )
 from database.db import (
     archive_content,
@@ -31,9 +32,10 @@ from handlers.common import draft_actions_keyboard, list_keyboard, preview_keybo
 from handlers.start import MAIN_MENU
 
 
-SKIP_PRICE = "ندارد"
-SKIP_MEDIA = "رد کردن"
 SKIP_CITY = "ندارد"
+SUBMIT_PREVIEW = "📤 ارسال برای بررسی"
+EDIT_PREVIEW = "✏️ ویرایش"
+DELETE_PREVIEW = "🗑 حذف"
 CONFIRM_HAYAT = "تایید پیام"
 EDIT_HAYAT = "ویرایش پیام"
 ARCHIVE_HAYAT = "آرشیو پیام"
@@ -53,8 +55,6 @@ STEP_PROMPTS = {
     "vitrin_city": "شهر را وارد کنید:\nExample: Madrid, Barcelona, Badajoz",
     "vitrin_title": "عنوان آگهی را بنویسید.",
     "vitrin_description": f"توضیحات آگهی را بنویسید.\n\n{CONTENT_RESTRICTION_WARNING}",
-    "vitrin_price": "قیمت را وارد کنید یا بنویسید «ندارد».",
-    "vitrin_media": "اگر عکس/ویدئو دارید ارسال کنید یا روی «رد کردن» بزنید.",
     "hayat_city": "شهر را بنویسید یا «ندارد» بزنید.",
     "hayat_message": f"متن پیام ناشناس خود را بنویسید.\n\n{CONTENT_RESTRICTION_WARNING}",
 }
@@ -62,6 +62,20 @@ STEP_PROMPTS = {
 
 def is_admin_user(update: Update):
     return bool(update.effective_user and update.effective_user.id in ADMIN_IDS)
+
+
+def can_send_restricted_content(update: Update):
+    return bool(
+        update.effective_user
+        and (update.effective_user.id in ADMIN_IDS or update.effective_user.id in PAID_USER_IDS)
+    )
+
+
+def preview_reply_keyboard():
+    return list_keyboard(
+        [SUBMIT_PREVIEW, EDIT_PREVIEW, DELETE_PREVIEW],
+        include_back=False,
+    )
 
 
 def has_phone_like_number(text: str):
@@ -83,10 +97,6 @@ def has_restricted_text_content(text: str):
 def step_keyboard(step):
     if step == "vitrin_category":
         return list_keyboard(CATEGORY_OPTIONS)
-    if step == "vitrin_price":
-        return list_keyboard([SKIP_PRICE])
-    if step == "vitrin_media":
-        return list_keyboard([SKIP_MEDIA])
     if step == "hayat_city":
         return list_keyboard([SKIP_CITY])
     return list_keyboard([])
@@ -98,8 +108,6 @@ def next_step(step):
         "vitrin_city",
         "vitrin_title",
         "vitrin_description",
-        "vitrin_price",
-        "vitrin_media",
     ]
     if step in order:
         index = order.index(step)
@@ -198,7 +206,7 @@ async def show_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, conte
     context.user_data["post_step"] = "preview"
     await update.message.reply_text(
         content_preview_text(content),
-        reply_markup=preview_keyboard(content),
+        reply_markup=preview_reply_keyboard(),
     )
 
 
@@ -263,6 +271,13 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "post_step" not in context.user_data:
         return
 
+    if (update.message.photo or update.message.video) and not can_send_restricted_content(update):
+        await update.message.reply_text(
+            "❌ ارسال تصویر یا ویدیو برای کاربران عادی مجاز نیست.\n\n"
+            "این امکان فقط برای پلن‌های شارژی فعال است."
+        )
+        return
+
     text = (update.message.text or "").strip()
     step = context.user_data["post_step"]
     content_id = context.user_data["content_id"]
@@ -272,7 +287,19 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == BACK_BUTTON:
-        await go_home(update, context)
+        previous_steps = {
+            "vitrin_city": "vitrin_category",
+            "vitrin_title": "vitrin_city",
+            "vitrin_description": "vitrin_title",
+            "preview": "vitrin_description",
+            "hayat_message": "hayat_city",
+            "hayat_confirm": "hayat_message",
+        }
+        previous_step = previous_steps.get(step)
+        if previous_step:
+            await send_step_prompt(update, context, previous_step)
+        else:
+            await go_home(update, context)
         return
 
     content = get_content(content_id)
@@ -298,6 +325,9 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if step == "vitrin_title":
+        if not can_send_restricted_content(update) and has_restricted_text_content(text):
+            await update.message.reply_text(TEXT_RESTRICTION_ERROR)
+            return
         if len(text) < 3:
             await update.message.reply_text("عنوان باید حداقل ۳ حرف باشد.")
             return
@@ -306,36 +336,14 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if step == "vitrin_description":
-        if not is_admin_user(update) and has_restricted_text_content(text):
+        if not can_send_restricted_content(update) and has_restricted_text_content(text):
             await update.message.reply_text(TEXT_RESTRICTION_ERROR)
             return
         if len(text) < 10:
             await update.message.reply_text("توضیحات آگهی خیلی کوتاه است.")
             return
-        update_content(content_id, description=text)
-        await send_step_prompt(update, context, "vitrin_price")
-        return
-
-    if step == "vitrin_price":
-        update_content(content_id, price=None if text == SKIP_PRICE else text)
-        await send_step_prompt(update, context, "vitrin_media")
-        return
-
-    if step == "vitrin_media":
-        if update.message.photo:
-            file_id = update.message.photo[-1].file_id
-            content = update_content(content_id, media_file_id=file_id, media_type="photo")
-            await show_preview(update, context, content)
-            return
-        if update.message.video:
-            content = update_content(content_id, media_file_id=update.message.video.file_id, media_type="video")
-            await show_preview(update, context, content)
-            return
-        if text == SKIP_MEDIA:
-            content = update_content(content_id)
-            await show_preview(update, context, content)
-            return
-        await update.message.reply_text("لطفاً عکس/ویدیو بفرستید یا «بدون عکس/ویدیو» را انتخاب کنید.")
+        content = update_content(content_id, description=text)
+        await show_preview(update, context, content)
         return
 
     if step == "hayat_city":
@@ -344,7 +352,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if step == "hayat_message":
-        if not is_admin_user(update) and has_restricted_text_content(text):
+        if not can_send_restricted_content(update) and has_restricted_text_content(text):
             await update.message.reply_text(TEXT_RESTRICTION_ERROR)
             return
         if len(text) < 5:
@@ -371,6 +379,25 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("🗄 پیام آرشیو شد.", reply_markup=MAIN_MENU)
             return
         await update.message.reply_text("لطفاً یکی از گزینه‌های تایید، ویرایش یا آرشیو را انتخاب کنید.")
+        return
+
+    if step == "preview":
+        if text == SUBMIT_PREVIEW:
+            await submit_content(update, context, content_id)
+            return
+        if text == EDIT_PREVIEW:
+            await update.message.reply_text(content_preview_text(content))
+            if content["content_type"] in ("hayat", "hayat_message"):
+                await send_step_prompt(update, context, "hayat_message")
+            else:
+                await send_step_prompt(update, context, "vitrin_title")
+            return
+        if text == DELETE_PREVIEW:
+            archive_content(content_id, update.effective_user.id)
+            context.user_data.clear()
+            await update.message.reply_text("🗑 آگهی حذف شد.", reply_markup=MAIN_MENU)
+            return
+        await update.message.reply_text("لطفاً یکی از گزینه‌های پیش‌نمایش را انتخاب کنید.", reply_markup=preview_reply_keyboard())
 
 
 async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -420,6 +447,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         context.user_data["content_id"] = content_id
         context.user_data["flow"] = content["content_type"]
+        await query.message.reply_text(content_preview_text(content))
         if content["content_type"] in ("hayat", "hayat_message"):
             await query.message.reply_text(STEP_PROMPTS["hayat_message"], reply_markup=step_keyboard("hayat_message"))
             context.user_data["post_step"] = "hayat_message"

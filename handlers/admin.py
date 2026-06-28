@@ -1,7 +1,7 @@
 from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN
+from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
 from database.db import (
     get_comment,
     get_content,
@@ -20,6 +20,8 @@ from handlers.common import (
     channel_post_text,
     published_keyboard,
     is_hayat_content,
+    need_edit_keyboard,
+    need_edit_text,
 )
 
 
@@ -37,7 +39,7 @@ ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
 
 
 def is_admin(user_id):
-    return user_id in ADMIN_IDS
+    return user_id in ADMIN_IDS or user_id in TECH_SUPPORT_IDS
 
 
 async def send_content_to_admin(context: ContextTypes.DEFAULT_TYPE, content):
@@ -210,11 +212,8 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     if action == "need_edit":
         await context.bot.send_message(
             chat_id=content["user_telegram_id"],
-            text=(
-                f"↩️ {label} شما نیاز به ویرایش دارد.\n\n"
-                f"🆔 {content['human_id']}\n\n"
-                f"دلیل ادمین:\n{reason}"
-            ),
+            text=need_edit_text(content, reason),
+            reply_markup=need_edit_keyboard(content),
         )
         await update.message.reply_text(f"✅ {content_id} به draft برگشت.")
         return

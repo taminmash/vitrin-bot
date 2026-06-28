@@ -81,29 +81,23 @@ def content_preview_text(content):
             "⚠️ نام، یوزرنیم، آیدی تلگرام و لینک پروفایل شما منتشر نمی‌شود."
         )
 
-    price = content.get("price") or "توافقی / ثبت نشده"
-    media = "دارد" if content.get("media_file_id") else "ندارد"
     return (
         "پیش‌نمایش آگهی شما:\n\n"
         "🟡 ویترین اسپانیا\n\n"
         f"📌 دسته‌بندی: {content.get('category') or '-'}\n"
         f"📍 شهر: {content.get('city') or '-'}\n"
         f"🏷 عنوان: {content.get('title') or '-'}\n"
-        f"📝 توضیحات: {content.get('description') or '-'}\n"
-        f"💶 قیمت: {price}\n"
-        f"🖼 رسانه: {media}"
+        f"📝 توضیحات: {content.get('description') or '-'}"
     )
 
 
 def vitrin_channel_text(content):
-    price = content.get("price") or "ندارد"
     return (
         "🟡 ویترین اسپانیا\n\n"
         f"📌 دسته‌بندی: {html.escape(content.get('category') or '-')}\n"
         f"📍 شهر: {html.escape(content.get('city') or '-')}\n"
         f"🏷 عنوان: {html.escape(content.get('title') or '-')}\n"
-        f"📝 توضیحات: {html.escape(content.get('description') or '')}\n"
-        f"💶 قیمت: {html.escape(price)}\n\n"
+        f"📝 توضیحات: {html.escape(content.get('description') or '')}\n\n"
         "شناسه آگهی:\n"
         f"{content['human_id']}"
     )
@@ -137,18 +131,35 @@ def admin_content_text(content):
             f"{content.get('description') or '-'}"
         )
 
-    media = "دارد" if content.get("media_file_id") else "ندارد"
     return (
         "📥 بررسی آگهی ویترین\n\n"
         f"🆔 {content['human_id']}\n"
         "نوع: vitrin\n"
         f"📂 دسته: {content.get('category') or '-'}\n"
         f"📍 شهر: {content.get('city') or '-'}\n"
-        f"🏷 عنوان: {content.get('title') or '-'}\n"
-        f"💶 قیمت: {content.get('price') or 'ثبت نشده'}\n"
-        f"🖼 رسانه: {media}\n\n"
+        f"🏷 عنوان: {content.get('title') or '-'}\n\n"
         f"{SEPARATOR}\n\n"
         f"{content.get('description') or '-'}"
+    )
+
+
+def need_edit_text(content, reason):
+    return (
+        "✏️ درخواست ویرایش آگهی\n\n"
+        f"{content_preview_text(content)}\n\n"
+        f"{SEPARATOR}\n\n"
+        "✏️ دلیل ویرایش:\n"
+        f"{reason}"
+    )
+
+
+def need_edit_keyboard(content):
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✏️ ویرایش آگهی", callback_data=f"draft:edit:{content['human_id']}")],
+            [InlineKeyboardButton("🗑 حذف آگهی", callback_data=f"draft:archive:{content['human_id']}")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data=f"draft:home:{content['human_id']}")],
+        ]
     )
 
 

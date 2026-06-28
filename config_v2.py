@@ -15,6 +15,7 @@ def parse_int(value, fallback):
 
 
 ADMIN_IDS = parse_int_list(os.getenv("ADMIN_USER_IDS"), [8747305714])
+PAID_USER_IDS = parse_int_list(os.getenv("PAID_USER_IDS"), [])
 
 TECH_SUPPORT_IDS = [
     41792255,
