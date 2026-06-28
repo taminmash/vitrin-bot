@@ -45,6 +45,23 @@ def column_exists(cur, table_name, column_name):
     return cur.fetchone() is not None
 
 
+def column_data_type(cur, table_name, column_name):
+    cur.execute(
+        """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = %s
+          AND column_name = %s
+        """,
+        (table_name, column_name),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return row["data_type"] if isinstance(row, dict) else row[0]
+
+
 def ensure_column(cur, table_name, column_name, column_definition, default_sql=None):
     if not column_exists(cur, table_name, column_name):
         cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
@@ -82,9 +99,19 @@ def init_db():
         )
         ensure_column(cur, "users", "internal_id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
         ensure_column(cur, "users", "human_id", "TEXT")
+        ensure_column(cur, "users", "telegram_id", "BIGINT")
         ensure_column(cur, "users", "first_name", "TEXT")
         ensure_column(cur, "users", "status", "TEXT DEFAULT 'active'", "'active'")
         ensure_column(cur, "users", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        if column_data_type(cur, "users", "id") in ("bigint", "integer"):
+            cur.execute("UPDATE users SET telegram_id = id WHERE telegram_id IS NULL")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS users_telegram_id_unique
+            ON users (telegram_id)
+            WHERE telegram_id IS NOT NULL
+            """
+        )
 
         cur.execute(
             """
@@ -327,46 +354,72 @@ def init_db():
 
 
 def next_human_id(cur, prefix, sequence_name):
-    cur.execute("SELECT nextval(%s)", (sequence_name,))
-    return f"{prefix}-{cur.fetchone()[0]:06d}"
+    cur.execute("SELECT nextval(%s) AS value", (sequence_name,))
+    row = cur.fetchone()
+    value = row["value"] if isinstance(row, dict) else row[0]
+    return f"{prefix}-{value:06d}"
 
 
 def get_or_create_user(tg_user):
     with db_cursor(dict_cursor=True) as (_, cur):
-        cur.execute("SELECT * FROM users WHERE id = %s", (tg_user.id,))
+        id_type = column_data_type(cur, "users", "id")
+        has_numeric_id = id_type in ("bigint", "integer")
+
+        cur.execute("SELECT * FROM users WHERE telegram_id = %s", (tg_user.id,))
         row = cur.fetchone()
+        legacy_id_match = False
+        if not row and has_numeric_id:
+            cur.execute("SELECT * FROM users WHERE id = %s", (tg_user.id,))
+            row = cur.fetchone()
+            legacy_id_match = row is not None
+
         if row:
             human_id = row.get("human_id") or next_human_id(cur, "USR", "user_human_seq")
+            if legacy_id_match:
+                where_clause = "id = %s"
+            else:
+                where_clause = "telegram_id = %s"
             cur.execute(
-                """
+                f"""
                 UPDATE users
                 SET human_id = COALESCE(human_id, %s),
+                    telegram_id = %s,
                     username = %s,
                     first_name = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
+                WHERE {where_clause}
                 RETURNING *
                 """,
-                (human_id, tg_user.username, tg_user.first_name, tg_user.id),
+                (human_id, tg_user.id, tg_user.username, tg_user.first_name, tg_user.id),
             )
             return row_to_dict(cur.fetchone())
 
         human_id = next_human_id(cur, "USR", "user_human_seq")
         display_name = tg_user.full_name or tg_user.first_name or "کاربر"
-        cur.execute(
-            """
-            INSERT INTO users (id, human_id, display_name, username, first_name)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING *
-            """,
-            (tg_user.id, human_id, display_name, tg_user.username, tg_user.first_name),
-        )
+        if has_numeric_id:
+            cur.execute(
+                """
+                INSERT INTO users (id, telegram_id, human_id, display_name, username, first_name)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (tg_user.id, tg_user.id, human_id, display_name, tg_user.username, tg_user.first_name),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO users (telegram_id, human_id, display_name, username, first_name)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (tg_user.id, human_id, display_name, tg_user.username, tg_user.first_name),
+            )
         return row_to_dict(cur.fetchone())
 
 
 def get_user_profile(user_id):
     with db_cursor() as (_, cur):
-        cur.execute("SELECT display_name, city FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT display_name, city FROM users WHERE telegram_id = %s", (user_id,))
         row = cur.fetchone()
         if row and row[0] and row[1]:
             return row[0], row[1]
@@ -374,19 +427,23 @@ def get_user_profile(user_id):
 
 
 def save_user_profile(user_id, display_name, city, username=None):
+    existing = get_or_create_user(type("TelegramUser", (), {
+        "id": user_id,
+        "username": username,
+        "first_name": display_name,
+        "full_name": display_name,
+    })())
     with db_cursor() as (_, cur):
         cur.execute(
             """
-            INSERT INTO users (id, human_id, display_name, city, username)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE
-            SET human_id = COALESCE(users.human_id, EXCLUDED.human_id),
-                display_name = EXCLUDED.display_name,
-                city = EXCLUDED.city,
-                username = EXCLUDED.username,
+            UPDATE users
+            SET display_name = %s,
+                city = %s,
+                username = %s,
                 updated_at = CURRENT_TIMESTAMP
+            WHERE telegram_id = %s
             """,
-            (user_id, next_human_id(cur, "USR", "user_human_seq"), display_name, city, username),
+            (display_name, city, username, existing["telegram_id"] or user_id),
         )
 
 
