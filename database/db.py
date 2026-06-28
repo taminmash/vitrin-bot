@@ -653,6 +653,7 @@ def save_publication(content_human_id, channel_id, message_id):
             """,
             (human_id, content["internal_id"], channel_id, message_id),
         )
+        publication = row_to_dict(cur.fetchone())
         cur.execute(
             """
             UPDATE content_objects
@@ -664,7 +665,7 @@ def save_publication(content_human_id, channel_id, message_id):
             """,
             (channel_id, message_id, content["internal_id"]),
         )
-        return row_to_dict(cur.fetchone())
+        return publication
 
 
 def archive_content(content_human_id, user_id):

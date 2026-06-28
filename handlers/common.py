@@ -86,7 +86,6 @@ def content_preview_text(content):
         "🟡 ویترین اسپانیا\n\n"
         f"📌 دسته‌بندی: {content.get('category') or '-'}\n"
         f"📍 شهر: {content.get('city') or '-'}\n"
-        f"🏷 عنوان: {content.get('title') or '-'}\n"
         f"📝 توضیحات: {content.get('description') or '-'}"
     )
 
@@ -96,7 +95,6 @@ def vitrin_channel_text(content):
         "🟡 ویترین اسپانیا\n\n"
         f"📌 دسته‌بندی: {html.escape(content.get('category') or '-')}\n"
         f"📍 شهر: {html.escape(content.get('city') or '-')}\n"
-        f"🏷 عنوان: {html.escape(content.get('title') or '-')}\n"
         f"📝 توضیحات: {html.escape(content.get('description') or '')}\n\n"
         "شناسه آگهی:\n"
         f"{content['human_id']}"
@@ -136,8 +134,7 @@ def admin_content_text(content):
         f"🆔 {content['human_id']}\n"
         "نوع: vitrin\n"
         f"📂 دسته: {content.get('category') or '-'}\n"
-        f"📍 شهر: {content.get('city') or '-'}\n"
-        f"🏷 عنوان: {content.get('title') or '-'}\n\n"
+        f"📍 شهر: {content.get('city') or '-'}\n\n"
         f"{SEPARATOR}\n\n"
         f"{content.get('description') or '-'}"
     )

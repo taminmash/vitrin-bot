@@ -53,7 +53,6 @@ PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+|00)?\d[\d\s().-]{7,}\d(?!\w)")
 STEP_PROMPTS = {
     "vitrin_category": "دسته‌بندی آگهی را انتخاب کنید:",
     "vitrin_city": "شهر را وارد کنید:\nExample: Madrid, Barcelona, Badajoz",
-    "vitrin_title": "عنوان آگهی را بنویسید.",
     "vitrin_description": f"توضیحات آگهی را بنویسید.\n\n{CONTENT_RESTRICTION_WARNING}",
     "hayat_city": "شهر را بنویسید یا «ندارد» بزنید.",
     "hayat_message": f"متن پیام ناشناس خود را بنویسید.\n\n{CONTENT_RESTRICTION_WARNING}",
@@ -106,7 +105,6 @@ def next_step(step):
     order = [
         "vitrin_category",
         "vitrin_city",
-        "vitrin_title",
         "vitrin_description",
     ]
     if step in order:
@@ -125,7 +123,6 @@ def missing_required_fields(content):
         required = [
             ("category", "دسته"),
             ("city", "شهر"),
-            ("title", "عنوان"),
             ("description", "توضیحات"),
         ]
     return [label for key, label in required if not content.get(key)]
@@ -289,8 +286,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == BACK_BUTTON:
         previous_steps = {
             "vitrin_city": "vitrin_category",
-            "vitrin_title": "vitrin_city",
-            "vitrin_description": "vitrin_title",
+            "vitrin_description": "vitrin_city",
             "preview": "vitrin_description",
             "hayat_message": "hayat_city",
             "hayat_confirm": "hayat_message",
@@ -321,17 +317,6 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("نام شهر باید حداقل ۲ حرف باشد.")
             return
         update_content(content_id, city=text)
-        await send_step_prompt(update, context, "vitrin_title")
-        return
-
-    if step == "vitrin_title":
-        if not can_send_restricted_content(update) and has_restricted_text_content(text):
-            await update.message.reply_text(TEXT_RESTRICTION_ERROR)
-            return
-        if len(text) < 3:
-            await update.message.reply_text("عنوان باید حداقل ۳ حرف باشد.")
-            return
-        update_content(content_id, title=text)
         await send_step_prompt(update, context, "vitrin_description")
         return
 
@@ -390,7 +375,7 @@ async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if content["content_type"] in ("hayat", "hayat_message"):
                 await send_step_prompt(update, context, "hayat_message")
             else:
-                await send_step_prompt(update, context, "vitrin_title")
+                await send_step_prompt(update, context, "vitrin_description")
             return
         if text == DELETE_PREVIEW:
             archive_content(content_id, update.effective_user.id)
@@ -452,8 +437,8 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(STEP_PROMPTS["hayat_message"], reply_markup=step_keyboard("hayat_message"))
             context.user_data["post_step"] = "hayat_message"
         else:
-            await query.message.reply_text(STEP_PROMPTS["vitrin_title"], reply_markup=step_keyboard("vitrin_title"))
-            context.user_data["post_step"] = "vitrin_title"
+            await query.message.reply_text(STEP_PROMPTS["vitrin_description"], reply_markup=step_keyboard("vitrin_description"))
+            context.user_data["post_step"] = "vitrin_description"
 
 
 async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
