@@ -193,12 +193,18 @@ def admin_review_keyboard(content_human_id):
     )
 
 
-def published_keyboard(content_human_id):
+def published_keyboard(content_human_id, reaction_counts=None):
+    like_label = "👍 پسندیدم"
+    dislike_label = "👎 نپسندیدم"
+    if reaction_counts:
+        like_label = f"{like_label} ({reaction_counts.get('like', 0)})"
+        dislike_label = f"{dislike_label} ({reaction_counts.get('dislike', 0)})"
+
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("👍 پسندیدم", callback_data=f"pub:like:{content_human_id}"),
-                InlineKeyboardButton("👎 نپسندیدم", callback_data=f"pub:dislike:{content_human_id}"),
+                InlineKeyboardButton(like_label, callback_data=f"pub:like:{content_human_id}"),
+                InlineKeyboardButton(dislike_label, callback_data=f"pub:dislike:{content_human_id}"),
             ],
             [
                 InlineKeyboardButton("💬 ثبت نظر", callback_data=f"pub:comment:{content_human_id}"),
