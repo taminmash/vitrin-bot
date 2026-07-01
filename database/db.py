@@ -369,6 +369,12 @@ def init_db():
         ensure_column(cur, "reactions", "reaction", "TEXT")
         ensure_column(cur, "reactions", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         ensure_column(cur, "reactions", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS reactions_content_user_unique
+            ON reactions (content_id, user_telegram_id)
+            """
+        )
 
         cur.execute(
             """

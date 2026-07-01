@@ -1,6 +1,7 @@
 import re
 
 from telegram import Update
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 from config_v2 import (
@@ -28,7 +29,7 @@ from database.db import (
     update_draft,
 )
 from handlers.admin import send_comment_to_admin, submit_content_to_admin
-from handlers.common import draft_actions_keyboard, list_keyboard, preview_keyboard, content_preview_text
+from handlers.common import draft_actions_keyboard, list_keyboard, preview_keyboard, content_preview_text, published_keyboard
 from handlers.start import MAIN_MENU
 
 
@@ -256,6 +257,18 @@ async def handle_interaction_text(update: Update, context: ContextTypes.DEFAULT_
     return False
 
 
+async def send_private_interaction_message(query, context, text, reply_markup=None):
+    try:
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        return True
+    except TelegramError:
+        return False
+
+
 async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
@@ -446,7 +459,6 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not query:
         return
 
-    await query.answer()
     _, action, content_id = query.data.split(":")
     content = get_content(content_id)
     if not content:
@@ -456,9 +468,13 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if action in ("like", "dislike"):
         save_reaction(content_id, query.from_user.id, action)
         counts = count_reactions(content_id)
+        try:
+            await query.edit_message_reply_markup(reply_markup=published_keyboard(content_id, counts))
+        except BadRequest:
+            pass
         await query.answer(
             f"نظر شما ثبت شد. 👍 {counts.get('like', 0)} | 👎 {counts.get('dislike', 0)}",
-            show_alert=False,
+            show_alert=True,
         )
         return
 
@@ -466,19 +482,19 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.clear()
         context.user_data["interaction_step"] = "comment"
         context.user_data["interaction_content_id"] = content_id
-        await context.bot.send_message(
-            chat_id=query.from_user.id,
-            text="نظر خود را بنویسید:",
-        )
+        await query.answer("پیام ثبت نظر در چت خصوصی بات ارسال می‌شود. اگر پیامی ندیدید، اول @VitrinSpainBot را استارت کنید.", show_alert=True)
+        await send_private_interaction_message(query, context, "نظر خود را بنویسید:")
         return
 
     if action == "report":
         context.user_data.clear()
         context.user_data["interaction_step"] = "report"
         context.user_data["interaction_content_id"] = content_id
-        await context.bot.send_message(
-            chat_id=query.from_user.id,
-            text="دلیل گزارش را انتخاب کنید:",
+        await query.answer("پیام گزارش در چت خصوصی بات ارسال می‌شود. اگر پیامی ندیدید، اول @VitrinSpainBot را استارت کنید.", show_alert=True)
+        await send_private_interaction_message(
+            query,
+            context,
+            "دلیل گزارش را انتخاب کنید:",
             reply_markup=list_keyboard(REPORT_REASONS),
         )
         return
@@ -486,12 +502,14 @@ async def published_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if action == "comments":
         comments = list_approved_comments(content_id)
         if not comments:
-            await context.bot.send_message(chat_id=query.from_user.id, text="هنوز نظری تایید نشده است.")
+            await query.answer("وضعیت نظرات در چت خصوصی بات ارسال می‌شود. اگر پیامی ندیدید، اول @VitrinSpainBot را استارت کنید.", show_alert=True)
+            await send_private_interaction_message(query, context, "هنوز نظری تایید نشده است.")
             return
         text = "💬 نظرات تاییدشده\n\n" + "\n\n".join(
             f"{comment['human_id']}:\n{comment['body']}" for comment in comments
         )
-        await context.bot.send_message(chat_id=query.from_user.id, text=text)
+        await query.answer("نظرات در چت خصوصی بات ارسال می‌شود. اگر پیامی ندیدید، اول @VitrinSpainBot را استارت کنید.", show_alert=True)
+        await send_private_interaction_message(query, context, text)
 
 
 async def user_post_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
