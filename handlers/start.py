@@ -3,11 +3,11 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from telegram import ReplyKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
-from database.db import get_or_create_user
+from database.db import count_today_dashboard_items, get_or_create_user
 
 
 logger = logging.getLogger(__name__)
@@ -19,85 +19,31 @@ SEASONAL_BANNERS = {
     "winter": Path("assets/winter.png"),
 }
 
-MAIN_MENU = ReplyKeyboardMarkup(
+MENU_RADAR = "📡 رادار اسپانیا"
+MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
+MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس حیاط خلوت"
+
+DEMO_DASHBOARD_COUNTS = {
+    "jobs": 3,
+    "discounts": 5,
+    "events": 2,
+    "radar": 4,
+    "alerts": 1,
+}
+
+MAIN_MENU = InlineKeyboardMarkup(
     [
-        [MENU_CREATE_VITRIN],
-        [MENU_CREATE_HAYAT],
-        [MENU_PROFILE, MENU_HELP],
-    ],
-    resize_keyboard=True,
+        [
+            InlineKeyboardButton(MENU_CREATE_VITRIN_DASHBOARD, callback_data="home:create_vitrin"),
+            InlineKeyboardButton(MENU_CREATE_HAYAT_DASHBOARD, callback_data="home:create_hayat"),
+        ],
+        [InlineKeyboardButton(MENU_RADAR, callback_data="radar:open")],
+        [
+            InlineKeyboardButton(MENU_HELP, callback_data="home:help"),
+            InlineKeyboardButton(MENU_PROFILE, callback_data="home:profile"),
+        ],
+    ]
 )
-
-GREGORIAN_MONTHS_FA = {
-    1: "ژانویه",
-    2: "فوریه",
-    3: "مارس",
-    4: "آوریل",
-    5: "مه",
-    6: "ژوئن",
-    7: "ژوئیه",
-    8: "اوت",
-    9: "سپتامبر",
-    10: "اکتبر",
-    11: "نوامبر",
-    12: "دسامبر",
-}
-
-JALALI_MONTHS_FA = {
-    1: "فروردین",
-    2: "اردیبهشت",
-    3: "خرداد",
-    4: "تیر",
-    5: "مرداد",
-    6: "شهریور",
-    7: "مهر",
-    8: "آبان",
-    9: "آذر",
-    10: "دی",
-    11: "بهمن",
-    12: "اسفند",
-}
-
-SEASON_GREETINGS = {
-    "winter": "زمستانتان گرم و پرامید",
-    "spring": "بهارتان تازه و پرخبرهای خوب",
-    "summer": "تابستانتان روشن و پرانرژی",
-    "autumn": "پاییزتان آرام و پربرکت",
-}
-
-
-def gregorian_to_jalali(gy, gm, gd):
-    g_days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    j_days_in_month = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29]
-
-    gy -= 1600
-    gm -= 1
-    gd -= 1
-
-    g_day_no = 365 * gy + (gy + 3) // 4 - (gy + 99) // 100 + (gy + 399) // 400
-    for i in range(gm):
-        g_day_no += g_days_in_month[i]
-    if gm > 1 and ((gy + 1600) % 4 == 0 and ((gy + 1600) % 100 != 0 or (gy + 1600) % 400 == 0)):
-        g_day_no += 1
-    g_day_no += gd
-
-    j_day_no = g_day_no - 79
-    j_np = j_day_no // 12053
-    j_day_no %= 12053
-
-    jy = 979 + 33 * j_np + 4 * (j_day_no // 1461)
-    j_day_no %= 1461
-
-    if j_day_no >= 366:
-        jy += (j_day_no - 1) // 365
-        j_day_no = (j_day_no - 1) % 365
-
-    jm = 0
-    while jm < 11 and j_day_no >= j_days_in_month[jm]:
-        j_day_no -= j_days_in_month[jm]
-        jm += 1
-
-    return jy, jm + 1, j_day_no + 1
 
 
 def season_for_month(month):
@@ -110,41 +56,34 @@ def season_for_month(month):
     return "autumn"
 
 
-def build_welcome_text(now, first_name=None):
-    jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
-    iran_now = now.astimezone(ZoneInfo("Asia/Tehran"))
+def dashboard_counts():
+    try:
+        counts = count_today_dashboard_items()
+    except Exception:
+        logger.exception("Failed to load dashboard counts")
+        counts = {}
+    return {**DEMO_DASHBOARD_COUNTS, **{key: value for key, value in counts.items() if value}}
 
-    jalali_date = f"{jd} {JALALI_MONTHS_FA[jm]} {jy}"
-    gregorian_date = f"{now.day} {GREGORIAN_MONTHS_FA[now.month]} {now.year}"
-    spain_time = now.strftime("%H:%M")
-    iran_time = iran_now.strftime("%H:%M")
-    greeting_name = first_name or "دوست عزیز"
+
+def build_welcome_text(now, first_name=None):
+    counts = dashboard_counts()
+    updated_at = now.strftime("%H:%M")
 
     return (
-        "🇪🇸 Vitrin Spain OS\n\n"
-        f"👋 سلام، {greeting_name}\n"
-        "خوش آمدی.\n\n"
-        f"📅 تاریخ میلادی: {gregorian_date}\n"
-        f"📅 تاریخ شمسی: {jalali_date}\n\n"
-        f"🕒 ساعت اسپانیا: {spain_time}\n"
-        f"🕒 ساعت ایران: {iran_time}\n\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "💶 یورو: به‌زودی\n"
-        "💵 دلار: به‌زودی\n\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "✨ همه نیازها، در جامع‌ترین پلتفرم دیجیتال اسپانیا برای همه فارسی‌زبانان ✨\n\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "🟡کانـال ویتـریـن:\n"
-        "https://t.me/vitrinspain\n\n"
-        "🟣کانـال حیاط خلـوت:\n"
-        "https://t.me/hayatkhalvatspain\n\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "⚠️ در حال حاضر بخش «ثبت آگهی در ویترین» و «ثبت پیام ناشناس در حیاط خلوت» فعال است.\n\n"
-        "سایر بخش‌ها در حال طراحی، توسعه و کدنویسی هستند و به‌زودی تکمیل خواهند شد.\n\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "🆘 پشتیــHELPــبانی::\n"
-        "@VitrinSpainAdmin"
+        "✨ امروز ویترین برای شما فرصت‌های جدید پیدا کرده است.\n\n"
+        f"💼 {counts['jobs']} آگهی شغلی جدید\n"
+        f"🛍 {counts['discounts']} تخفیف و آفر\n"
+        f"🎉 {counts['events']} رویداد نزدیک شما\n"
+        f"📡 {counts['radar']} خبر مهم رادار اسپانیا\n"
+        f"🚨 {counts['alerts']} هشدار فوری\n\n"
+        f"آخرین بروزرسانی: {updated_at}"
     )
+
+
+def update_target(update: Update):
+    if update.callback_query:
+        return update.callback_query.message
+    return update.message
 
 
 async def send_home_dashboard(update: Update):
@@ -152,7 +91,7 @@ async def send_home_dashboard(update: Update):
     season = season_for_month(now.month)
     welcome_text = build_welcome_text(now, update.effective_user.first_name)
     if not await send_start_banner(update, season, welcome_text):
-        await update.message.reply_text(
+        await update_target(update).reply_text(
             welcome_text,
             reply_markup=MAIN_MENU,
             disable_web_page_preview=True,
@@ -175,11 +114,12 @@ async def send_start_banner(update: Update, season: str, caption: str):
 
     try:
         with image_path.open("rb") as image:
-            await update.message.reply_photo(
+            await update_target(update).reply_photo(
                 photo=image,
                 caption=caption,
                 reply_markup=MAIN_MENU,
             )
         return True
     except Exception:
+        logger.exception("Failed to send start banner")
         return False
