@@ -192,6 +192,68 @@ def init_db():
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_items (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                content_id UUID REFERENCES content_objects(internal_id),
+                title TEXT NOT NULL,
+                summary TEXT,
+                body TEXT,
+                type TEXT NOT NULL,
+                category TEXT,
+                city TEXT,
+                province TEXT,
+                country TEXT DEFAULT 'Spain',
+                start_date TIMESTAMP,
+                end_date TIMESTAMP,
+                source_url TEXT,
+                source_name TEXT,
+                urgency TEXT DEFAULT 'low',
+                priority_score INTEGER DEFAULT 0,
+                audience_tags JSONB DEFAULT '[]'::jsonb,
+                is_verified BOOLEAN DEFAULT false,
+                is_published BOOLEAN DEFAULT false,
+                published_at TIMESTAMP,
+                expires_at TIMESTAMP,
+                notify_immediately BOOLEAN DEFAULT false,
+                daily_digest BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_items", "content_id", "UUID")
+        ensure_column(cur, "radar_items", "title", "TEXT")
+        ensure_column(cur, "radar_items", "summary", "TEXT")
+        ensure_column(cur, "radar_items", "body", "TEXT")
+        ensure_column(cur, "radar_items", "type", "TEXT")
+        ensure_column(cur, "radar_items", "category", "TEXT")
+        ensure_column(cur, "radar_items", "city", "TEXT")
+        ensure_column(cur, "radar_items", "province", "TEXT")
+        ensure_column(cur, "radar_items", "country", "TEXT DEFAULT 'Spain'", "'Spain'")
+        ensure_column(cur, "radar_items", "start_date", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "end_date", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "source_url", "TEXT")
+        ensure_column(cur, "radar_items", "source_name", "TEXT")
+        ensure_column(cur, "radar_items", "urgency", "TEXT DEFAULT 'low'", "'low'")
+        ensure_column(cur, "radar_items", "priority_score", "INTEGER DEFAULT 0", "0")
+        ensure_column(cur, "radar_items", "audience_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_items", "is_verified", "BOOLEAN DEFAULT false", "false")
+        ensure_column(cur, "radar_items", "is_published", "BOOLEAN DEFAULT false", "false")
+        ensure_column(cur, "radar_items", "published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "expires_at", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "notify_immediately", "BOOLEAN DEFAULT false", "false")
+        ensure_column(cur, "radar_items", "daily_digest", "BOOLEAN DEFAULT true", "true")
+        ensure_column(cur, "radar_items", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_items", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_items_available_idx
+            ON radar_items (is_published, published_at, expires_at, type, city)
+            """
+        )
+
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS drafts (
                 internal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 human_id TEXT UNIQUE NOT NULL,
@@ -574,6 +636,76 @@ def count_user_content_by_status(user_id):
             (user_id,),
         )
         return {row["status"]: row["count"] for row in cur.fetchall()}
+
+
+def available_radar_where():
+    return """
+        is_published = true
+        AND (published_at IS NULL OR published_at <= CURRENT_TIMESTAMP)
+        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+    """
+
+
+def count_available_radar_by_type():
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            SELECT type, COUNT(*) AS count
+            FROM radar_items
+            WHERE {available_radar_where()}
+            GROUP BY type
+            """
+        )
+        return {row["type"]: row["count"] for row in cur.fetchall()}
+
+
+def count_today_dashboard_items():
+    counts = count_available_radar_by_type()
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM content_objects
+            WHERE status = 'published'
+              AND content_type = 'vitrin_ad'
+              AND (category ILIKE %s OR title ILIKE %s OR description ILIKE %s)
+            """,
+            ("%کار%", "%کار%", "%کار%"),
+        )
+        job_ads = cur.fetchone()["count"]
+
+    return {
+        "jobs": job_ads + counts.get("job", 0),
+        "discounts": counts.get("discount", 0),
+        "events": counts.get("event", 0),
+        "radar": sum(counts.values()),
+        "alerts": counts.get("alert", 0),
+    }
+
+
+def list_available_radar_items(radar_type=None, limit=5):
+    values = []
+    type_clause = ""
+    if radar_type and radar_type != "all":
+        type_clause = "AND type = %s"
+        values.append(radar_type)
+
+    values.append(limit)
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            SELECT *
+            FROM radar_items
+            WHERE {available_radar_where()}
+              {type_clause}
+            ORDER BY urgency = 'urgent' DESC,
+                     priority_score DESC,
+                     COALESCE(published_at, created_at) DESC
+            LIMIT %s
+            """,
+            values,
+        )
+        return [dict(row) for row in cur.fetchall()]
 
 
 def list_pending_content():
