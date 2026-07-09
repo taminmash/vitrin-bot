@@ -1,12 +1,19 @@
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+import logging
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
 from database.db import (
     get_comment,
     get_content,
+    get_radar_item,
     list_active_reports,
+    list_admin_radar_items,
     list_pending_content,
+    mark_radar_channel_failed,
+    mark_radar_channel_published,
     resolve_comment,
     resolve_review,
     save_publication,
@@ -23,15 +30,24 @@ from handlers.common import (
     need_edit_keyboard,
     need_edit_text,
 )
+from handlers.radar import format_radar_channel_post
 
 
 ADMIN_PENDING = "📥 موارد در انتظار بررسی"
 ADMIN_REPORTS = "🚩 گزارش‌ها"
 ADMIN_BACK = "🏠 بازگشت"
+ADMIN_RADAR = "📡 انتشار رادار"
+RADAR_STATUS_LABELS = {
+    "draft": "Draft",
+    "ready": "Ready",
+    "published": "Published",
+    "failed": "Failed",
+}
 ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton(ADMIN_PENDING)],
         [KeyboardButton(ADMIN_REPORTS)],
+        [KeyboardButton(ADMIN_RADAR)],
         [KeyboardButton(ADMIN_BACK)],
     ],
     resize_keyboard=True,
@@ -40,6 +56,142 @@ ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
 
 def is_admin(user_id):
     return user_id in ADMIN_IDS or user_id in TECH_SUPPORT_IDS
+
+
+def radar_status(item):
+    return item.get("channel_status") or "draft"
+
+
+def short_radar_title(item, limit=34):
+    title = item.get("title") or "-"
+    return title if len(title) <= limit else title[: limit - 1] + "…"
+
+
+def radar_admin_list_text(grouped_items):
+    lines = ["📡 انتشار رادار اسپانیا", ""]
+    for status, label in RADAR_STATUS_LABELS.items():
+        items = grouped_items.get(status) or []
+        lines.append(f"{label}: {len(items)}")
+        if not items:
+            lines.append("- موردی نیست")
+            lines.append("")
+            continue
+        for item in items:
+            lines.append(
+                f"- {item.get('title') or '-'} | "
+                f"{item.get('category') or item.get('type') or '-'} | "
+                f"{item.get('urgency') or '-'} | "
+                f"{item.get('city') or '-'} | "
+                f"{radar_status(item)}"
+            )
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def radar_admin_list_keyboard(grouped_items):
+    rows = []
+    for status, label in RADAR_STATUS_LABELS.items():
+        for item in grouped_items.get(status) or []:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"{label}: {short_radar_title(item)}",
+                        callback_data=f"admin_radar:item:{item['id']}",
+                    )
+                ]
+            )
+    rows.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="admin_radar:list")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin_radar:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def radar_item_preview_keyboard(item):
+    rows = []
+    if radar_status(item) != "published":
+        rows.append([InlineKeyboardButton("📤 انتشار در کانال", callback_data=f"admin_radar:publish:{item['id']}")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def send_admin_radar_list(message):
+    grouped = list_admin_radar_items()
+    await message.reply_text(
+        radar_admin_list_text(grouped),
+        reply_markup=radar_admin_list_keyboard(grouped),
+    )
+
+
+async def edit_admin_radar_list(query):
+    grouped = list_admin_radar_items()
+    await query.edit_message_text(
+        radar_admin_list_text(grouped),
+        reply_markup=radar_admin_list_keyboard(grouped),
+    )
+
+
+async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        await query.edit_message_text("شما دسترسی ادمین ندارید.")
+        return
+
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else "list"
+
+    if action in ("list", "back"):
+        await edit_admin_radar_list(query)
+        return
+
+    if len(parts) != 3:
+        await query.edit_message_text("درخواست رادار نامعتبر است.")
+        return
+
+    item_id = parts[2]
+    item = get_radar_item(item_id)
+    if not item:
+        await query.edit_message_text("آیتم رادار پیدا نشد.")
+        return
+
+    if action == "item":
+        preview = format_radar_channel_post(item)
+        await query.edit_message_text(
+            preview,
+            reply_markup=radar_item_preview_keyboard(item),
+            disable_web_page_preview=True,
+        )
+        return
+
+    if action == "publish":
+        try:
+            message = await context.bot.send_message(
+                chat_id=CHANNEL_VITRIN,
+                text=format_radar_channel_post(item),
+                disable_web_page_preview=False,
+            )
+        except TelegramError as error:
+            logging.exception("Failed to publish Radar item %s to channel", item_id)
+            mark_radar_channel_failed(item_id)
+            await query.edit_message_text(
+                "❌ انتشار رادار در کانال ناموفق بود.\n\n"
+                f"خطا: {error}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+
+        mark_radar_channel_published(item_id, message.message_id)
+        await query.edit_message_text(
+            "✅ آیتم رادار در کانال منتشر شد.\n\n"
+            f"Message ID: {message.message_id}",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            ),
+        )
 
 
 async def send_content_to_admin(context: ContextTypes.DEFAULT_TYPE, content):
@@ -180,6 +332,9 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             return
         if text == ADMIN_REPORTS:
             await show_admin_reports(update)
+            return
+        if text == ADMIN_RADAR:
+            await send_admin_radar_list(update.message)
             return
         if text == ADMIN_BACK:
             context.user_data.pop("admin_panel", None)

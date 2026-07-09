@@ -216,6 +216,13 @@ def init_db():
                 expires_at TIMESTAMP,
                 notify_immediately BOOLEAN DEFAULT false,
                 daily_digest BOOLEAN DEFAULT true,
+                channel_status TEXT DEFAULT 'draft',
+                channel_message_id BIGINT,
+                channel_published_at TIMESTAMP,
+                ai_summary TEXT,
+                ai_reason TEXT,
+                ai_tags JSONB DEFAULT '[]'::jsonb,
+                ai_priority INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -243,12 +250,26 @@ def init_db():
         ensure_column(cur, "radar_items", "expires_at", "TIMESTAMP")
         ensure_column(cur, "radar_items", "notify_immediately", "BOOLEAN DEFAULT false", "false")
         ensure_column(cur, "radar_items", "daily_digest", "BOOLEAN DEFAULT true", "true")
+        ensure_column(cur, "radar_items", "channel_status", "TEXT DEFAULT 'draft'", "'draft'")
+        ensure_column(cur, "radar_items", "channel_message_id", "BIGINT")
+        ensure_column(cur, "radar_items", "channel_published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "ai_summary", "TEXT")
+        ensure_column(cur, "radar_items", "ai_reason", "TEXT")
+        ensure_column(cur, "radar_items", "ai_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_items", "ai_priority", "INTEGER DEFAULT 0", "0")
         ensure_column(cur, "radar_items", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         ensure_column(cur, "radar_items", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute("UPDATE radar_items SET channel_status = 'draft' WHERE channel_status IS NULL")
         cur.execute(
             """
             CREATE INDEX IF NOT EXISTS radar_items_available_idx
             ON radar_items (is_published, published_at, expires_at, type, city)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_items_channel_status_idx
+            ON radar_items (channel_status, updated_at)
             """
         )
 
@@ -712,6 +733,83 @@ def list_available_radar_items(radar_type=None, limit=5):
             values,
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+def list_admin_radar_items(limit_per_status=10):
+    statuses = ["draft", "ready", "published", "failed"]
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT *
+            FROM (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY COALESCE(channel_status, 'draft')
+                           ORDER BY COALESCE(ai_priority, priority_score, 0) DESC,
+                                    updated_at DESC,
+                                    created_at DESC
+                       ) AS status_rank
+                FROM radar_items
+                WHERE COALESCE(channel_status, 'draft') = ANY(%s)
+            ) ranked
+            WHERE status_rank <= %s
+            ORDER BY CASE COALESCE(channel_status, 'draft')
+                         WHEN 'draft' THEN 1
+                         WHEN 'ready' THEN 2
+                         WHEN 'published' THEN 3
+                         WHEN 'failed' THEN 4
+                         ELSE 5
+                     END,
+                     status_rank
+            """,
+            (statuses, limit_per_status),
+        )
+        grouped = {status: [] for status in statuses}
+        for row in cur.fetchall():
+            item = dict(row)
+            item.pop("status_rank", None)
+            grouped[item.get("channel_status") or "draft"].append(item)
+        return grouped
+
+
+def get_radar_item(item_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute("SELECT * FROM radar_items WHERE id = %s", (item_id,))
+        return row_to_dict(cur.fetchone())
+
+
+def mark_radar_channel_published(item_id, message_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET channel_status = 'published',
+                channel_message_id = %s,
+                channel_published_at = CURRENT_TIMESTAMP,
+                is_published = true,
+                published_at = COALESCE(published_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+            """,
+            (message_id, item_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def mark_radar_channel_failed(item_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET channel_status = 'failed',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+            """,
+            (item_id,),
+        )
+        return row_to_dict(cur.fetchone())
 
 
 def list_pending_content():

@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from config_v2 import BOT_USERNAME
 from database.db import count_available_radar_by_type, list_available_radar_items
 from handlers.start import MAIN_MENU, send_home_dashboard
 
@@ -176,6 +177,37 @@ def radar_item_text(item):
         "🔗 منبع:\n"
         f"{item.get('source_url') or item.get('source_name') or '-'}"
     )
+
+
+def format_radar_channel_post(item):
+    radar_type = item.get("type") or "alert"
+    emoji = RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
+    location = " / ".join(
+        value for value in [item.get("city"), item.get("province"), item.get("country")] if value
+    ) or "اسپانیا"
+    reason = item.get("ai_reason") or item.get("summary") or "-"
+    summary = item.get("ai_summary") or item.get("summary") or "-"
+    source = item.get("source_url") or item.get("source_name") or "-"
+    parts = [
+        "📡 رادار اسپانیا",
+        "",
+        f"{emoji} {item.get('title') or '-'}",
+        "",
+        f"📍 محدوده: {location}",
+        f"⏳ زمان: {format_date(item.get('start_date'))} تا {format_date(item.get('end_date'))}",
+        "",
+        "چرا مهم است؟",
+        reason,
+        "",
+        "خلاصه:",
+        summary,
+        "",
+        "🔗 منبع:",
+        source,
+    ]
+    if BOT_USERNAME:
+        parts.extend(["", "🤖 ورود به ربات ویترین:", f"https://t.me/{BOT_USERNAME}"])
+    return "\n".join(parts)
 
 
 def demo_item(radar_type):
