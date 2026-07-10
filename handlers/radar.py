@@ -1,12 +1,24 @@
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from config_v2 import BOT_USERNAME
-from database.db import count_available_radar_by_type, get_active_radar_item, list_available_radar_items
+from config_v2 import BOT_USERNAME, CHANNEL_VITRIN
+from database.db import (
+    count_available_radar_by_type,
+    count_radar_reactions,
+    get_active_radar_item,
+    get_radar_item,
+    list_available_radar_items,
+    save_radar_reaction,
+)
 from handlers.start import MAIN_MENU, send_home_dashboard
+
+
+logger = logging.getLogger(__name__)
 
 
 RADAR_TYPES = {
@@ -135,9 +147,50 @@ def deep_link_for_item(item):
     return f"https://t.me/{BOT_USERNAME}?start=radar_{item['id']}"
 
 
-def channel_post_keyboard(item):
+def get_radar_cta_label(item_type):
+    labels = {
+        "alert": "🚨 مشاهده جزئیات هشدار",
+        "discount": "💶 مشاهده جزئیات تخفیف",
+        "event": "🎉 مشاهده جزئیات رویداد",
+        "job": "💼 مشاهده جزئیات فرصت شغلی",
+        "legal": "🏛 مشاهده جزئیات مطلب",
+        "travel": "✈️ مشاهده جزئیات پیشنهاد سفر",
+        "family": "👨‍👩‍👧 مشاهده جزئیات مطلب",
+        "weather": "🌦 مشاهده جزئیات وضعیت هوا",
+        "transport": "🚇 مشاهده جزئیات حمل‌ونقل",
+        "economy": "💰 مشاهده جزئیات مطلب اقتصادی",
+        "education": "📚 مشاهده جزئیات آموزشی",
+    }
+    return labels.get(item_type, "📄 مشاهده جزئیات مطلب")
+
+
+def reaction_count_text(label, count):
+    return f"{label} · {count}" if count else label
+
+
+def channel_post_keyboard(item, reaction_counts=None):
+    counts = reaction_counts
+    if counts is None:
+        try:
+            counts = count_radar_reactions(item["id"])
+        except Exception:
+            counts = {"like": 0, "dislike": 0}
+
+    item_id = item["id"]
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🤖 مشاهده جزئیات در ویترین", url=deep_link_for_item(item))]]
+        [
+            [InlineKeyboardButton(get_radar_cta_label(item.get("type")), url=deep_link_for_item(item))],
+            [
+                InlineKeyboardButton(
+                    reaction_count_text("👍 پسندیدم", counts.get("like", 0)),
+                    callback_data=f"radar_feedback:like:{item_id}",
+                ),
+                InlineKeyboardButton(
+                    reaction_count_text("👎 نپسندیدم", counts.get("dislike", 0)),
+                    callback_data=f"radar_feedback:dislike:{item_id}",
+                ),
+            ],
+        ]
     )
 
 
@@ -291,6 +344,71 @@ async def open_radar_deep_link(update: Update, item_id: str):
         await send_missing_radar_item(update.message)
         return
     await send_radar_item_message(update.message, item)
+
+
+async def refresh_channel_feedback_keyboard(context, query, item):
+    counts = count_radar_reactions(item["id"])
+    keyboard = channel_post_keyboard(item, counts)
+
+    try:
+        await query.edit_message_reply_markup(reply_markup=keyboard)
+        return
+    except TelegramError as error:
+        logger.warning("Could not edit Radar feedback keyboard from callback: %s", error)
+
+    message_id = item.get("channel_message_id")
+    if not message_id:
+        return
+
+    try:
+        await context.bot.edit_message_reply_markup(
+            chat_id=CHANNEL_VITRIN,
+            message_id=message_id,
+            reply_markup=keyboard,
+        )
+    except Exception as error:
+        logger.warning("Could not edit Radar feedback keyboard for item %s: %s", item.get("id"), error)
+
+
+async def radar_feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[1] not in ("like", "dislike"):
+        await query.answer("درخواست بازخورد معتبر نیست.", show_alert=True)
+        return
+
+    reaction = parts[1]
+    item_id = parts[2]
+    try:
+        item = get_radar_item(item_id)
+    except Exception:
+        logger.exception("Failed to load Radar item for feedback")
+        await query.answer("ثبت بازخورد فعلاً ممکن نیست. لطفاً بعداً دوباره تلاش کنید.", show_alert=True)
+        return
+
+    if not item:
+        await query.answer("این آیتم رادار پیدا نشد.", show_alert=True)
+        return
+
+    try:
+        save_radar_reaction(item_id, query.from_user.id, reaction)
+    except Exception:
+        logger.exception("Failed to save Radar reaction")
+        await query.answer("ثبت بازخورد فعلاً ممکن نیست. لطفاً بعداً دوباره تلاش کنید.", show_alert=True)
+        return
+
+    if reaction == "like":
+        await query.answer("نظر مثبت شما ثبت شد ✅")
+    else:
+        await query.answer("نظر شما ثبت شد. ممنون که کمک می‌کنید ویترین بهتر شود.")
+
+    try:
+        await refresh_channel_feedback_keyboard(context, query, item)
+    except Exception:
+        logger.exception("Failed to refresh Radar reaction counters")
 
 
 async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

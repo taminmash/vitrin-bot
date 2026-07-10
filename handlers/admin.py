@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
 from database.db import (
     create_radar_item,
+    count_radar_reactions,
     get_comment,
     get_content,
     get_radar_item,
@@ -394,6 +395,8 @@ def radar_create_preview_text(data):
 def radar_admin_item_preview_text(item):
     categories = "، ".join(category_labels(item.get("category_tags") or [item.get("type")])) or "-"
     audience = "، ".join(audience_labels(item.get("audience_tags") or [])) or "-"
+    reactions = count_radar_reactions(item["id"])
+    feedback_total = reactions.get("like", 0) + reactions.get("dislike", 0)
     return (
         f"{format_radar_channel_post(item)}\n\n"
         "اطلاعات ادمین:\n"
@@ -401,7 +404,10 @@ def radar_admin_item_preview_text(item):
         f"مخاطب: {audience}\n"
         f"فوریت: {urgency_label(item.get('urgency') or 'low')}\n"
         f"محدوده: {item.get('city') or 'کل اسپانیا'}\n"
-        f"اعتبار: {item.get('start_date') or '-'} تا {item.get('end_date') or '-'}"
+        f"اعتبار: {item.get('start_date') or '-'} تا {item.get('end_date') or '-'}\n\n"
+        f"👍 پسندیدم: {reactions.get('like', 0)}\n"
+        f"👎 نپسندیدم: {reactions.get('dislike', 0)}\n"
+        f"📊 مجموع بازخورد: {feedback_total}"
     )
 
 
@@ -494,6 +500,10 @@ def radar_item_preview_keyboard(item):
     rows = []
     if radar_status(item) != "published":
         rows.append([InlineKeyboardButton("📤 انتشار در کانال", callback_data=f"admin_radar:publish:{item['id']}")])
+    elif item.get("channel_message_id"):
+        rows.append(
+            [InlineKeyboardButton("🔄 بروزرسانی دکمه‌های کانال", callback_data=f"admin_radar:refresh_buttons:{item['id']}")]
+        )
     rows.append([InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")])
     return InlineKeyboardMarkup(rows)
 
@@ -860,6 +870,39 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             preview,
             reply_markup=radar_item_preview_keyboard(item),
             disable_web_page_preview=True,
+        )
+        return
+
+    if action == "refresh_buttons":
+        if not item.get("channel_message_id"):
+            await query.edit_message_text(
+                "برای این آیتم پیام کانال ثبت نشده است.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=CHANNEL_VITRIN,
+                message_id=item["channel_message_id"],
+                reply_markup=channel_post_keyboard(item),
+            )
+        except Exception as error:
+            logging.exception("Failed to refresh Radar channel buttons")
+            await query.edit_message_text(
+                "❌ بروزرسانی دکمه‌های کانال ناموفق بود.\n\n"
+                f"خطا: {error}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+        await query.edit_message_text(
+            "✅ دکمه‌های کانال بروزرسانی شد.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            ),
         )
         return
 
