@@ -12,6 +12,7 @@ from database.db import (
     get_radar_item,
     list_active_reports,
     list_admin_radar_items,
+    list_pending_comments,
     list_source_registry,
     list_pending_content,
     mark_radar_channel_failed,
@@ -36,10 +37,12 @@ from handlers.common import (
 from handlers.radar import channel_post_keyboard, format_radar_channel_post
 
 
-ADMIN_PENDING = "📥 موارد در انتظار بررسی"
-ADMIN_REPORTS = "🚩 گزارش‌ها"
-ADMIN_BACK = "🏠 بازگشت"
 ADMIN_RADAR_MANAGE = "📡 مدیریت رادار"
+ADMIN_PENDING = "📝 مدیریت محتواهای در انتظار"
+ADMIN_COMMENTS = "💬 مدیریت کامنت‌ها"
+ADMIN_REPORTS = "🚨 گزارش‌ها"
+ADMIN_HOME = "🏠 بازگشت به خانه"
+ADMIN_RADAR_BACK = "⬅️ بازگشت"
 ADMIN_RADAR = "📡 انتشار رادار"
 ADMIN_RADAR_NEW = "➕ محتوای جدید"
 ADMIN_RADAR_DRAFTS = "📝 پیش‌نویس‌ها"
@@ -56,10 +59,11 @@ RADAR_STATUS_LABELS = {
 }
 ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
     [
-        [KeyboardButton(ADMIN_PENDING)],
-        [KeyboardButton(ADMIN_REPORTS)],
         [KeyboardButton(ADMIN_RADAR_MANAGE)],
-        [KeyboardButton(ADMIN_BACK)],
+        [KeyboardButton(ADMIN_PENDING)],
+        [KeyboardButton(ADMIN_COMMENTS)],
+        [KeyboardButton(ADMIN_REPORTS)],
+        [KeyboardButton(ADMIN_HOME)],
     ],
     resize_keyboard=True,
 )
@@ -70,8 +74,9 @@ ADMIN_RADAR_KEYBOARD = ReplyKeyboardMarkup(
         [KeyboardButton(ADMIN_RADAR_DRAFTS)],
         [KeyboardButton(ADMIN_RADAR_READY)],
         [KeyboardButton(ADMIN_RADAR_PUBLISHED)],
+        [KeyboardButton(ADMIN_RADAR_FAILED)],
         [KeyboardButton(ADMIN_RADAR_SOURCES)],
-        [KeyboardButton(ADMIN_BACK)],
+        [KeyboardButton(ADMIN_RADAR_BACK)],
     ],
     resize_keyboard=True,
 )
@@ -108,6 +113,19 @@ TYPE_CATEGORY = {
 
 def is_admin(user_id):
     return user_id in ADMIN_IDS or user_id in TECH_SUPPORT_IDS
+
+
+async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.effective_user:
+        return
+
+    user = update.effective_user
+    await update.message.reply_text(
+        "Who am I?\n\n"
+        f"Telegram user ID: {user.id}\n"
+        f"username: @{user.username or '-'}\n"
+        f"is_admin: {'yes' if is_admin(user.id) else 'no'}"
+    )
 
 
 def radar_status(item):
@@ -324,6 +342,22 @@ async def send_admin_radar_sources(message):
     await message.reply_text("\n".join(lines).strip(), reply_markup=ADMIN_RADAR_KEYBOARD)
 
 
+async def send_pending_comments(message):
+    comments = list_pending_comments()
+    if not comments:
+        await message.reply_text("کامنتی در انتظار بررسی وجود ندارد.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        return
+
+    for comment in comments:
+        await message.reply_text(
+            "💬 مدیریت کامنت‌ها\n\n"
+            f"🆔 {comment['human_id']}\n"
+            f"محتوا: {comment.get('content_human_id') or '-'}\n\n"
+            f"{comment.get('body') or '-'}",
+            reply_markup=admin_comment_keyboard(comment["human_id"]),
+        )
+
+
 async def start_radar_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["radar_create"] = {"step": 0, "data": {}}
     await update.message.reply_text(RADAR_CREATE_FIELDS[0][1], reply_markup=ADMIN_RADAR_KEYBOARD)
@@ -335,9 +369,9 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
         return False
 
     text = update.message.text.strip()
-    if text == ADMIN_BACK:
+    if text in (ADMIN_RADAR_BACK, ADMIN_HOME):
         context.user_data.pop("radar_create", None)
-        await update.message.reply_text("ایجاد محتوای رادار لغو شد.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        await update.message.reply_text("ایجاد محتوای رادار لغو شد.", reply_markup=ADMIN_RADAR_KEYBOARD)
         return True
 
     step = state.get("step", 0)
@@ -657,10 +691,13 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         if text == ADMIN_RADAR_PUBLISHED:
             await send_admin_radar_list(update.message, "published")
             return
+        if text == ADMIN_RADAR_FAILED:
+            await send_admin_radar_list(update.message, "failed")
+            return
         if text == ADMIN_RADAR_SOURCES:
             await send_admin_radar_sources(update.message)
             return
-        if text == ADMIN_BACK:
+        if text == ADMIN_RADAR_BACK:
             context.user_data.pop("admin_radar_menu", None)
             await update.message.reply_text("به پنل ادمین برگشتید.", reply_markup=ADMIN_PANEL_KEYBOARD)
             return
@@ -671,6 +708,9 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     ):
         if text == ADMIN_PENDING:
             await show_pending_admin_items(update)
+            return
+        if text == ADMIN_COMMENTS:
+            await send_pending_comments(update.message)
             return
         if text == ADMIN_REPORTS:
             await show_admin_reports(update)
@@ -697,7 +737,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         if text == ADMIN_RADAR_FAILED:
             await send_admin_radar_list(update.message, "failed")
             return
-        if text == ADMIN_BACK:
+        if text == ADMIN_HOME:
             context.user_data.pop("admin_panel", None)
             from handlers.start import MAIN_MENU
 
@@ -764,6 +804,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("شما دسترسی ادمین ندارید.")
         return
 
+    context.user_data.pop("admin_radar_menu", None)
+    context.user_data.pop("radar_create", None)
     context.user_data["admin_panel"] = True
     await update.message.reply_text(
         "👨‍💼 پنل ادمین ویترین",
@@ -787,7 +829,7 @@ async def show_pending_admin_items(update: Update):
 async def show_admin_reports(update: Update):
     reports = list_active_reports()
     if reports:
-        text = "🚩 گزارش‌های فعال\n\n" + "\n".join(
+        text = "🚨 گزارش‌های فعال\n\n" + "\n".join(
             f"{report['human_id']} برای {report['content_human_id']}: {report['reason']}"
             for report in reports
         )
