@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.error import TelegramError
@@ -83,17 +84,17 @@ ADMIN_RADAR_KEYBOARD = ReplyKeyboardMarkup(
 
 RADAR_CREATE_FIELDS = [
     ("title", "عنوان رادار را بفرستید:"),
-    ("type", "نوع/دسته را بفرستید: alert, discount, event, job, legal, travel, family, weather, transport, economy, education"),
-    ("city", "شهر را بفرستید یا بنویسید: کل اسپانیا"),
+    ("type", "دسته‌های رادار را انتخاب کنید:"),
+    ("city", "محدوده را انتخاب کنید:"),
     ("summary", "خلاصه کوتاه را بفرستید:"),
     ("ai_reason", "چرا مهم است؟ یک توضیح کوتاه بفرستید:"),
     ("body", "جزئیات کامل را بفرستید:"),
     ("source_name", "نام منبع را بفرستید:"),
     ("source_url", "لینک منبع رسمی را بفرستید:"),
-    ("start_date", "تاریخ شروع را با فرمت YYYY-MM-DD بفرستید یا بنویسید امروز:"),
-    ("end_date", "تاریخ پایان را با فرمت YYYY-MM-DD بفرستید یا بنویسید 7 یعنی هفت روز بعد:"),
-    ("urgency", "درجه فوریت را بفرستید: low, medium, high, urgent"),
-    ("audience_tags", "تگ‌های مخاطب را با ویرگول جدا کنید:"),
+    ("start_date", "تاریخ شروع را انتخاب کنید:"),
+    ("end_date", "مدت اعتبار را انتخاب کنید:"),
+    ("urgency", "درجه فوریت را انتخاب کنید:"),
+    ("audience_tags", "مخاطب مناسب را انتخاب کنید:"),
 ]
 
 TYPE_CATEGORY = {
@@ -109,6 +110,69 @@ TYPE_CATEGORY = {
     "economy": "اقتصاد",
     "education": "آموزش",
 }
+
+RADAR_CATEGORY_OPTIONS = [
+    ("alert", "🚨 هشدار"),
+    ("discount", "💶 تخفیف"),
+    ("event", "🎉 رویداد"),
+    ("job", "💼 کار"),
+    ("legal", "🏛 قانون"),
+    ("travel", "✈️ سفر"),
+    ("family", "👨‍👩‍👧 خانواده"),
+    ("weather", "🌦 هوا"),
+    ("transport", "🚇 حمل‌ونقل"),
+    ("economy", "💰 اقتصاد"),
+    ("education", "📚 آموزش"),
+]
+
+URGENCY_OPTIONS = [
+    ("low", "🟢 کم"),
+    ("medium", "🟡 معمولی"),
+    ("high", "🟠 مهم"),
+    ("urgent", "🔴 فوری"),
+]
+
+AUDIENCE_OPTIONS = [
+    ("family", "👨‍👩‍👧 خانواده"),
+    ("shopping", "🛍 خرید"),
+    ("discount", "💶 تخفیف"),
+    ("job_seeker", "💼 کارجو"),
+    ("student", "🎓 دانشجو"),
+    ("migration", "🛂 مهاجرت"),
+    ("residency", "🏠 اقامت"),
+    ("digital_nomad", "💻 دیجیتال نومد"),
+    ("autonomo", "🧾 خوداشتغال"),
+    ("business", "🏢 کسب‌وکار"),
+    ("traveler", "✈️ مسافر"),
+    ("all", "👥 همه"),
+]
+
+CITY_OPTIONS = [
+    ("کل اسپانیا", "🇪🇸 کل اسپانیا"),
+    ("Madrid", "Madrid"),
+    ("Barcelona", "Barcelona"),
+    ("Valencia", "Valencia"),
+    ("Sevilla", "Sevilla"),
+    ("Málaga", "Málaga"),
+    ("Badajoz", "Badajoz"),
+]
+
+EDIT_FIELD_LABELS = [
+    ("title", "عنوان"),
+    ("type", "دسته‌ها"),
+    ("city", "شهر"),
+    ("summary", "خلاصه"),
+    ("ai_reason", "چرا مهم است"),
+    ("body", "جزئیات"),
+    ("source_name", "نام منبع"),
+    ("source_url", "لینک منبع"),
+    ("start_date", "تاریخ شروع"),
+    ("end_date", "تاریخ پایان"),
+    ("urgency", "فوریت"),
+    ("audience_tags", "مخاطب"),
+]
+
+SELECTOR_FIELDS = {"type", "city", "start_date", "end_date", "urgency", "audience_tags"}
 
 
 def is_admin(user_id):
@@ -174,6 +238,116 @@ def normalize_radar_type(value):
     return aliases.get(text, text if text in TYPE_CATEGORY else "alert")
 
 
+def field_index(field):
+    for index, (name, _) in enumerate(RADAR_CREATE_FIELDS):
+        if name == field:
+            return index
+    return 0
+
+
+def option_label(options, value):
+    for option_value, label in options:
+        if option_value == value:
+            return label
+    return value or "-"
+
+
+def category_labels(values):
+    return [option_label(RADAR_CATEGORY_OPTIONS, value) for value in values or []]
+
+
+def audience_labels(values):
+    return [option_label(AUDIENCE_OPTIONS, value) for value in values or []]
+
+
+def urgency_label(value):
+    return option_label(URGENCY_OPTIONS, value)
+
+
+def selector_keyboard(field, data):
+    if field == "type":
+        selected = data.get("category_tags") or ([data["type"]] if data.get("type") else [])
+        rows = [
+            [
+                InlineKeyboardButton(
+                    f"{'☑️' if value in selected else '☐'} {label}",
+                    callback_data=f"admin_radar:cat:{value}",
+                )
+            ]
+            for value, label in RADAR_CATEGORY_OPTIONS
+        ]
+        rows.append([InlineKeyboardButton("✅ تأیید انتخاب‌ها", callback_data="admin_radar:cat_done")])
+        rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
+        return InlineKeyboardMarkup(rows)
+
+    if field == "city":
+        rows = [[InlineKeyboardButton(label, callback_data=f"admin_radar:city:{value}")] for value, label in CITY_OPTIONS]
+        rows.append([InlineKeyboardButton("📍 شهر دیگر", callback_data="admin_radar:city:other")])
+        rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
+        return InlineKeyboardMarkup(rows)
+
+    if field == "start_date":
+        return InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("📅 امروز", callback_data="admin_radar:date:start:today")],
+                [InlineKeyboardButton("📅 فردا", callback_data="admin_radar:date:start:tomorrow")],
+                [InlineKeyboardButton("✍️ ورود تاریخ دستی", callback_data="admin_radar:date:start:manual")],
+                [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
+            ]
+        )
+
+    if field == "end_date":
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("1 روز", callback_data="admin_radar:date:end:1"),
+                    InlineKeyboardButton("3 روز", callback_data="admin_radar:date:end:3"),
+                ],
+                [
+                    InlineKeyboardButton("7 روز", callback_data="admin_radar:date:end:7"),
+                    InlineKeyboardButton("14 روز", callback_data="admin_radar:date:end:14"),
+                ],
+                [InlineKeyboardButton("30 روز", callback_data="admin_radar:date:end:30")],
+                [InlineKeyboardButton("✍️ ورود تاریخ دستی", callback_data="admin_radar:date:end:manual")],
+                [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
+            ]
+        )
+
+    if field == "urgency":
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton(label, callback_data=f"admin_radar:urgency:{value}")] for value, label in URGENCY_OPTIONS]
+            + [[InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")]]
+        )
+
+    if field == "audience_tags":
+        selected = data.get("audience_tags") or []
+        rows = [
+            [
+                InlineKeyboardButton(
+                    f"{'☑️' if value in selected else '☐'} {label}",
+                    callback_data=f"admin_radar:aud:{value}",
+                )
+            ]
+            for value, label in AUDIENCE_OPTIONS
+        ]
+        rows.append([InlineKeyboardButton("✅ تأیید", callback_data="admin_radar:aud_done")])
+        rows.append([InlineKeyboardButton("➕ افزودن تگ سفارشی", callback_data="admin_radar:aud_custom")])
+        rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
+        return InlineKeyboardMarkup(rows)
+
+    return None
+
+
+def edit_field_keyboard():
+    rows = [[InlineKeyboardButton(label, callback_data=f"admin_radar:edit_field:{field}")] for field, label in EDIT_FIELD_LABELS]
+    rows.append([InlineKeyboardButton("بازگشت", callback_data="admin_radar:create:preview")])
+    return InlineKeyboardMarkup(rows)
+
+
+def today_midnight():
+    return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def is_radar_expired(item):
     from datetime import datetime
 
@@ -203,10 +377,31 @@ def radar_create_preview_text(data):
         "category": TYPE_CATEGORY.get(data.get("type"), data.get("category")),
         "source_name": data.get("source_name"),
     }
+    categories = "، ".join(category_labels(data.get("category_tags") or [data.get("type")])) or "-"
+    audience = "، ".join(audience_labels(data.get("audience_tags") or [])) or "-"
     return (
         "پیش‌نمایش محتوای رادار\n\n"
         f"{format_radar_channel_post(item)}\n\n"
-        "این متن نسخه کوتاه کانال است. جزئیات کامل داخل ربات نمایش داده می‌شود."
+        "اطلاعات ادمین:\n"
+        f"دسته‌ها: {categories}\n"
+        f"مخاطب: {audience}\n"
+        f"فوریت: {urgency_label(data.get('urgency') or 'low')}\n"
+        f"محدوده: {data.get('city') or 'کل اسپانیا'}\n"
+        f"اعتبار: {data.get('start_date') or '-'} تا {data.get('end_date') or '-'}"
+    )
+
+
+def radar_admin_item_preview_text(item):
+    categories = "، ".join(category_labels(item.get("category_tags") or [item.get("type")])) or "-"
+    audience = "، ".join(audience_labels(item.get("audience_tags") or [])) or "-"
+    return (
+        f"{format_radar_channel_post(item)}\n\n"
+        "اطلاعات ادمین:\n"
+        f"دسته‌ها: {categories}\n"
+        f"مخاطب: {audience}\n"
+        f"فوریت: {urgency_label(item.get('urgency') or 'low')}\n"
+        f"محدوده: {item.get('city') or 'کل اسپانیا'}\n"
+        f"اعتبار: {item.get('start_date') or '-'} تا {item.get('end_date') or '-'}"
     )
 
 
@@ -218,6 +413,7 @@ def create_payload_from_radar_data(data, status):
         "title": data.get("title"),
         "type": radar_type,
         "category": TYPE_CATEGORY.get(radar_type, radar_type),
+        "category_tags": data.get("category_tags") or [radar_type],
         "city": data.get("city") or "کل اسپانیا",
         "province": data.get("province") or data.get("city") or "کل اسپانیا",
         "country": "Spain",
@@ -358,9 +554,52 @@ async def send_pending_comments(message):
         )
 
 
+async def send_radar_step_prompt(message, state):
+    step = state.get("step", 0)
+    if step >= len(RADAR_CREATE_FIELDS):
+        await message.reply_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
+        return
+
+    field, prompt = RADAR_CREATE_FIELDS[step]
+    keyboard = selector_keyboard(field, state.setdefault("data", {}))
+    await message.reply_text(prompt, reply_markup=keyboard or ADMIN_RADAR_KEYBOARD)
+
+
+async def edit_radar_step_prompt(query, state):
+    step = state.get("step", 0)
+    field, prompt = RADAR_CREATE_FIELDS[step]
+    keyboard = selector_keyboard(field, state.setdefault("data", {}))
+    await query.edit_message_text(prompt, reply_markup=keyboard)
+
+
+async def finish_radar_field(message, state):
+    if state.pop("editing_field", None):
+        state["step"] = len(RADAR_CREATE_FIELDS)
+        await message.reply_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
+        return
+
+    state["step"] = state.get("step", 0) + 1
+    await send_radar_step_prompt(message, state)
+
+
+async def finish_radar_field_from_query(query, state):
+    if state.pop("editing_field", None):
+        state["step"] = len(RADAR_CREATE_FIELDS)
+        await query.edit_message_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
+        return
+
+    state["step"] = state.get("step", 0) + 1
+    step = state.get("step", 0)
+    if step >= len(RADAR_CREATE_FIELDS):
+        await query.edit_message_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
+        return
+
+    await edit_radar_step_prompt(query, state)
+
+
 async def start_radar_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["radar_create"] = {"step": 0, "data": {}}
-    await update.message.reply_text(RADAR_CREATE_FIELDS[0][1], reply_markup=ADMIN_RADAR_KEYBOARD)
+    await send_radar_step_prompt(update.message, context.user_data["radar_create"])
 
 
 async def handle_radar_creation_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -386,6 +625,31 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
     data = state.setdefault("data", {})
 
     try:
+        if state.pop("awaiting_custom_city", False):
+            data["city"] = text
+            data["province"] = text
+            await finish_radar_field(update.message, state)
+            return True
+        if state.pop("awaiting_manual_date", False):
+            data[field] = parse_radar_date(text)
+            if field == "end_date":
+                data["expires_at"] = data[field]
+            await finish_radar_field(update.message, state)
+            return True
+        if state.pop("awaiting_custom_audience", False):
+            tags = data.get("audience_tags") or []
+            if "all" not in tags and text not in tags:
+                tags.append(text)
+            data["audience_tags"] = tags
+            await update.message.reply_text(
+                "تگ سفارشی اضافه شد. انتخاب مخاطب را ادامه دهید یا تأیید کنید.",
+                reply_markup=selector_keyboard("audience_tags", data),
+            )
+            return True
+
+        if field in SELECTOR_FIELDS:
+            await update.message.reply_text("لطفاً از دکمه‌های همین مرحله استفاده کنید.")
+            return True
         if field == "type":
             radar_type = normalize_radar_type(text)
             data["type"] = radar_type
@@ -402,13 +666,7 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
         await update.message.reply_text("فرمت این مقدار درست نیست. لطفاً دوباره بفرستید.")
         return True
 
-    step += 1
-    state["step"] = step
-    if step < len(RADAR_CREATE_FIELDS):
-        await update.message.reply_text(RADAR_CREATE_FIELDS[step][1])
-        return True
-
-    await update.message.reply_text(radar_create_preview_text(data), reply_markup=radar_create_keyboard())
+    await finish_radar_field(update.message, state)
     return True
 
 
@@ -434,6 +692,107 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     parts = query.data.split(":")
     action = parts[1] if len(parts) > 1 else "list"
+    state = context.user_data.get("radar_create")
+
+    if action in ("cat", "cat_done", "aud", "aud_done", "aud_custom", "city", "date", "urgency", "edit_field"):
+        if not state:
+            await query.edit_message_text("پیش‌نویس فعالی برای رادار وجود ندارد.")
+            return
+
+        data = state.setdefault("data", {})
+
+        if action == "cat":
+            value = parts[2]
+            selected = data.get("category_tags") or []
+            if value in selected:
+                selected.remove(value)
+            else:
+                selected.append(value)
+            data["category_tags"] = selected
+            await query.edit_message_text(RADAR_CREATE_FIELDS[field_index("type")][1], reply_markup=selector_keyboard("type", data))
+            return
+
+        if action == "cat_done":
+            selected = data.get("category_tags") or []
+            if not selected:
+                await query.answer("حداقل یک دسته را انتخاب کنید.", show_alert=True)
+                return
+            primary_type = selected[0]
+            data["type"] = primary_type
+            data["category"] = TYPE_CATEGORY.get(primary_type, primary_type)
+            await finish_radar_field_from_query(query, state)
+            return
+
+        if action == "aud":
+            value = parts[2]
+            selected = data.get("audience_tags") or []
+            if value == "all":
+                selected = [] if selected == ["all"] else ["all"]
+            elif "all" not in selected:
+                if value in selected:
+                    selected.remove(value)
+                else:
+                    selected.append(value)
+            data["audience_tags"] = selected
+            await query.edit_message_text(
+                RADAR_CREATE_FIELDS[field_index("audience_tags")][1],
+                reply_markup=selector_keyboard("audience_tags", data),
+            )
+            return
+
+        if action == "aud_done":
+            data["audience_tags"] = data.get("audience_tags") or ["all"]
+            await finish_radar_field_from_query(query, state)
+            return
+
+        if action == "aud_custom":
+            state["awaiting_custom_audience"] = True
+            await query.edit_message_text("تگ سفارشی مخاطب را بفرستید:")
+            return
+
+        if action == "city":
+            value = parts[2]
+            if value == "other":
+                state["awaiting_custom_city"] = True
+                await query.edit_message_text("نام شهر را بفرستید:")
+                return
+            data["city"] = value
+            data["province"] = value
+            await finish_radar_field_from_query(query, state)
+            return
+
+        if action == "date":
+            date_field = "start_date" if parts[2] == "start" else "end_date"
+            state["step"] = field_index(date_field)
+            value = parts[3] if len(parts) > 3 else "manual"
+            if value == "manual":
+                state["awaiting_manual_date"] = True
+                await query.edit_message_text("تاریخ را با فرمت YYYY-MM-DD بفرستید:")
+                return
+            if date_field == "start_date":
+                data[date_field] = today_midnight() + timedelta(days=1 if value == "tomorrow" else 0)
+            else:
+                base_date = data.get("start_date") or today_midnight()
+                data[date_field] = base_date + timedelta(days=int(value))
+                data["expires_at"] = data[date_field]
+            await finish_radar_field_from_query(query, state)
+            return
+
+        if action == "urgency":
+            value = parts[2]
+            data["urgency"] = value if value in {"low", "medium", "high", "urgent"} else "low"
+            await finish_radar_field_from_query(query, state)
+            return
+
+        if action == "edit_field":
+            field = parts[2]
+            if field not in {name for name, _ in RADAR_CREATE_FIELDS}:
+                await query.edit_message_text("فیلد انتخاب‌شده معتبر نیست.")
+                return
+            state["step"] = field_index(field)
+            state["editing_field"] = True
+            await edit_radar_step_prompt(query, state)
+            return
 
     if action in ("list", "back"):
         await edit_admin_radar_list(query)
@@ -450,8 +809,13 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             if not data:
                 await query.edit_message_text("پیش‌نویسی برای ویرایش وجود ندارد.")
                 return
-            context.user_data["radar_create"] = {"step": 0, "data": data}
-            await query.edit_message_text(RADAR_CREATE_FIELDS[0][1])
+            await query.edit_message_text("کدام بخش را ویرایش می‌کنید؟", reply_markup=edit_field_keyboard())
+            return
+        if operation == "preview":
+            if not data:
+                await query.edit_message_text("پیش‌نویسی برای نمایش وجود ندارد.")
+                return
+            await query.edit_message_text(radar_create_preview_text(data), reply_markup=radar_create_keyboard())
             return
         if operation in ("save_draft", "ready", "publish"):
             if not data:
@@ -491,7 +855,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if action == "item":
-        preview = format_radar_channel_post(item)
+        preview = radar_admin_item_preview_text(item)
         await query.edit_message_text(
             preview,
             reply_markup=radar_item_preview_keyboard(item),

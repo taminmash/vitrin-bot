@@ -182,20 +182,35 @@ def shorten_words(text, max_words=36):
     return " ".join(words[:max_words]).rstrip("،.") + "..."
 
 
-def short_channel_lines(item):
+def short_channel_lines(item, max_words=28):
     source_text = item.get("ai_reason") or item.get("summary") or "-"
-    short = shorten_words(source_text, 36)
+    short = shorten_words(source_text, max_words)
     words = short.split()
-    if len(words) <= 12:
+    if len(words) <= 14:
         return [short]
-    if len(words) <= 24:
-        return [" ".join(words[:12]), " ".join(words[12:])]
-    return [" ".join(words[:12]), " ".join(words[12:24]), " ".join(words[24:36])]
+    return [" ".join(words[:14]), " ".join(words[14:28])]
+
+
+def category_emoji(item):
+    radar_type = item.get("type") or "alert"
+    return RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
+
+
+def clean_channel_title(title):
+    text = (title or "-").strip()
+    for data in RADAR_TYPES.values():
+        emoji = data.get("emoji")
+        if emoji and text.startswith(emoji):
+            return text[len(emoji):].strip()
+    for emoji in ("🚨", "💶", "🎉", "💼", "🏛", "✈️", "👨‍👩‍👧", "🌦", "🚇", "💰", "📚", "🔥"):
+        if text.startswith(emoji):
+            return text[len(emoji):].strip()
+    return text
 
 
 def radar_item_text(item):
     radar_type = item.get("type") or "alert"
-    emoji = RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
+    emoji = category_emoji(item)
     reason = item.get("ai_reason") or item.get("summary") or "-"
     body = item.get("body") or item.get("original_text") or item.get("summary") or "-"
     return (
@@ -214,18 +229,18 @@ def radar_item_text(item):
 
 
 def format_radar_channel_post(item):
-    radar_type = item.get("type") or "alert"
-    emoji = RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
+    emoji = category_emoji(item)
     lines = [
         "📡 رادار اسپانیا",
         "",
-        f"{emoji} {item.get('title') or '-'}",
+        f"{emoji} {clean_channel_title(item.get('title'))}",
         "",
+        "💡 چرا مهم است؟",
         *short_channel_lines(item),
         "",
-        "🤖 مشاهده جزئیات در ویترین",
+        "🤖 جزئیات کامل داخل ربات",
         "",
-        f"منبع: {item.get('source_name') or '-'}",
+        f"🔗 منبع: {item.get('source_name') or '-'}",
     ]
     return "\n".join(lines)
 
