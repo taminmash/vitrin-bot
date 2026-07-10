@@ -325,6 +325,37 @@ def init_db():
             ON radar_items (channel_status, updated_at)
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_reactions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                telegram_user_id BIGINT NOT NULL,
+                reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (radar_item_id, telegram_user_id)
+            )
+            """
+        )
+        ensure_column(cur, "radar_reactions", "id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "radar_reactions", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_reactions", "telegram_user_id", "BIGINT")
+        ensure_column(cur, "radar_reactions", "reaction", "TEXT")
+        ensure_column(cur, "radar_reactions", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_reactions", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_reactions_item_user_unique
+            ON radar_reactions (radar_item_id, telegram_user_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_reactions_item_reaction_idx
+            ON radar_reactions (radar_item_id, reaction)
+            """
+        )
 
         cur.execute(
             """
@@ -1048,6 +1079,43 @@ def mark_radar_channel_failed(item_id, error_text=None):
             (error_text, item_id),
         )
         return row_to_dict(cur.fetchone())
+
+
+def save_radar_reaction(item_id, user_id, reaction):
+    if reaction not in ("like", "dislike"):
+        raise ValueError("Invalid Radar reaction")
+
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO radar_reactions (radar_item_id, telegram_user_id, reaction)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (radar_item_id, telegram_user_id) DO UPDATE
+            SET reaction = EXCLUDED.reaction,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (item_id, user_id, reaction),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def count_radar_reactions(item_id):
+    counts = {"like": 0, "dislike": 0}
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT reaction, COUNT(*) AS count
+            FROM radar_reactions
+            WHERE radar_item_id = %s
+            GROUP BY reaction
+            """,
+            (item_id,),
+        )
+        for row in cur.fetchall():
+            if row["reaction"] in counts:
+                counts[row["reaction"]] = row["count"]
+    return counts
 
 
 def list_pending_content():

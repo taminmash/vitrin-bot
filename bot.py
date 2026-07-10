@@ -18,7 +18,7 @@ from handlers.home import home_callback
 from handlers.menu import menu_handler
 from handlers.post_create import draft_callback, post_handler, published_callback, user_post_callback
 from handlers.profile import profile_handler
-from handlers.radar import radar_callback
+from handlers.radar import radar_callback, radar_feedback_callback
 from handlers.start import start
 
 
@@ -55,6 +55,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
     app.add_handler(CallbackQueryHandler(comment_admin_callback, pattern=r"^comment:"))
     app.add_handler(CallbackQueryHandler(home_callback, pattern=r"^home:"))
+    app.add_handler(CallbackQueryHandler(radar_feedback_callback, pattern=r"^radar_feedback:"))
     app.add_handler(CallbackQueryHandler(radar_callback, pattern=r"^radar:"))
     app.add_handler(CallbackQueryHandler(draft_callback, pattern=r"^draft:"))
     app.add_handler(CallbackQueryHandler(published_callback, pattern=r"^pub:"))
