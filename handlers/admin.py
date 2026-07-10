@@ -1,7 +1,14 @@
 import logging
 from datetime import datetime, timedelta
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
@@ -177,6 +184,29 @@ EDIT_FIELD_LABELS = [
 ]
 
 SELECTOR_FIELDS = {"type", "city", "start_date", "end_date", "urgency", "audience_tags"}
+TEXT_INPUT_FIELDS = {"title", "summary", "ai_reason", "body", "source_name", "source_url"}
+STEP_LABELS = {
+    "title": "عنوان",
+    "type": "دسته‌ها",
+    "city": "شهر/محدوده",
+    "summary": "خلاصه کوتاه",
+    "ai_reason": "چرا مهم است",
+    "body": "جزئیات کامل",
+    "source_name": "نام منبع",
+    "source_url": "لینک منبع",
+    "start_date": "تاریخ شروع",
+    "end_date": "تاریخ پایان",
+    "urgency": "فوریت",
+    "audience_tags": "مخاطب",
+}
+TEXT_FIELD_PROMPTS = {
+    "title": "عنوان مطلب را ارسال کنید.",
+    "summary": "خلاصه کوتاه را ارسال کنید.",
+    "ai_reason": "چرا مهم است؟ یک توضیح کوتاه ارسال کنید.",
+    "body": "جزئیات کامل را ارسال کنید.",
+    "source_name": "نام منبع را ارسال کنید.",
+    "source_url": "لینک منبع رسمی را ارسال کنید.",
+}
 
 
 def clear_non_admin_flow_state(context):
@@ -194,6 +224,71 @@ def clear_non_admin_flow_state(context):
 def stop_admin_update(reason):
     logger.debug("Stopping admin update propagation: %s", reason)
     raise ApplicationHandlerStop
+
+
+def admin_panel_inline_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(ADMIN_RADAR_MANAGE, callback_data="admin:panel:radar")],
+            [InlineKeyboardButton(ADMIN_PENDING, callback_data="admin:panel:pending")],
+            [InlineKeyboardButton(ADMIN_COMMENTS, callback_data="admin:panel:comments")],
+            [InlineKeyboardButton(ADMIN_REPORTS, callback_data="admin:panel:reports")],
+            [InlineKeyboardButton(ADMIN_HOME, callback_data="admin:panel:home")],
+        ]
+    )
+
+
+def admin_radar_menu_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(ADMIN_RADAR_NEW, callback_data="admin_radar:menu:new")],
+            [
+                InlineKeyboardButton(ADMIN_RADAR_DRAFTS, callback_data="admin_radar:menu:draft"),
+                InlineKeyboardButton(ADMIN_RADAR_READY, callback_data="admin_radar:menu:ready"),
+            ],
+            [
+                InlineKeyboardButton(ADMIN_RADAR_PUBLISHED, callback_data="admin_radar:menu:published"),
+                InlineKeyboardButton(ADMIN_RADAR_FAILED, callback_data="admin_radar:menu:failed"),
+            ],
+            [InlineKeyboardButton(ADMIN_RADAR_SOURCES, callback_data="admin_radar:menu:sources")],
+            [
+                InlineKeyboardButton("⬅️ بازگشت به پنل ادمین", callback_data="admin_radar:menu:admin"),
+                InlineKeyboardButton("🏠 خانه", callback_data="admin_radar:menu:home"),
+            ],
+        ]
+    )
+
+
+def step_progress_text(step_index):
+    field, _ = RADAR_CREATE_FIELDS[step_index]
+    total = len(RADAR_CREATE_FIELDS)
+    label = STEP_LABELS.get(field, field)
+    return f"مرحله {step_index + 1} از {total}\n{label}"
+
+
+def step_prompt_text(step_index):
+    field, default_prompt = RADAR_CREATE_FIELDS[step_index]
+    prompt = TEXT_FIELD_PROMPTS.get(field, default_prompt)
+    if step_index == 0:
+        return f"📝 ساخت محتوای جدید رادار\n{step_progress_text(step_index)}\n\n{prompt}"
+    return f"{step_progress_text(step_index)}\n\n{prompt}"
+
+
+def create_nav_keyboard(include_back=True):
+    rows = []
+    if include_back:
+        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
+    rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def validate_radar_text_field(field, text):
+    value = (text or "").strip()
+    if not value:
+        return None, "این فیلد نمی‌تواند خالی باشد. لطفاً مقدار معتبر ارسال کنید."
+    if field == "source_url" and not (value.startswith("http://") or value.startswith("https://")):
+        return None, "لینک منبع باید با http:// یا https:// شروع شود."
+    return value, None
 
 
 def is_admin(user_id):
@@ -322,13 +417,15 @@ def selector_keyboard(field, data):
             ]
             for value, label in RADAR_CATEGORY_OPTIONS
         ]
-        rows.append([InlineKeyboardButton("✅ تأیید انتخاب‌ها", callback_data="admin_radar:cat_done")])
+        rows.append([InlineKeyboardButton("✅ تأیید", callback_data="admin_radar:cat_done")])
+        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
         rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
         return InlineKeyboardMarkup(rows)
 
     if field == "city":
         rows = [[InlineKeyboardButton(label, callback_data=f"admin_radar:city:{value}")] for value, label in CITY_OPTIONS]
         rows.append([InlineKeyboardButton("📍 شهر دیگر", callback_data="admin_radar:city:other")])
+        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
         rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
         return InlineKeyboardMarkup(rows)
 
@@ -338,6 +435,7 @@ def selector_keyboard(field, data):
                 [InlineKeyboardButton("📅 امروز", callback_data="admin_radar:date:start:today")],
                 [InlineKeyboardButton("📅 فردا", callback_data="admin_radar:date:start:tomorrow")],
                 [InlineKeyboardButton("✍️ ورود تاریخ دستی", callback_data="admin_radar:date:start:manual")],
+                [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")],
                 [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
             ]
         )
@@ -355,6 +453,7 @@ def selector_keyboard(field, data):
                 ],
                 [InlineKeyboardButton("30 روز", callback_data="admin_radar:date:end:30")],
                 [InlineKeyboardButton("✍️ ورود تاریخ دستی", callback_data="admin_radar:date:end:manual")],
+                [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")],
                 [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
             ]
         )
@@ -362,7 +461,10 @@ def selector_keyboard(field, data):
     if field == "urgency":
         return InlineKeyboardMarkup(
             [[InlineKeyboardButton(label, callback_data=f"admin_radar:urgency:{value}")] for value, label in URGENCY_OPTIONS]
-            + [[InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")]]
+            + [
+                [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")],
+                [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
+            ]
         )
 
     if field == "audience_tags":
@@ -379,6 +481,7 @@ def selector_keyboard(field, data):
         ]
         rows.append([InlineKeyboardButton("✅ تأیید", callback_data="admin_radar:aud_done")])
         rows.append([InlineKeyboardButton("➕ افزودن تگ سفارشی", callback_data="admin_radar:aud_custom")])
+        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
         rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
         return InlineKeyboardMarkup(rows)
 
@@ -539,7 +642,7 @@ def radar_admin_list_keyboard(grouped_items):
                 ]
             )
     rows.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="admin_radar:list")])
-    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin_radar:back")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت به مدیریت رادار", callback_data="admin_radar:menu:open")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -565,18 +668,28 @@ async def send_admin_radar_list(message, only_status=None):
     )
 
 
-async def send_admin_radar_menu(message):
+async def send_admin_radar_menu(message, remove_keyboard=True):
+    if remove_keyboard:
+        await message.reply_text("منوی رادار باز شد.", reply_markup=ReplyKeyboardRemove())
     await message.reply_text(
         "📡 مدیریت رادار\n\n"
-        "یکی از بخش‌های رادار را انتخاب کنید:",
-        reply_markup=ADMIN_RADAR_KEYBOARD,
+        "یکی از بخش‌های زیر را انتخاب کنید:",
+        reply_markup=admin_radar_menu_keyboard(),
+    )
+
+
+async def edit_admin_radar_menu(query):
+    await query.edit_message_text(
+        "📡 مدیریت رادار\n\n"
+        "یکی از بخش‌های زیر را انتخاب کنید:",
+        reply_markup=admin_radar_menu_keyboard(),
     )
 
 
 async def send_admin_radar_sources(message):
     sources = list_source_registry()
     if not sources:
-        await message.reply_text("منبع فعالی برای رادار ثبت نشده است.", reply_markup=ADMIN_RADAR_KEYBOARD)
+        await message.reply_text("منبع فعالی برای رادار ثبت نشده است.", reply_markup=admin_radar_menu_keyboard())
         return
 
     lines = ["📚 منابع رادار", ""]
@@ -592,13 +705,13 @@ async def send_admin_radar_sources(message):
             f"اعتماد: {source.get('trust_level') or '-'} | {active}"
         )
 
-    await message.reply_text("\n".join(lines).strip(), reply_markup=ADMIN_RADAR_KEYBOARD)
+    await message.reply_text("\n".join(lines).strip(), reply_markup=admin_radar_menu_keyboard())
 
 
 async def send_pending_comments(message):
     comments = list_pending_comments()
     if not comments:
-        await message.reply_text("کامنتی در انتظار بررسی وجود ندارد.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        await message.reply_text("کامنتی در انتظار بررسی وجود ندارد.", reply_markup=admin_panel_inline_keyboard())
         return
 
     for comment in comments:
@@ -622,15 +735,15 @@ async def send_radar_step_prompt(message, state):
     field, prompt = RADAR_CREATE_FIELDS[step]
     keyboard = selector_keyboard(field, state.setdefault("data", {}))
     logger.info("Radar create sending field=%s selector=%s", field, bool(keyboard))
-    await message.reply_text(prompt, reply_markup=keyboard or ADMIN_RADAR_KEYBOARD)
+    await message.reply_text(step_prompt_text(step), reply_markup=keyboard or create_nav_keyboard(step > 0))
 
 
 async def edit_radar_step_prompt(query, state):
     step = state.get("step", 0)
-    field, prompt = RADAR_CREATE_FIELDS[step]
+    field, _ = RADAR_CREATE_FIELDS[step]
     keyboard = selector_keyboard(field, state.setdefault("data", {}))
     logger.info("Radar create edit prompt step=%s field=%s selector=%s", step, field, bool(keyboard))
-    await query.edit_message_text(prompt, reply_markup=keyboard)
+    await safe_edit_message_text(query, step_prompt_text(step), reply_markup=keyboard or create_nav_keyboard(step > 0))
 
 
 async def finish_radar_field(message, state):
@@ -668,6 +781,7 @@ async def start_radar_creation(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["radar_create"] = {"step": 0, "data": {}}
     context.user_data["admin_radar_menu"] = True
     logger.info("Entering Radar new content flow user_id=%s", update.effective_user.id if update.effective_user else None)
+    await update.message.reply_text("در حال ساخت محتوای جدید...", reply_markup=ReplyKeyboardRemove())
     await send_radar_step_prompt(update.message, context.user_data["radar_create"])
 
 
@@ -681,7 +795,7 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
     if text in (ADMIN_RADAR_BACK, ADMIN_HOME):
         context.user_data.pop("radar_create", None)
         logger.info("Radar create cancelled by text=%r", text)
-        await update.message.reply_text("ایجاد محتوای رادار لغو شد.", reply_markup=ADMIN_RADAR_KEYBOARD)
+        await update.message.reply_text("ایجاد محتوای رادار لغو شد.", reply_markup=admin_radar_menu_keyboard())
         return True
 
     step = state.get("step", 0)
@@ -698,8 +812,12 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
 
     try:
         if state.pop("awaiting_custom_city", False):
-            data["city"] = text
-            data["province"] = text
+            value, error = validate_radar_text_field("city", text)
+            if error:
+                await update.message.reply_text(error, reply_markup=create_nav_keyboard(True))
+                return True
+            data["city"] = value
+            data["province"] = value
             logger.info("Radar create stored custom city=%r", text)
             await finish_radar_field(update.message, state)
             return True
@@ -711,11 +829,15 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
             await finish_radar_field(update.message, state)
             return True
         if state.pop("awaiting_custom_audience", False):
+            value, error = validate_radar_text_field("audience_tags", text)
+            if error:
+                await update.message.reply_text(error, reply_markup=create_nav_keyboard(True))
+                return True
             tags = normalize_audience_tags(data.get("audience_tags"))
-            if "all" not in tags and text not in tags:
-                tags.append(text)
+            if "all" not in tags and value not in tags:
+                tags.append(value)
             data["audience_tags"] = normalize_audience_tags(tags)
-            logger.info("Radar create added custom audience tag=%r tags=%s", text, tags)
+            logger.info("Radar create added custom audience tag=%r tags=%s", value, tags)
             await update.message.reply_text(
                 "تگ سفارشی اضافه شد. انتخاب مخاطب را ادامه دهید یا تأیید کنید.",
                 reply_markup=selector_keyboard("audience_tags", data),
@@ -725,6 +847,15 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
         if field in SELECTOR_FIELDS:
             logger.info("Radar create received text for selector field=%s; asking for button use", field)
             await update.message.reply_text("لطفاً از دکمه‌های همین مرحله استفاده کنید.")
+            return True
+        if field in TEXT_INPUT_FIELDS:
+            value, error = validate_radar_text_field(field, text)
+            if error:
+                await update.message.reply_text(error, reply_markup=create_nav_keyboard(step > 0))
+                return True
+            data[field] = value
+            logger.info("Radar create stored text field=%s", field)
+            await finish_radar_field(update.message, state)
             return True
         if field == "type":
             radar_type = normalize_radar_type(text)
@@ -779,6 +910,63 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     action = parts[1] if len(parts) > 1 else "list"
     state = context.user_data.get("radar_create")
     logger.info("Admin Radar callback action=%s parts=%s state_step=%s", action, parts, state.get("step") if state else None)
+
+    if action == "menu":
+        operation = parts[2] if len(parts) > 2 else ""
+        if operation == "new":
+            clear_non_admin_flow_state(context)
+            context.user_data["radar_create"] = {"step": 0, "data": {}}
+            context.user_data["admin_radar_menu"] = True
+            logger.info("Entering Radar new content flow from inline menu user_id=%s", query.from_user.id)
+            await query.message.reply_text("در حال ساخت محتوای جدید...", reply_markup=ReplyKeyboardRemove())
+            await send_radar_step_prompt(query.message, context.user_data["radar_create"])
+            return
+        if operation in ("draft", "ready", "published", "failed"):
+            await edit_admin_radar_list(query, operation)
+            return
+        if operation == "sources":
+            sources = list_source_registry()
+            if not sources:
+                await query.edit_message_text(
+                    "منبع فعالی برای رادار ثبت نشده است.",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:menu:open")]]
+                    ),
+                )
+                return
+            lines = ["📚 منابع رادار", ""]
+            current_category = None
+            for source in sources:
+                category = source.get("category") or "Other"
+                if category != current_category:
+                    current_category = category
+                    lines.extend(["", f"• {category}"])
+                active = "فعال" if source.get("is_active") else "غیرفعال"
+                lines.append(
+                    f"- {source.get('name') or '-'} | {source.get('source_type') or '-'} | "
+                    f"اعتماد: {source.get('trust_level') or '-'} | {active}"
+                )
+            await query.edit_message_text(
+                "\n".join(lines).strip(),
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:menu:open")]]
+                ),
+            )
+            return
+        if operation == "admin":
+            context.user_data.pop("admin_radar_menu", None)
+            context.user_data.pop("radar_create", None)
+            await query.edit_message_text("👨‍💼 پنل ادمین ویترین", reply_markup=admin_panel_inline_keyboard())
+            return
+        if operation == "home":
+            context.user_data.clear()
+            from handlers.start import MAIN_MENU
+
+            await query.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
+            await query.edit_message_reply_markup(reply_markup=None)
+            return
+        await edit_admin_radar_menu(query)
+        return
 
     if action in ("cat", "cat_done", "aud", "aud_done", "aud_custom", "city", "date", "urgency", "edit_field"):
         if not state:
@@ -850,14 +1038,22 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 data["audience_tags"] = []
                 await query.answer("برای افزودن تگ سفارشی، گزینه «همه» پاک شد.")
             state["awaiting_custom_audience"] = True
-            await query.edit_message_text("تگ سفارشی مخاطب را بفرستید:")
+            await safe_edit_message_text(
+                query,
+                f"{step_progress_text(state.get('step', field_index('audience_tags')))}\n\nتگ سفارشی مخاطب را ارسال کنید.",
+                reply_markup=create_nav_keyboard(True),
+            )
             return
 
         if action == "city":
             value = parts[2]
             if value == "other":
                 state["awaiting_custom_city"] = True
-                await query.edit_message_text("نام شهر را بفرستید:")
+                await safe_edit_message_text(
+                    query,
+                    f"{step_progress_text(state.get('step', field_index('city')))}\n\nنام شهر را ارسال کنید.",
+                    reply_markup=create_nav_keyboard(True),
+                )
                 return
             data["city"] = value
             data["province"] = value
@@ -870,7 +1066,11 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             value = parts[3] if len(parts) > 3 else "manual"
             if value == "manual":
                 state["awaiting_manual_date"] = True
-                await query.edit_message_text("تاریخ را با فرمت YYYY-MM-DD بفرستید:")
+                await safe_edit_message_text(
+                    query,
+                    f"{step_progress_text(state.get('step', field_index(date_field)))}\n\nتاریخ را با فرمت YYYY-MM-DD ارسال کنید.",
+                    reply_markup=create_nav_keyboard(True),
+                )
                 return
             if date_field == "start_date":
                 data[date_field] = today_midnight() + timedelta(days=1 if value == "tomorrow" else 0)
@@ -897,13 +1097,33 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await edit_radar_step_prompt(query, state)
             return
 
-    if action in ("list", "back"):
+    if action == "back":
+        await edit_admin_radar_menu(query)
+        return
+
+    if action == "list":
         await edit_admin_radar_list(query)
         return
 
     if action == "create":
         operation = parts[2] if len(parts) > 2 else ""
         data = context.user_data.get("radar_create", {}).get("data")
+        if operation == "back":
+            if not state:
+                await edit_admin_radar_menu(query)
+                return
+            state.pop("awaiting_custom_city", None)
+            state.pop("awaiting_manual_date", None)
+            state.pop("awaiting_custom_audience", None)
+            if state.get("editing_field"):
+                state.pop("editing_field", None)
+                state["step"] = len(RADAR_CREATE_FIELDS)
+                await query.edit_message_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
+                return
+            step = max(0, state.get("step", 0) - 1)
+            state["step"] = step
+            await edit_radar_step_prompt(query, state)
+            return
         if operation == "new":
             clear_non_admin_flow_state(context)
             context.user_data["radar_create"] = {"step": 0, "data": {}}
@@ -913,7 +1133,13 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         if operation == "cancel":
             context.user_data.pop("radar_create", None)
+            context.user_data["admin_radar_menu"] = True
             await query.edit_message_text("ایجاد محتوای رادار لغو شد.")
+            await query.message.reply_text(
+                "📡 مدیریت رادار\n\n"
+                "یکی از بخش‌های زیر را انتخاب کنید:",
+                reply_markup=admin_radar_menu_keyboard(),
+            )
             return
         if operation == "edit":
             if not data:
@@ -1115,6 +1341,54 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     _, action, object_id = parts
 
+    if action == "panel":
+        if object_id == "radar":
+            clear_non_admin_flow_state(context)
+            context.user_data["admin_panel"] = True
+            context.user_data["admin_radar_menu"] = True
+            await query.edit_message_text(
+                "📡 مدیریت رادار\n\n"
+                "یکی از بخش‌های زیر را انتخاب کنید:",
+                reply_markup=admin_radar_menu_keyboard(),
+            )
+            return
+        if object_id == "pending":
+            pending = list_pending_content()
+            await query.edit_message_text("📝 مدیریت محتواهای در انتظار")
+            if not pending:
+                await query.message.reply_text("موردی در انتظار بررسی وجود ندارد.", reply_markup=admin_panel_inline_keyboard())
+                return
+            for content in pending:
+                await query.message.reply_text(
+                    admin_content_text(content),
+                    reply_markup=admin_review_keyboard(content["human_id"]),
+                )
+            return
+        if object_id == "comments":
+            await query.edit_message_text("💬 مدیریت کامنت‌ها")
+            await send_pending_comments(query.message)
+            return
+        if object_id == "reports":
+            reports = list_active_reports()
+            if reports:
+                text = "🚨 گزارش‌های فعال\n\n" + "\n".join(
+                    f"{report['human_id']} برای {report['content_human_id']}: {report['reason']}"
+                    for report in reports
+                )
+            else:
+                text = "گزارش فعالی وجود ندارد."
+            await query.edit_message_text(text, reply_markup=admin_panel_inline_keyboard())
+            return
+        if object_id == "home":
+            context.user_data.clear()
+            from handlers.start import MAIN_MENU
+
+            await query.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
+            await query.edit_message_reply_markup(reply_markup=None)
+            return
+        await query.edit_message_text("درخواست پنل ادمین معتبر نیست.", reply_markup=admin_panel_inline_keyboard())
+        return
+
     if action == "approve":
         content = get_content(object_id)
         if not content or content["status"] != "pending_review":
@@ -1214,10 +1488,13 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             stop_admin_update("admin_radar_sources")
         if text == ADMIN_RADAR_BACK:
             context.user_data.pop("admin_radar_menu", None)
-            await update.message.reply_text("به پنل ادمین برگشتید.", reply_markup=ADMIN_PANEL_KEYBOARD)
+            await update.message.reply_text("به پنل ادمین برگشتید.", reply_markup=admin_panel_inline_keyboard())
             stop_admin_update("admin_radar_back")
         logger.warning("Unhandled admin Radar menu text=%r user_id=%s", text, update.effective_user.id)
-        await update.message.reply_text("لطفاً یکی از گزینه‌های مدیریت رادار را انتخاب کنید.", reply_markup=ADMIN_RADAR_KEYBOARD)
+        await update.message.reply_text(
+            "این منو منقضی شده است. لطفاً دوباره /admin را باز کنید.",
+            reply_markup=admin_radar_menu_keyboard(),
+        )
         stop_admin_update("admin_radar_menu_unhandled")
 
     if context.user_data.get("admin_panel") and not (
@@ -1264,7 +1541,10 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             await update.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
             stop_admin_update("admin_home")
         logger.warning("Unhandled admin panel text=%r user_id=%s", text, update.effective_user.id)
-        await update.message.reply_text("لطفاً یکی از گزینه‌های پنل ادمین را انتخاب کنید.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        await update.message.reply_text(
+            "این منو منقضی شده است. لطفاً دوباره /admin را باز کنید.",
+            reply_markup=admin_panel_inline_keyboard(),
+        )
         stop_admin_update("admin_panel_unhandled")
 
     comment_id = context.user_data.pop("admin_comment_reject_id", None)
@@ -1331,16 +1611,17 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Opening admin panel user_id=%s", update.effective_user.id)
     context.user_data.clear()
     context.user_data["admin_panel"] = True
+    await update.message.reply_text("پنل ادمین باز شد.", reply_markup=ReplyKeyboardRemove())
     await update.message.reply_text(
         "👨‍💼 پنل ادمین ویترین",
-        reply_markup=ADMIN_PANEL_KEYBOARD,
+        reply_markup=admin_panel_inline_keyboard(),
     )
 
 
 async def show_pending_admin_items(update: Update):
     pending = list_pending_content()
     if not pending:
-        await update.message.reply_text("موردی در انتظار بررسی وجود ندارد.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        await update.message.reply_text("موردی در انتظار بررسی وجود ندارد.", reply_markup=admin_panel_inline_keyboard())
         return
 
     for content in pending:
@@ -1357,6 +1638,6 @@ async def show_admin_reports(update: Update):
             f"{report['human_id']} برای {report['content_human_id']}: {report['reason']}"
             for report in reports
         )
-        await update.message.reply_text(text, reply_markup=ADMIN_PANEL_KEYBOARD)
+        await update.message.reply_text(text, reply_markup=admin_panel_inline_keyboard())
     else:
-        await update.message.reply_text("گزارش فعالی وجود ندارد.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        await update.message.reply_text("گزارش فعالی وجود ندارد.", reply_markup=admin_panel_inline_keyboard())
