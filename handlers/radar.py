@@ -261,24 +261,55 @@ def clean_channel_title(title):
     return text
 
 
+def clean_text(value):
+    return (value or "").strip()
+
+
+def meaningful_summary_for_full_view(item, why_text, why_uses_summary):
+    summary = clean_text(item.get("summary") or item.get("ai_summary"))
+    if not summary:
+        return ""
+    if why_uses_summary and summary == clean_text(why_text):
+        return ""
+    return summary
+
+
 def radar_item_text(item):
     radar_type = item.get("type") or "alert"
     emoji = category_emoji(item)
-    reason = item.get("ai_reason") or item.get("summary") or "-"
-    body = item.get("body") or item.get("original_text") or item.get("summary") or "-"
-    return (
-        "📡 رادار اسپانیا\n\n"
-        f"{emoji} {item.get('title') or '-'}\n\n"
-        f"📍 محدوده: {location_text(item)}\n"
-        f"⏳ اعتبار/مهلت: {format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}\n"
-        f"🎯 مناسب برای: {audience_text(item)}\n\n"
-        "چرا مهم است؟\n"
-        f"{reason}\n\n"
-        "جزئیات:\n"
-        f"{body}\n\n"
-        "منبع رسمی:\n"
-        f"{item.get('source_url') or item.get('source_name') or '-'}"
+    summary = clean_text(item.get("summary") or item.get("ai_summary"))
+    why_text = clean_text(item.get("ai_reason") or item.get("reason"))
+    why_uses_summary = False
+    if not why_text and summary:
+        why_text = summary
+        why_uses_summary = True
+    summary_text = meaningful_summary_for_full_view(item, why_text, why_uses_summary)
+    body = item.get("body") or item.get("original_text") or "-"
+    sections = [
+        "📡 رادار اسپانیا",
+        "",
+        f"{emoji} {item.get('title') or '-'}",
+        "",
+        f"📍 محدوده: {location_text(item)}",
+        f"⏳ اعتبار/مهلت: {format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}",
+        f"🎯 مناسب برای: {audience_text(item)}",
+        "",
+        "💡 چرا مهم است؟",
+        why_text or "-",
+    ]
+    if summary_text:
+        sections.extend(["", "📝 خلاصه:", summary_text])
+    sections.extend(
+        [
+            "",
+            "📄 جزئیات:",
+            body,
+            "",
+            "🔗 منبع رسمی:",
+            item.get("source_url") or item.get("source_name") or "-",
+        ]
     )
+    return "\n".join(sections)
 
 
 def format_radar_channel_post(item):
