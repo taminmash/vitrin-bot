@@ -225,6 +225,7 @@ def init_db():
                 body TEXT,
                 type TEXT NOT NULL,
                 category TEXT,
+                category_tags JSONB DEFAULT '[]'::jsonb,
                 city TEXT,
                 province TEXT,
                 country TEXT DEFAULT 'Spain',
@@ -263,6 +264,7 @@ def init_db():
         ensure_column(cur, "radar_items", "body", "TEXT")
         ensure_column(cur, "radar_items", "type", "TEXT")
         ensure_column(cur, "radar_items", "category", "TEXT")
+        ensure_column(cur, "radar_items", "category_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
         ensure_column(cur, "radar_items", "city", "TEXT")
         ensure_column(cur, "radar_items", "province", "TEXT")
         ensure_column(cur, "radar_items", "country", "TEXT DEFAULT 'Spain'", "'Spain'")
@@ -922,6 +924,7 @@ def create_radar_item(fields, content_status="draft"):
         "body",
         "type",
         "category",
+        "category_tags",
         "city",
         "province",
         "country",
@@ -947,6 +950,7 @@ def create_radar_item(fields, content_status="draft"):
     payload.setdefault("country", "Spain")
     payload.setdefault("type", "alert")
     payload.setdefault("category", payload["type"])
+    payload.setdefault("category_tags", [])
     payload.setdefault("urgency", "low")
     payload.setdefault("priority_score", 0)
     payload.setdefault("audience_tags", [])
@@ -957,7 +961,10 @@ def create_radar_item(fields, content_status="draft"):
     payload["channel_status"] = "not_sent"
 
     columns = list(payload.keys())
-    values = [Json(payload[column]) if column in ("audience_tags", "ai_tags") else payload[column] for column in columns]
+    values = [
+        Json(payload[column]) if column in ("audience_tags", "ai_tags", "category_tags") else payload[column]
+        for column in columns
+    ]
     placeholders = ", ".join(["%s"] * len(columns))
 
     with db_cursor(dict_cursor=True) as (_, cur):
