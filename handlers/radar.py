@@ -4,7 +4,8 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from database.db import count_available_radar_by_type, list_available_radar_items
+from config_v2 import BOT_USERNAME
+from database.db import count_available_radar_by_type, get_active_radar_item, list_available_radar_items
 from handlers.start import MAIN_MENU, send_home_dashboard
 
 
@@ -26,6 +27,7 @@ DEMO_ITEMS = {
     "alert": {
         "title": "هشدار فوری نمونه",
         "summary": "این یک نمونه نمایشی است تا ساختار رادار قبل از ورود داده واقعی قابل تست باشد.",
+        "body": "جزئیات کامل این آیتم پس از ثبت محتوای واقعی در دیتابیس نمایش داده می‌شود.",
         "type": "alert",
         "city": "همه شهرها",
         "province": "اسپانیا",
@@ -39,6 +41,7 @@ DEMO_ITEMS = {
     "discount": {
         "title": "تخفیف و آفر نمونه",
         "summary": "نمونه تخفیف برای نمایش ظاهر آیتم‌های رادار اسپانیا.",
+        "body": "جزئیات کامل آفر در این بخش داخل ربات نمایش داده می‌شود.",
         "type": "discount",
         "city": "Madrid",
         "province": "Madrid",
@@ -52,6 +55,7 @@ DEMO_ITEMS = {
     "event": {
         "title": "رویداد نزدیک شما",
         "summary": "نمونه رویداد برای تست دسته ایونت‌ها در رادار اسپانیا.",
+        "body": "زمان، مکان و نکات کامل رویداد داخل ربات نمایش داده می‌شود.",
         "type": "event",
         "city": "Barcelona",
         "province": "Catalonia",
@@ -127,60 +131,108 @@ def radar_keyboard():
     )
 
 
-def item_keyboard():
+def deep_link_for_item(item):
+    return f"https://t.me/{BOT_USERNAME}?start=radar_{item['id']}"
+
+
+def channel_post_keyboard(item):
     return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("❤️ ذخیره", callback_data="radar:save"),
-                InlineKeyboardButton("🔔 یادآوری", callback_data="radar:reminder"),
-            ],
-            [InlineKeyboardButton("📤 اشتراک‌گذاری", switch_inline_query="رادار اسپانیا")],
-            [InlineKeyboardButton("🏠 بازگشت", callback_data="radar:open")],
-        ]
+        [[InlineKeyboardButton("🤖 مشاهده جزئیات در ویترین", url=deep_link_for_item(item))]]
     )
+
+
+def full_item_keyboard(item):
+    rows = []
+    if item.get("source_url"):
+        rows.append([InlineKeyboardButton("🔗 منبع رسمی", url=item["source_url"])])
+    rows.append([InlineKeyboardButton("📤 اشتراک‌گذاری", switch_inline_query=deep_link_for_item(item))])
+    rows.append([InlineKeyboardButton("🏠 خانه", callback_data="radar:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def expired_item_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🏠 خانه", callback_data="radar:home")]])
 
 
 def format_date(value):
     if not value:
         return "-"
     if hasattr(value, "strftime"):
-        return value.strftime("%Y-%m-%d %H:%M")
+        return value.strftime("%Y-%m-%d")
     return str(value)
 
 
 def audience_text(item):
-    tags = item.get("audience_tags") or []
+    tags = item.get("audience_tags") or item.get("ai_tags") or []
     if isinstance(tags, str):
         return tags
     return "، ".join(tags) if tags else "عموم کاربران"
 
 
+def location_text(item):
+    return " / ".join(
+        value for value in [item.get("city"), item.get("province"), item.get("country")] if value
+    ) or "اسپانیا"
+
+
+def shorten_words(text, max_words=36):
+    words = (text or "-").split()
+    if len(words) <= max_words:
+        return " ".join(words)
+    return " ".join(words[:max_words]).rstrip("،.") + "..."
+
+
+def short_channel_lines(item):
+    source_text = item.get("ai_reason") or item.get("summary") or "-"
+    short = shorten_words(source_text, 36)
+    words = short.split()
+    if len(words) <= 12:
+        return [short]
+    if len(words) <= 24:
+        return [" ".join(words[:12]), " ".join(words[12:])]
+    return [" ".join(words[:12]), " ".join(words[12:24]), " ".join(words[24:36])]
+
+
 def radar_item_text(item):
     radar_type = item.get("type") or "alert"
     emoji = RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
-    location = " / ".join(
-        value for value in [item.get("city"), item.get("province"), item.get("country")] if value
-    ) or "اسپانیا"
-    summary = item.get("summary") or "-"
-    reason = summary if len(summary) <= 120 else summary[:117] + "..."
+    reason = item.get("ai_reason") or item.get("summary") or "-"
+    body = item.get("body") or item.get("original_text") or item.get("summary") or "-"
     return (
         "📡 رادار اسپانیا\n\n"
         f"{emoji} {item.get('title') or '-'}\n\n"
-        f"📍 محدوده: {location}\n"
-        f"⏳ زمان: {format_date(item.get('start_date'))} تا {format_date(item.get('end_date'))}\n"
+        f"📍 محدوده: {location_text(item)}\n"
+        f"⏳ اعتبار/مهلت: {format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}\n"
         f"🎯 مناسب برای: {audience_text(item)}\n\n"
         "چرا مهم است؟\n"
         f"{reason}\n\n"
-        "خلاصه:\n"
-        f"{summary}\n\n"
-        "🔗 منبع:\n"
+        "جزئیات:\n"
+        f"{body}\n\n"
+        "منبع رسمی:\n"
         f"{item.get('source_url') or item.get('source_name') or '-'}"
     )
 
 
+def format_radar_channel_post(item):
+    radar_type = item.get("type") or "alert"
+    emoji = RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
+    lines = [
+        "📡 رادار اسپانیا",
+        "",
+        f"{emoji} {item.get('title') or '-'}",
+        "",
+        *short_channel_lines(item),
+        "",
+        "🤖 مشاهده جزئیات در ویترین",
+        "",
+        f"منبع: {item.get('source_name') or '-'}",
+    ]
+    return "\n".join(lines)
+
+
 def demo_item(radar_type):
     item = DEMO_ITEMS.get(radar_type) or DEMO_ITEMS["alert"]
-    return {**item, "start_date": now_spain(), "end_date": None}
+    return {**item, "id": f"demo-{radar_type}", "start_date": now_spain(), "end_date": None}
 
 
 def first_radar_item(radar_type):
@@ -198,6 +250,32 @@ def first_radar_item(radar_type):
 
 async def show_radar_overview(query):
     await query.message.reply_text(radar_overview_text(), reply_markup=radar_keyboard())
+
+
+async def send_radar_item_message(message, item):
+    await message.reply_text(
+        radar_item_text(item),
+        reply_markup=full_item_keyboard(item),
+        disable_web_page_preview=True,
+    )
+
+
+async def send_missing_radar_item(message):
+    await message.reply_text(
+        "این آیتم رادار پیدا نشد یا مهلت آن تمام شده است.",
+        reply_markup=expired_item_keyboard(),
+    )
+
+
+async def open_radar_deep_link(update: Update, item_id: str):
+    try:
+        item = get_active_radar_item(item_id)
+    except Exception:
+        item = None
+    if not item:
+        await send_missing_radar_item(update.message)
+        return
+    await send_radar_item_message(update.message, item)
 
 
 async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -218,6 +296,18 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("این قابلیت در نسخه بعدی فعال می‌شود.", reply_markup=MAIN_MENU)
         return
 
+    if data.startswith("radar:item:"):
+        item_id = data.removeprefix("radar:item:")
+        try:
+            item = get_active_radar_item(item_id)
+        except Exception:
+            item = None
+        if not item:
+            await send_missing_radar_item(query.message)
+            return
+        await send_radar_item_message(query.message, item)
+        return
+
     if data.startswith("radar:type:"):
         radar_type = data.removeprefix("radar:type:")
-        await query.message.reply_text(radar_item_text(first_radar_item(radar_type)), reply_markup=item_keyboard())
+        await send_radar_item_message(query.message, first_radar_item(radar_type))

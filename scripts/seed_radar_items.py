@@ -37,6 +37,8 @@ def sample_items():
         "is_published": True,
         "published_at": now,
         "expires_at": end_date,
+        "content_status": "ready",
+        "channel_status": "not_sent",
         "created_at": now,
         "updated_at": now,
     }
@@ -207,12 +209,21 @@ def insert_sample_items():
                     is_published,
                     published_at,
                     expires_at,
+                    content_status,
+                    channel_status,
+                    ai_summary,
+                    ai_reason,
+                    ai_tags,
+                    ai_priority,
+                    original_text,
+                    original_language,
                     created_at,
                     updated_at
                 )
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s
                 )
                 """,
                 (
@@ -235,6 +246,14 @@ def insert_sample_items():
                     item["is_published"],
                     item["published_at"],
                     item["expires_at"],
+                    item["content_status"],
+                    item["channel_status"],
+                    item["summary"],
+                    item["summary"],
+                    Json(item["audience_tags"]),
+                    item["priority_score"],
+                    item["body"],
+                    "fa",
                     item["created_at"],
                     item["updated_at"],
                 ),

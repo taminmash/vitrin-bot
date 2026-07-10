@@ -28,7 +28,7 @@ CHANNEL_HAYAT_LINK = "https://t.me/hayatkhalvatspain"
 CHANNEL_VITRIN_USERNAME = "@vitrinspain"
 CHANNEL_HAYAT_USERNAME = "@hayatkhalvatspain"
 
-BOT_USERNAME = "VitrinSpainBot"
+BOT_USERNAME = os.getenv("BOT_USERNAME", "VitrinSpainBot")
 PROJECT_NAME = "ویترین اسپانیا"
 
 BACK_BUTTON = "🔙 بازگشت"
