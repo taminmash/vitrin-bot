@@ -262,7 +262,9 @@ def clean_channel_title(title):
 
 
 def clean_text(value):
-    return (value or "").strip()
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def meaningful_summary_for_full_view(item, why_text, why_uses_summary):
