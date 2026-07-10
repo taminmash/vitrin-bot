@@ -7,6 +7,31 @@ from psycopg2.extras import Json, RealDictCursor
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+INITIAL_RADAR_SOURCES = [
+    ("BOE", "Government", "https://www.boe.es/", "official", 5, "Spain", None),
+    ("SEPE", "Government", "https://www.sepe.es/", "official", 5, "Spain", None),
+    ("Seguridad Social", "Government", "https://www.seg-social.es/", "official", 5, "Spain", None),
+    ("Agencia Tributaria", "Government", "https://sede.agenciatributaria.gob.es/", "official", 5, "Spain", None),
+    ("Ministerio de Inclusión", "Government", "https://www.inclusion.gob.es/", "official", 5, "Spain", None),
+    ("Carrefour", "Discounts", "https://www.carrefour.es/ofertas", "retailer", 4, "Spain", None),
+    ("Lidl", "Discounts", "https://www.lidl.es/", "retailer", 4, "Spain", None),
+    ("Aldi", "Discounts", "https://www.aldi.es/", "retailer", 4, "Spain", None),
+    ("Primor", "Discounts", "https://www.primor.eu/es_es/ofertas", "retailer", 4, "Spain", None),
+    ("MediaMarkt", "Discounts", "https://www.mediamarkt.es/", "retailer", 4, "Spain", None),
+    ("El Corte Inglés", "Discounts", "https://www.elcorteingles.es/", "retailer", 4, "Spain", None),
+    ("InfoJobs", "Jobs", "https://www.infojobs.net/", "jobs", 4, "Spain", None),
+    ("Indeed España", "Jobs", "https://es.indeed.com/", "jobs", 4, "Spain", None),
+    ("Renfe", "Travel", "https://www.renfe.com/es/es", "travel", 4, "Spain", None),
+    ("Ouigo", "Travel", "https://www.ouigo.com/es/", "travel", 4, "Spain", None),
+    ("Iryo", "Travel", "https://iryo.eu/es", "travel", 4, "Spain", None),
+    ("Iberia", "Travel", "https://www.iberia.com/es/", "travel", 4, "Spain", None),
+    ("Ryanair", "Travel", "https://www.ryanair.com/es/es", "travel", 3, "Spain", None),
+    ("Eventbrite España", "Events", "https://www.eventbrite.es/", "events", 3, "Spain", None),
+    ("Fever", "Events", "https://feverup.com/es", "events", 3, "Spain", None),
+    ("Meetup", "Events", "https://www.meetup.com/", "events", 3, "Spain", None),
+    ("AEMET", "Weather", "https://www.aemet.es/", "weather", 5, "Spain", None),
+]
+
 
 def get_connection():
     if not DATABASE_URL:
@@ -216,13 +241,17 @@ def init_db():
                 expires_at TIMESTAMP,
                 notify_immediately BOOLEAN DEFAULT false,
                 daily_digest BOOLEAN DEFAULT true,
-                channel_status TEXT DEFAULT 'draft',
+                content_status TEXT DEFAULT 'draft',
+                channel_status TEXT DEFAULT 'not_sent',
                 channel_message_id BIGINT,
                 channel_published_at TIMESTAMP,
+                last_publish_error TEXT,
                 ai_summary TEXT,
                 ai_reason TEXT,
                 ai_tags JSONB DEFAULT '[]'::jsonb,
                 ai_priority INTEGER DEFAULT 0,
+                original_text TEXT,
+                original_language TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -250,16 +279,38 @@ def init_db():
         ensure_column(cur, "radar_items", "expires_at", "TIMESTAMP")
         ensure_column(cur, "radar_items", "notify_immediately", "BOOLEAN DEFAULT false", "false")
         ensure_column(cur, "radar_items", "daily_digest", "BOOLEAN DEFAULT true", "true")
-        ensure_column(cur, "radar_items", "channel_status", "TEXT DEFAULT 'draft'", "'draft'")
+        ensure_column(cur, "radar_items", "content_status", "TEXT DEFAULT 'draft'", "'draft'")
+        ensure_column(cur, "radar_items", "channel_status", "TEXT DEFAULT 'not_sent'", "'not_sent'")
         ensure_column(cur, "radar_items", "channel_message_id", "BIGINT")
         ensure_column(cur, "radar_items", "channel_published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "last_publish_error", "TEXT")
         ensure_column(cur, "radar_items", "ai_summary", "TEXT")
         ensure_column(cur, "radar_items", "ai_reason", "TEXT")
         ensure_column(cur, "radar_items", "ai_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
         ensure_column(cur, "radar_items", "ai_priority", "INTEGER DEFAULT 0", "0")
+        ensure_column(cur, "radar_items", "original_text", "TEXT")
+        ensure_column(cur, "radar_items", "original_language", "TEXT")
         ensure_column(cur, "radar_items", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         ensure_column(cur, "radar_items", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
-        cur.execute("UPDATE radar_items SET channel_status = 'draft' WHERE channel_status IS NULL")
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET content_status = CASE
+                    WHEN content_status IS NOT NULL THEN content_status
+                    WHEN channel_status = 'published' THEN 'published'
+                    WHEN channel_status = 'ready' THEN 'ready'
+                    ELSE 'draft'
+                END,
+                channel_status = CASE
+                    WHEN channel_status = 'published' THEN 'published'
+                    WHEN channel_status = 'failed' THEN 'failed'
+                    ELSE 'not_sent'
+                END
+            WHERE content_status IS NULL
+               OR channel_status IS NULL
+               OR channel_status IN ('draft', 'ready')
+            """
+        )
         cur.execute(
             """
             CREATE INDEX IF NOT EXISTS radar_items_available_idx
@@ -271,6 +322,50 @@ def init_db():
             CREATE INDEX IF NOT EXISTS radar_items_channel_status_idx
             ON radar_items (channel_status, updated_at)
             """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS source_registry (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                category TEXT,
+                source_url TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT true,
+                trust_level INTEGER DEFAULT 3,
+                country TEXT DEFAULT 'Spain',
+                city TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "source_registry", "name", "TEXT")
+        ensure_column(cur, "source_registry", "category", "TEXT")
+        ensure_column(cur, "source_registry", "source_url", "TEXT")
+        ensure_column(cur, "source_registry", "source_type", "TEXT")
+        ensure_column(cur, "source_registry", "is_active", "BOOLEAN DEFAULT true", "true")
+        ensure_column(cur, "source_registry", "trust_level", "INTEGER DEFAULT 3", "3")
+        ensure_column(cur, "source_registry", "country", "TEXT DEFAULT 'Spain'", "'Spain'")
+        ensure_column(cur, "source_registry", "city", "TEXT")
+        ensure_column(cur, "source_registry", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "source_registry", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS source_registry_name_url_unique
+            ON source_registry (name, source_url)
+            """
+        )
+        cur.executemany(
+            """
+            INSERT INTO source_registry (
+                name, category, source_url, source_type, trust_level, country, city
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (name, source_url) DO NOTHING
+            """,
+            INITIAL_RADAR_SOURCES,
         )
 
         cur.execute(
@@ -670,6 +765,8 @@ def available_radar_where():
         is_published = true
         AND (published_at IS NULL OR published_at <= CURRENT_TIMESTAMP)
         AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        AND (end_date IS NULL OR end_date > CURRENT_TIMESTAMP)
+        AND COALESCE(content_status, 'draft') <> 'expired'
     """
 
 
@@ -736,7 +833,7 @@ def list_available_radar_items(radar_type=None, limit=5):
 
 
 def list_admin_radar_items(limit_per_status=10):
-    statuses = ["draft", "ready", "published", "failed"]
+    statuses = ["draft", "ready", "published", "expired", "failed"]
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
@@ -744,21 +841,30 @@ def list_admin_radar_items(limit_per_status=10):
             FROM (
                 SELECT *,
                        ROW_NUMBER() OVER (
-                           PARTITION BY COALESCE(channel_status, 'draft')
+                           PARTITION BY CASE
+                               WHEN COALESCE(expires_at, end_date) <= CURRENT_TIMESTAMP THEN 'expired'
+                               WHEN COALESCE(channel_status, 'not_sent') = 'failed' THEN 'failed'
+                               ELSE COALESCE(content_status, 'draft')
+                           END
                            ORDER BY COALESCE(ai_priority, priority_score, 0) DESC,
                                     updated_at DESC,
                                     created_at DESC
                        ) AS status_rank
                 FROM radar_items
-                WHERE COALESCE(channel_status, 'draft') = ANY(%s)
             ) ranked
-            WHERE status_rank <= %s
-            ORDER BY CASE COALESCE(channel_status, 'draft')
-                         WHEN 'draft' THEN 1
-                         WHEN 'ready' THEN 2
-                         WHEN 'published' THEN 3
-                         WHEN 'failed' THEN 4
-                         ELSE 5
+            WHERE CASE
+                    WHEN COALESCE(expires_at, end_date) <= CURRENT_TIMESTAMP THEN 'expired'
+                    WHEN COALESCE(channel_status, 'not_sent') = 'failed' THEN 'failed'
+                    ELSE COALESCE(content_status, 'draft')
+                  END = ANY(%s)
+              AND status_rank <= %s
+            ORDER BY CASE
+                         WHEN COALESCE(expires_at, end_date) <= CURRENT_TIMESTAMP THEN 4
+                         WHEN COALESCE(channel_status, 'not_sent') = 'failed' THEN 5
+                         WHEN COALESCE(content_status, 'draft') = 'draft' THEN 1
+                         WHEN COALESCE(content_status, 'draft') = 'ready' THEN 2
+                         WHEN COALESCE(content_status, 'draft') = 'published' THEN 3
+                         ELSE 6
                      END,
                      status_rank
             """,
@@ -768,8 +874,25 @@ def list_admin_radar_items(limit_per_status=10):
         for row in cur.fetchall():
             item = dict(row)
             item.pop("status_rank", None)
-            grouped[item.get("channel_status") or "draft"].append(item)
+            status = radar_content_status(item)
+            if item.get("channel_status") == "failed":
+                status = "failed"
+            grouped[status].append(item)
         return grouped
+
+
+def radar_content_status(item):
+    if item.get("expires_at") and item["expires_at"] <= datetime_now_sql_safe():
+        return "expired"
+    if item.get("end_date") and item["end_date"] <= datetime_now_sql_safe():
+        return "expired"
+    return item.get("content_status") or "draft"
+
+
+def datetime_now_sql_safe():
+    from datetime import datetime
+
+    return datetime.now()
 
 
 def get_radar_item(item_id):
@@ -778,14 +901,121 @@ def get_radar_item(item_id):
         return row_to_dict(cur.fetchone())
 
 
+def get_active_radar_item(item_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            SELECT *
+            FROM radar_items
+            WHERE id = %s
+              AND {available_radar_where()}
+            """,
+            (item_id,),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def create_radar_item(fields, content_status="draft"):
+    allowed = {
+        "title",
+        "summary",
+        "body",
+        "type",
+        "category",
+        "city",
+        "province",
+        "country",
+        "start_date",
+        "end_date",
+        "source_url",
+        "source_name",
+        "urgency",
+        "priority_score",
+        "audience_tags",
+        "is_verified",
+        "is_published",
+        "published_at",
+        "expires_at",
+        "ai_summary",
+        "ai_reason",
+        "ai_tags",
+        "ai_priority",
+        "original_text",
+        "original_language",
+    }
+    payload = {key: value for key, value in fields.items() if key in allowed}
+    payload.setdefault("country", "Spain")
+    payload.setdefault("type", "alert")
+    payload.setdefault("category", payload["type"])
+    payload.setdefault("urgency", "low")
+    payload.setdefault("priority_score", 0)
+    payload.setdefault("audience_tags", [])
+    payload.setdefault("ai_tags", [])
+    payload.setdefault("is_verified", True)
+    payload.setdefault("is_published", content_status in ("ready", "published"))
+    payload["content_status"] = content_status
+    payload["channel_status"] = "not_sent"
+
+    columns = list(payload.keys())
+    values = [Json(payload[column]) if column in ("audience_tags", "ai_tags") else payload[column] for column in columns]
+    placeholders = ", ".join(["%s"] * len(columns))
+
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            INSERT INTO radar_items ({", ".join(columns)})
+            VALUES ({placeholders})
+            RETURNING *
+            """,
+            values,
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def update_radar_content_status(item_id, content_status):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET content_status = %s,
+                is_published = CASE WHEN %s IN ('ready', 'published') THEN true ELSE is_published END,
+                published_at = CASE
+                    WHEN %s IN ('ready', 'published') THEN COALESCE(published_at, CURRENT_TIMESTAMP)
+                    ELSE published_at
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+            """,
+            (content_status, content_status, content_status, item_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def list_source_registry(active_only=True):
+    where_clause = "WHERE is_active = true" if active_only else ""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            SELECT *
+            FROM source_registry
+            {where_clause}
+            ORDER BY category, trust_level DESC, name
+            """
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def mark_radar_channel_published(item_id, message_id):
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
             UPDATE radar_items
-            SET channel_status = 'published',
+            SET content_status = 'published',
+                channel_status = 'published',
                 channel_message_id = %s,
                 channel_published_at = CURRENT_TIMESTAMP,
+                last_publish_error = NULL,
                 is_published = true,
                 published_at = COALESCE(published_at, CURRENT_TIMESTAMP),
                 updated_at = CURRENT_TIMESTAMP
@@ -797,17 +1027,18 @@ def mark_radar_channel_published(item_id, message_id):
         return row_to_dict(cur.fetchone())
 
 
-def mark_radar_channel_failed(item_id):
+def mark_radar_channel_failed(item_id, error_text=None):
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
             UPDATE radar_items
             SET channel_status = 'failed',
+                last_publish_error = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
             RETURNING *
             """,
-            (item_id,),
+            (error_text, item_id),
         )
         return row_to_dict(cur.fetchone())
 

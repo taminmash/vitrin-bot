@@ -6,11 +6,13 @@ from telegram.ext import ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
 from database.db import (
+    create_radar_item,
     get_comment,
     get_content,
     get_radar_item,
     list_active_reports,
     list_admin_radar_items,
+    list_source_registry,
     list_pending_content,
     mark_radar_channel_failed,
     mark_radar_channel_published,
@@ -18,6 +20,7 @@ from database.db import (
     resolve_review,
     save_publication,
     submit_for_review,
+    update_radar_content_status,
 )
 from handlers.common import (
     admin_comment_keyboard,
@@ -30,28 +33,65 @@ from handlers.common import (
     need_edit_keyboard,
     need_edit_text,
 )
-from handlers.radar import format_radar_channel_post
+from handlers.radar import channel_post_keyboard, format_radar_channel_post
 
 
 ADMIN_PENDING = "📥 موارد در انتظار بررسی"
 ADMIN_REPORTS = "🚩 گزارش‌ها"
 ADMIN_BACK = "🏠 بازگشت"
 ADMIN_RADAR = "📡 انتشار رادار"
+ADMIN_RADAR_NEW = "➕ محتوای جدید رادار"
+ADMIN_RADAR_DRAFTS = "📝 پیش‌نویس‌ها"
+ADMIN_RADAR_READY = "✅ آماده انتشار"
+ADMIN_RADAR_PUBLISHED = "📤 منتشرشده‌ها"
+ADMIN_RADAR_FAILED = "❌ ناموفق‌ها"
 RADAR_STATUS_LABELS = {
-    "draft": "Draft",
-    "ready": "Ready",
-    "published": "Published",
-    "failed": "Failed",
+    "draft": "پیش‌نویس",
+    "ready": "آماده انتشار",
+    "published": "منتشرشده",
+    "expired": "منقضی",
+    "failed": "ناموفق",
 }
 ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton(ADMIN_PENDING)],
         [KeyboardButton(ADMIN_REPORTS)],
-        [KeyboardButton(ADMIN_RADAR)],
+        [KeyboardButton(ADMIN_RADAR_NEW)],
+        [KeyboardButton(ADMIN_RADAR_DRAFTS), KeyboardButton(ADMIN_RADAR_READY)],
+        [KeyboardButton(ADMIN_RADAR_PUBLISHED), KeyboardButton(ADMIN_RADAR_FAILED)],
         [KeyboardButton(ADMIN_BACK)],
     ],
     resize_keyboard=True,
 )
+
+RADAR_CREATE_FIELDS = [
+    ("title", "عنوان رادار را بفرستید:"),
+    ("type", "نوع/دسته را بفرستید: alert, discount, event, job, legal, travel, family, weather, transport, economy, education"),
+    ("city", "شهر را بفرستید یا بنویسید: کل اسپانیا"),
+    ("summary", "خلاصه کوتاه را بفرستید:"),
+    ("ai_reason", "چرا مهم است؟ یک توضیح کوتاه بفرستید:"),
+    ("body", "جزئیات کامل را بفرستید:"),
+    ("source_name", "نام منبع را بفرستید:"),
+    ("source_url", "لینک منبع رسمی را بفرستید:"),
+    ("start_date", "تاریخ شروع را با فرمت YYYY-MM-DD بفرستید یا بنویسید امروز:"),
+    ("end_date", "تاریخ پایان را با فرمت YYYY-MM-DD بفرستید یا بنویسید 7 یعنی هفت روز بعد:"),
+    ("urgency", "درجه فوریت را بفرستید: low, medium, high, urgent"),
+    ("audience_tags", "تگ‌های مخاطب را با ویرگول جدا کنید:"),
+]
+
+TYPE_CATEGORY = {
+    "alert": "فوری",
+    "discount": "تخفیف‌ها",
+    "event": "ایونت‌ها",
+    "job": "کار",
+    "legal": "قوانین",
+    "travel": "سفر",
+    "family": "خانواده",
+    "weather": "هوا",
+    "transport": "حمل‌ونقل",
+    "economy": "اقتصاد",
+    "education": "آموزش",
+}
 
 
 def is_admin(user_id):
@@ -59,12 +99,126 @@ def is_admin(user_id):
 
 
 def radar_status(item):
-    return item.get("channel_status") or "draft"
+    if item.get("channel_status") == "failed":
+        return "failed"
+    if is_radar_expired(item):
+        return "expired"
+    return item.get("content_status") or "draft"
 
 
 def short_radar_title(item, limit=34):
     title = item.get("title") or "-"
     return title if len(title) <= limit else title[: limit - 1] + "…"
+
+
+def parse_radar_date(value):
+    from datetime import datetime, timedelta
+
+    text = (value or "").strip()
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if text in ("امروز", "today"):
+        return today
+    if text in ("7", "+7"):
+        return today + timedelta(days=7)
+    return datetime.strptime(text, "%Y-%m-%d")
+
+
+def normalize_radar_type(value):
+    text = (value or "").strip()
+    aliases = {
+        "فوری": "alert",
+        "تخفیف": "discount",
+        "تخفیف‌ها": "discount",
+        "ایونت": "event",
+        "ایونت‌ها": "event",
+        "کار": "job",
+        "قانون": "legal",
+        "قوانین": "legal",
+        "سفر": "travel",
+        "خانواده": "family",
+        "هوا": "weather",
+        "حمل‌ونقل": "transport",
+        "اقتصاد": "economy",
+        "آموزش": "education",
+    }
+    return aliases.get(text, text if text in TYPE_CATEGORY else "alert")
+
+
+def is_radar_expired(item):
+    from datetime import datetime
+
+    now = datetime.now()
+    for key in ("expires_at", "end_date"):
+        value = item.get(key)
+        if value and value <= now:
+            return True
+    return (item.get("content_status") or "") == "expired"
+
+
+def radar_create_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("💾 ذخیره پیش‌نویس", callback_data="admin_radar:create:save_draft")],
+            [InlineKeyboardButton("✅ آماده انتشار", callback_data="admin_radar:create:ready")],
+            [InlineKeyboardButton("📤 انتشار در کانال", callback_data="admin_radar:create:publish")],
+            [InlineKeyboardButton("✏️ ویرایش", callback_data="admin_radar:create:edit")],
+            [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
+        ]
+    )
+
+
+def radar_create_preview_text(data):
+    item = {
+        **data,
+        "category": TYPE_CATEGORY.get(data.get("type"), data.get("category")),
+        "source_name": data.get("source_name"),
+    }
+    return (
+        "پیش‌نمایش محتوای رادار\n\n"
+        f"{format_radar_channel_post(item)}\n\n"
+        "این متن نسخه کوتاه کانال است. جزئیات کامل داخل ربات نمایش داده می‌شود."
+    )
+
+
+def create_payload_from_radar_data(data, status):
+    radar_type = normalize_radar_type(data.get("type"))
+    start_date = data.get("start_date")
+    end_date = data.get("end_date")
+    return {
+        "title": data.get("title"),
+        "type": radar_type,
+        "category": TYPE_CATEGORY.get(radar_type, radar_type),
+        "city": data.get("city") or "کل اسپانیا",
+        "province": data.get("province") or data.get("city") or "کل اسپانیا",
+        "country": "Spain",
+        "summary": data.get("summary"),
+        "ai_reason": data.get("ai_reason"),
+        "ai_summary": data.get("summary"),
+        "body": data.get("body"),
+        "source_name": data.get("source_name"),
+        "source_url": data.get("source_url"),
+        "start_date": start_date,
+        "end_date": end_date,
+        "expires_at": end_date,
+        "urgency": data.get("urgency") or "low",
+        "priority_score": {"urgent": 95, "high": 80, "medium": 55, "low": 30}.get(data.get("urgency"), 30),
+        "audience_tags": data.get("audience_tags") or [],
+        "ai_tags": data.get("audience_tags") or [],
+        "original_text": data.get("body"),
+        "original_language": "fa",
+        "is_verified": True,
+        "is_published": status in ("ready", "published"),
+    }
+
+
+async def publish_radar_item(context, item):
+    message = await context.bot.send_message(
+        chat_id=CHANNEL_VITRIN,
+        text=format_radar_channel_post(item),
+        reply_markup=channel_post_keyboard(item),
+        disable_web_page_preview=True,
+    )
+    return mark_radar_channel_published(item["id"], message.message_id)
 
 
 def radar_admin_list_text(grouped_items):
@@ -82,9 +236,14 @@ def radar_admin_list_text(grouped_items):
                 f"{item.get('category') or item.get('type') or '-'} | "
                 f"{item.get('urgency') or '-'} | "
                 f"{item.get('city') or '-'} | "
-                f"{radar_status(item)}"
+                f"{radar_status(item)} / channel: {item.get('channel_status') or 'not_sent'}"
             )
         lines.append("")
+    sources = list_source_registry()
+    lines.append("منابع فعال:")
+    lines.append(f"{len(sources)} منبع ثبت شده")
+    if sources:
+        lines.append("، ".join(source["name"] for source in sources[:8]))
     return "\n".join(lines).strip()
 
 
@@ -113,16 +272,74 @@ def radar_item_preview_keyboard(item):
     return InlineKeyboardMarkup(rows)
 
 
-async def send_admin_radar_list(message):
+async def send_admin_radar_list(message, only_status=None):
     grouped = list_admin_radar_items()
+    if only_status:
+        grouped = {status: items if status == only_status else [] for status, items in grouped.items()}
     await message.reply_text(
         radar_admin_list_text(grouped),
         reply_markup=radar_admin_list_keyboard(grouped),
     )
 
 
-async def edit_admin_radar_list(query):
+async def start_radar_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["radar_create"] = {"step": 0, "data": {}}
+    await update.message.reply_text(RADAR_CREATE_FIELDS[0][1], reply_markup=ADMIN_PANEL_KEYBOARD)
+
+
+async def handle_radar_creation_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    state = context.user_data.get("radar_create")
+    if not state:
+        return False
+
+    text = update.message.text.strip()
+    if text == ADMIN_BACK:
+        context.user_data.pop("radar_create", None)
+        await update.message.reply_text("ایجاد محتوای رادار لغو شد.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        return True
+
+    step = state.get("step", 0)
+    if step >= len(RADAR_CREATE_FIELDS):
+        await update.message.reply_text(
+            "پیش‌نمایش آماده است. لطفاً یکی از دکمه‌های زیر را انتخاب کنید.",
+            reply_markup=radar_create_keyboard(),
+        )
+        return True
+
+    field, _ = RADAR_CREATE_FIELDS[step]
+    data = state.setdefault("data", {})
+
+    try:
+        if field == "type":
+            radar_type = normalize_radar_type(text)
+            data["type"] = radar_type
+            data["category"] = TYPE_CATEGORY.get(radar_type, radar_type)
+        elif field in ("start_date", "end_date"):
+            data[field] = parse_radar_date(text)
+        elif field == "urgency":
+            data[field] = text if text in ("low", "medium", "high", "urgent") else "low"
+        elif field == "audience_tags":
+            data[field] = [tag.strip() for tag in text.replace("،", ",").split(",") if tag.strip()]
+        else:
+            data[field] = text
+    except Exception:
+        await update.message.reply_text("فرمت این مقدار درست نیست. لطفاً دوباره بفرستید.")
+        return True
+
+    step += 1
+    state["step"] = step
+    if step < len(RADAR_CREATE_FIELDS):
+        await update.message.reply_text(RADAR_CREATE_FIELDS[step][1])
+        return True
+
+    await update.message.reply_text(radar_create_preview_text(data), reply_markup=radar_create_keyboard())
+    return True
+
+
+async def edit_admin_radar_list(query, only_status=None):
     grouped = list_admin_radar_items()
+    if only_status:
+        grouped = {status: items if status == only_status else [] for status, items in grouped.items()}
     await query.edit_message_text(
         radar_admin_list_text(grouped),
         reply_markup=radar_admin_list_keyboard(grouped),
@@ -146,6 +363,47 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await edit_admin_radar_list(query)
         return
 
+    if action == "create":
+        operation = parts[2] if len(parts) > 2 else ""
+        data = context.user_data.get("radar_create", {}).get("data")
+        if operation == "cancel":
+            context.user_data.pop("radar_create", None)
+            await query.edit_message_text("ایجاد محتوای رادار لغو شد.")
+            return
+        if operation == "edit":
+            if not data:
+                await query.edit_message_text("پیش‌نویسی برای ویرایش وجود ندارد.")
+                return
+            context.user_data["radar_create"] = {"step": 0, "data": data}
+            await query.edit_message_text(RADAR_CREATE_FIELDS[0][1])
+            return
+        if operation in ("save_draft", "ready", "publish"):
+            if not data:
+                await query.edit_message_text("اطلاعات محتوای رادار کامل نیست.")
+                return
+            status = "ready" if operation in ("ready", "publish") else "draft"
+            item = create_radar_item(create_payload_from_radar_data(data, status), content_status=status)
+            context.user_data.pop("radar_create", None)
+            if operation != "publish":
+                label = "آماده انتشار" if operation == "ready" else "پیش‌نویس"
+                await query.edit_message_text(f"✅ محتوای رادار با وضعیت {label} ذخیره شد.")
+                return
+            if is_radar_expired(item):
+                await query.edit_message_text("این آیتم منقضی شده و قابل انتشار نیست.")
+                return
+            try:
+                published = await publish_radar_item(context, item)
+            except TelegramError as error:
+                logging.exception("Failed to publish new Radar item to channel")
+                mark_radar_channel_failed(item["id"], str(error))
+                await query.edit_message_text(f"❌ انتشار رادار در کانال ناموفق بود.\n\nخطا: {error}")
+                return
+            await query.edit_message_text(
+                "✅ آیتم رادار در کانال منتشر شد.\n\n"
+                f"Message ID: {published.get('channel_message_id') or '-'}"
+            )
+            return
+
     if len(parts) != 3:
         await query.edit_message_text("درخواست رادار نامعتبر است.")
         return
@@ -166,15 +424,30 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if action == "publish":
-        try:
-            message = await context.bot.send_message(
-                chat_id=CHANNEL_VITRIN,
-                text=format_radar_channel_post(item),
-                disable_web_page_preview=False,
+        if radar_status(item) == "expired":
+            await query.edit_message_text(
+                "این آیتم منقضی شده و قابل انتشار نیست.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
             )
+            return
+        if item.get("channel_status") == "published":
+            await query.edit_message_text(
+                "این آیتم قبلاً منتشر شده است.\n\n"
+                f"Message ID: {item.get('channel_message_id') or '-'}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+        update_radar_content_status(item_id, "ready")
+        item = get_radar_item(item_id)
+        try:
+            published = await publish_radar_item(context, item)
         except TelegramError as error:
             logging.exception("Failed to publish Radar item %s to channel", item_id)
-            mark_radar_channel_failed(item_id)
+            mark_radar_channel_failed(item_id, str(error))
             await query.edit_message_text(
                 "❌ انتشار رادار در کانال ناموفق بود.\n\n"
                 f"خطا: {error}",
@@ -184,10 +457,9 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        mark_radar_channel_published(item_id, message.message_id)
         await query.edit_message_text(
             "✅ آیتم رادار در کانال منتشر شد.\n\n"
-            f"Message ID: {message.message_id}",
+            f"Message ID: {published.get('channel_message_id') or '-'}",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
             ),
@@ -323,6 +595,10 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     text = update.message.text
+    if context.user_data.get("radar_create"):
+        if await handle_radar_creation_message(update, context):
+            return
+
     if context.user_data.get("admin_panel") and not (
         context.user_data.get("admin_comment_reject_id")
         or context.user_data.get("admin_reason_action")
@@ -335,6 +611,21 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             return
         if text == ADMIN_RADAR:
             await send_admin_radar_list(update.message)
+            return
+        if text == ADMIN_RADAR_DRAFTS:
+            await send_admin_radar_list(update.message, "draft")
+            return
+        if text == ADMIN_RADAR_NEW:
+            await start_radar_creation(update, context)
+            return
+        if text == ADMIN_RADAR_READY:
+            await send_admin_radar_list(update.message, "ready")
+            return
+        if text == ADMIN_RADAR_PUBLISHED:
+            await send_admin_radar_list(update.message, "published")
+            return
+        if text == ADMIN_RADAR_FAILED:
+            await send_admin_radar_list(update.message, "failed")
             return
         if text == ADMIN_BACK:
             context.user_data.pop("admin_panel", None)

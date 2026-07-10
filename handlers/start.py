@@ -104,6 +104,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         get_or_create_user(update.effective_user)
     except Exception:
         logger.exception("Failed to create or update user on /start")
+
+    payload = context.args[0] if context.args else None
+    if payload and payload.startswith("radar_"):
+        from handlers.radar import open_radar_deep_link
+
+        await open_radar_deep_link(update, payload.removeprefix("radar_"))
+        return
+
     await send_home_dashboard(update)
 
 
