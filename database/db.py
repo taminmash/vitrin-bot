@@ -1182,6 +1182,22 @@ def get_comment(human_id):
         return row_to_dict(cur.fetchone())
 
 
+def list_pending_comments(limit=20):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT c.*, co.human_id AS content_human_id, co.title AS content_title
+            FROM comments c
+            JOIN content_objects co ON co.internal_id = c.content_id
+            WHERE c.status = 'pending_review'
+            ORDER BY c.created_at ASC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def resolve_comment(comment_human_id, admin_id, action, reason=None):
     status = "approved" if action == "approve" else "rejected"
     with db_cursor(dict_cursor=True) as (_, cur):
