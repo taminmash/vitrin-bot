@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.error import TelegramError
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
 from database.db import (
@@ -37,6 +37,9 @@ from handlers.common import (
     need_edit_text,
 )
 from handlers.radar import channel_post_keyboard, format_radar_channel_post
+
+
+logger = logging.getLogger(__name__)
 
 
 ADMIN_RADAR_MANAGE = "📡 مدیریت رادار"
@@ -174,6 +177,23 @@ EDIT_FIELD_LABELS = [
 ]
 
 SELECTOR_FIELDS = {"type", "city", "start_date", "end_date", "urgency", "audience_tags"}
+
+
+def clear_non_admin_flow_state(context):
+    for key in (
+        "profile_step",
+        "post_step",
+        "interaction_step",
+        "interaction_content_id",
+        "content_id",
+        "flow",
+    ):
+        context.user_data.pop(key, None)
+
+
+def stop_admin_update(reason):
+    logger.debug("Stopping admin update propagation: %s", reason)
+    raise ApplicationHandlerStop
 
 
 def is_admin(user_id):
@@ -566,12 +586,15 @@ async def send_pending_comments(message):
 
 async def send_radar_step_prompt(message, state):
     step = state.get("step", 0)
+    logger.info("Radar create prompt step=%s data_keys=%s", step, sorted((state.get("data") or {}).keys()))
     if step >= len(RADAR_CREATE_FIELDS):
+        logger.info("Radar create reached preview step=%s", step)
         await message.reply_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
         return
 
     field, prompt = RADAR_CREATE_FIELDS[step]
     keyboard = selector_keyboard(field, state.setdefault("data", {}))
+    logger.info("Radar create sending field=%s selector=%s", field, bool(keyboard))
     await message.reply_text(prompt, reply_markup=keyboard or ADMIN_RADAR_KEYBOARD)
 
 
@@ -579,28 +602,34 @@ async def edit_radar_step_prompt(query, state):
     step = state.get("step", 0)
     field, prompt = RADAR_CREATE_FIELDS[step]
     keyboard = selector_keyboard(field, state.setdefault("data", {}))
+    logger.info("Radar create edit prompt step=%s field=%s selector=%s", step, field, bool(keyboard))
     await query.edit_message_text(prompt, reply_markup=keyboard)
 
 
 async def finish_radar_field(message, state):
     if state.pop("editing_field", None):
         state["step"] = len(RADAR_CREATE_FIELDS)
+        logger.info("Radar create finished edited field; returning to preview")
         await message.reply_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
         return
 
     state["step"] = state.get("step", 0) + 1
+    logger.info("Radar create advanced to step=%s", state["step"])
     await send_radar_step_prompt(message, state)
 
 
 async def finish_radar_field_from_query(query, state):
     if state.pop("editing_field", None):
         state["step"] = len(RADAR_CREATE_FIELDS)
+        logger.info("Radar create callback finished edited field; returning to preview")
         await query.edit_message_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
         return
 
     state["step"] = state.get("step", 0) + 1
     step = state.get("step", 0)
+    logger.info("Radar create callback advanced to step=%s", step)
     if step >= len(RADAR_CREATE_FIELDS):
+        logger.info("Radar create callback reached preview step=%s", step)
         await query.edit_message_text(radar_create_preview_text(state.get("data") or {}), reply_markup=radar_create_keyboard())
         return
 
@@ -608,7 +637,10 @@ async def finish_radar_field_from_query(query, state):
 
 
 async def start_radar_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_non_admin_flow_state(context)
     context.user_data["radar_create"] = {"step": 0, "data": {}}
+    context.user_data["admin_radar_menu"] = True
+    logger.info("Entering Radar new content flow user_id=%s", update.effective_user.id if update.effective_user else None)
     await send_radar_step_prompt(update.message, context.user_data["radar_create"])
 
 
@@ -618,8 +650,10 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
         return False
 
     text = update.message.text.strip()
+    logger.info("Radar create message step=%s text=%r", state.get("step"), text)
     if text in (ADMIN_RADAR_BACK, ADMIN_HOME):
         context.user_data.pop("radar_create", None)
+        logger.info("Radar create cancelled by text=%r", text)
         await update.message.reply_text("ایجاد محتوای رادار لغو شد.", reply_markup=ADMIN_RADAR_KEYBOARD)
         return True
 
@@ -633,17 +667,20 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
 
     field, _ = RADAR_CREATE_FIELDS[step]
     data = state.setdefault("data", {})
+    logger.info("Radar create handling field=%s", field)
 
     try:
         if state.pop("awaiting_custom_city", False):
             data["city"] = text
             data["province"] = text
+            logger.info("Radar create stored custom city=%r", text)
             await finish_radar_field(update.message, state)
             return True
         if state.pop("awaiting_manual_date", False):
             data[field] = parse_radar_date(text)
             if field == "end_date":
                 data["expires_at"] = data[field]
+            logger.info("Radar create stored manual date field=%s value=%s", field, data[field])
             await finish_radar_field(update.message, state)
             return True
         if state.pop("awaiting_custom_audience", False):
@@ -651,6 +688,7 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
             if "all" not in tags and text not in tags:
                 tags.append(text)
             data["audience_tags"] = tags
+            logger.info("Radar create added custom audience tag=%r tags=%s", text, tags)
             await update.message.reply_text(
                 "تگ سفارشی اضافه شد. انتخاب مخاطب را ادامه دهید یا تأیید کنید.",
                 reply_markup=selector_keyboard("audience_tags", data),
@@ -658,6 +696,7 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
             return True
 
         if field in SELECTOR_FIELDS:
+            logger.info("Radar create received text for selector field=%s; asking for button use", field)
             await update.message.reply_text("لطفاً از دکمه‌های همین مرحله استفاده کنید.")
             return True
         if field == "type":
@@ -672,7 +711,9 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
             data[field] = [tag.strip() for tag in text.replace("،", ",").split(",") if tag.strip()]
         else:
             data[field] = text
+        logger.info("Radar create stored field=%s", field)
     except Exception:
+        logger.exception("Radar create failed to parse field=%s", field)
         await update.message.reply_text("فرمت این مقدار درست نیست. لطفاً دوباره بفرستید.")
         return True
 
@@ -696,16 +737,25 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     await query.answer()
+    logger.info(
+        "Admin Radar callback user_id=%s data=%r radar_create=%s",
+        query.from_user.id if query.from_user else None,
+        query.data,
+        bool(context.user_data.get("radar_create")),
+    )
     if not is_admin(query.from_user.id):
+        logger.warning("Non-admin attempted admin Radar callback user_id=%s data=%r", query.from_user.id, query.data)
         await query.edit_message_text("شما دسترسی ادمین ندارید.")
         return
 
     parts = query.data.split(":")
     action = parts[1] if len(parts) > 1 else "list"
     state = context.user_data.get("radar_create")
+    logger.info("Admin Radar callback action=%s parts=%s state_step=%s", action, parts, state.get("step") if state else None)
 
     if action in ("cat", "cat_done", "aud", "aud_done", "aud_custom", "city", "date", "urgency", "edit_field"):
         if not state:
+            logger.warning("Admin Radar selector callback without active draft action=%s data=%r", action, query.data)
             await query.edit_message_text("پیش‌نویس فعالی برای رادار وجود ندارد.")
             return
 
@@ -811,6 +861,13 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if action == "create":
         operation = parts[2] if len(parts) > 2 else ""
         data = context.user_data.get("radar_create", {}).get("data")
+        if operation == "new":
+            clear_non_admin_flow_state(context)
+            context.user_data["radar_create"] = {"step": 0, "data": {}}
+            context.user_data["admin_radar_menu"] = True
+            logger.info("Entering Radar new content flow from callback user_id=%s", query.from_user.id)
+            await send_radar_step_prompt(query.message, context.user_data["radar_create"])
+            return
         if operation == "cancel":
             context.user_data.pop("radar_create", None)
             await query.edit_message_text("ایجاد محتوای رادار لغو شد.")
@@ -1077,10 +1134,18 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     if not update.message or not is_admin(update.effective_user.id):
         return
 
-    text = update.message.text
+    text = (update.message.text or "").strip()
+    logger.info(
+        "Admin text handler user_id=%s text=%r admin_panel=%s admin_radar_menu=%s radar_create=%s",
+        update.effective_user.id,
+        text,
+        bool(context.user_data.get("admin_panel")),
+        bool(context.user_data.get("admin_radar_menu")),
+        bool(context.user_data.get("radar_create")),
+    )
     if context.user_data.get("radar_create"):
         if await handle_radar_creation_message(update, context):
-            return
+            stop_admin_update("radar_create_message")
 
     if context.user_data.get("admin_radar_menu") and not (
         context.user_data.get("admin_comment_reject_id")
@@ -1088,26 +1153,29 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     ):
         if text == ADMIN_RADAR_NEW:
             await start_radar_creation(update, context)
-            return
+            stop_admin_update("admin_radar_new")
         if text == ADMIN_RADAR_DRAFTS:
             await send_admin_radar_list(update.message, "draft")
-            return
+            stop_admin_update("admin_radar_drafts")
         if text == ADMIN_RADAR_READY:
             await send_admin_radar_list(update.message, "ready")
-            return
+            stop_admin_update("admin_radar_ready")
         if text == ADMIN_RADAR_PUBLISHED:
             await send_admin_radar_list(update.message, "published")
-            return
+            stop_admin_update("admin_radar_published")
         if text == ADMIN_RADAR_FAILED:
             await send_admin_radar_list(update.message, "failed")
-            return
+            stop_admin_update("admin_radar_failed")
         if text == ADMIN_RADAR_SOURCES:
             await send_admin_radar_sources(update.message)
-            return
+            stop_admin_update("admin_radar_sources")
         if text == ADMIN_RADAR_BACK:
             context.user_data.pop("admin_radar_menu", None)
             await update.message.reply_text("به پنل ادمین برگشتید.", reply_markup=ADMIN_PANEL_KEYBOARD)
-            return
+            stop_admin_update("admin_radar_back")
+        logger.warning("Unhandled admin Radar menu text=%r user_id=%s", text, update.effective_user.id)
+        await update.message.reply_text("لطفاً یکی از گزینه‌های مدیریت رادار را انتخاب کنید.", reply_markup=ADMIN_RADAR_KEYBOARD)
+        stop_admin_update("admin_radar_menu_unhandled")
 
     if context.user_data.get("admin_panel") and not (
         context.user_data.get("admin_comment_reject_id")
@@ -1115,48 +1183,53 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     ):
         if text == ADMIN_PENDING:
             await show_pending_admin_items(update)
-            return
+            stop_admin_update("admin_pending")
         if text == ADMIN_COMMENTS:
             await send_pending_comments(update.message)
-            return
+            stop_admin_update("admin_comments")
         if text == ADMIN_REPORTS:
             await show_admin_reports(update)
-            return
+            stop_admin_update("admin_reports")
         if text == ADMIN_RADAR_MANAGE:
+            clear_non_admin_flow_state(context)
             context.user_data["admin_radar_menu"] = True
+            logger.info("Entering admin Radar menu user_id=%s", update.effective_user.id)
             await send_admin_radar_menu(update.message)
-            return
+            stop_admin_update("admin_radar_manage")
         if text == ADMIN_RADAR:
             await send_admin_radar_list(update.message)
-            return
+            stop_admin_update("admin_radar_legacy")
         if text == ADMIN_RADAR_DRAFTS:
             await send_admin_radar_list(update.message, "draft")
-            return
+            stop_admin_update("admin_panel_radar_drafts")
         if text == ADMIN_RADAR_NEW:
             await start_radar_creation(update, context)
-            return
+            stop_admin_update("admin_panel_radar_new")
         if text == ADMIN_RADAR_READY:
             await send_admin_radar_list(update.message, "ready")
-            return
+            stop_admin_update("admin_panel_radar_ready")
         if text == ADMIN_RADAR_PUBLISHED:
             await send_admin_radar_list(update.message, "published")
-            return
+            stop_admin_update("admin_panel_radar_published")
         if text == ADMIN_RADAR_FAILED:
             await send_admin_radar_list(update.message, "failed")
-            return
+            stop_admin_update("admin_panel_radar_failed")
         if text == ADMIN_HOME:
             context.user_data.pop("admin_panel", None)
             from handlers.start import MAIN_MENU
 
             await update.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
-            return
+            stop_admin_update("admin_home")
+        logger.warning("Unhandled admin panel text=%r user_id=%s", text, update.effective_user.id)
+        await update.message.reply_text("لطفاً یکی از گزینه‌های پنل ادمین را انتخاب کنید.", reply_markup=ADMIN_PANEL_KEYBOARD)
+        stop_admin_update("admin_panel_unhandled")
 
     comment_id = context.user_data.pop("admin_comment_reject_id", None)
     if comment_id:
         reason = update.message.text.strip()
         resolve_comment(comment_id, update.effective_user.id, "reject", reason)
         await update.message.reply_text(f"❌ نظر {comment_id} رد شد.")
-        return
+        stop_admin_update("admin_comment_reject")
 
     action = context.user_data.pop("admin_reason_action", None)
     content_id = context.user_data.pop("admin_reason_content_id", None)
@@ -1167,7 +1240,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
     content = get_content(content_id)
     if not content:
         await update.message.reply_text("❌ محتوا پیدا نشد.")
-        return
+        stop_admin_update("admin_reason_missing_content")
 
     resolve_review(content_id, update.effective_user.id, action, reason)
     label = "پیام" if is_hayat_content(content) else "آگهی"
@@ -1179,7 +1252,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             reply_markup=need_edit_keyboard(content),
         )
         await update.message.reply_text(f"✅ {content_id} به draft برگشت.")
-        return
+        stop_admin_update("admin_need_edit")
 
     if action == "reject":
         await context.bot.send_message(
@@ -1191,7 +1264,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             ),
         )
         await update.message.reply_text(f"✅ {content_id} رد شد.")
-        return
+        stop_admin_update("admin_reject")
 
     await context.bot.send_message(
         chat_id=content["user_telegram_id"],
@@ -1202,6 +1275,7 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         ),
     )
     await update.message.reply_text(f"✅ {content_id} حذف شد.")
+    stop_admin_update("admin_delete")
 
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1211,8 +1285,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("شما دسترسی ادمین ندارید.")
         return
 
-    context.user_data.pop("admin_radar_menu", None)
-    context.user_data.pop("radar_create", None)
+    logger.info("Opening admin panel user_id=%s", update.effective_user.id)
+    context.user_data.clear()
     context.user_data["admin_panel"] = True
     await update.message.reply_text(
         "👨‍💼 پنل ادمین ویترین",
