@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
-from telegram.error import TelegramError
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
@@ -285,6 +285,31 @@ def urgency_label(value):
     return option_label(URGENCY_OPTIONS, value)
 
 
+def normalize_audience_tags(tags):
+    if not tags:
+        return []
+    if isinstance(tags, str):
+        tags = [tag.strip() for tag in tags.replace("،", ",").split(",")]
+    normalized = []
+    for tag in tags:
+        tag = str(tag).strip()
+        if tag and tag not in normalized:
+            normalized.append(tag)
+    if "all" in normalized:
+        return ["all"]
+    return normalized
+
+
+async def safe_edit_message_text(query, text, reply_markup=None):
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup)
+    except BadRequest as error:
+        if "Message is not modified" in str(error):
+            logger.info("Skipped unchanged Telegram edit for callback data=%r", query.data)
+            return
+        raise
+
+
 def selector_keyboard(field, data):
     if field == "type":
         selected = data.get("category_tags") or ([data["type"]] if data.get("type") else [])
@@ -341,7 +366,8 @@ def selector_keyboard(field, data):
         )
 
     if field == "audience_tags":
-        selected = data.get("audience_tags") or []
+        selected = normalize_audience_tags(data.get("audience_tags"))
+        data["audience_tags"] = selected
         rows = [
             [
                 InlineKeyboardButton(
@@ -399,6 +425,7 @@ def radar_create_preview_text(data):
         "source_name": data.get("source_name"),
     }
     categories = "، ".join(category_labels(data.get("category_tags") or [data.get("type")])) or "-"
+    data["audience_tags"] = normalize_audience_tags(data.get("audience_tags"))
     audience = "، ".join(audience_labels(data.get("audience_tags") or [])) or "-"
     return (
         "پیش‌نمایش محتوای رادار\n\n"
@@ -414,7 +441,7 @@ def radar_create_preview_text(data):
 
 def radar_admin_item_preview_text(item):
     categories = "، ".join(category_labels(item.get("category_tags") or [item.get("type")])) or "-"
-    audience = "، ".join(audience_labels(item.get("audience_tags") or [])) or "-"
+    audience = "، ".join(audience_labels(normalize_audience_tags(item.get("audience_tags")))) or "-"
     reactions = count_radar_reactions(item["id"])
     feedback_total = reactions.get("like", 0) + reactions.get("dislike", 0)
     return (
@@ -454,8 +481,8 @@ def create_payload_from_radar_data(data, status):
         "expires_at": end_date,
         "urgency": data.get("urgency") or "low",
         "priority_score": {"urgent": 95, "high": 80, "medium": 55, "low": 30}.get(data.get("urgency"), 30),
-        "audience_tags": data.get("audience_tags") or [],
-        "ai_tags": data.get("audience_tags") or [],
+        "audience_tags": normalize_audience_tags(data.get("audience_tags")),
+        "ai_tags": normalize_audience_tags(data.get("audience_tags")),
         "original_text": data.get("body"),
         "original_language": "fa",
         "is_verified": True,
@@ -684,10 +711,10 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
             await finish_radar_field(update.message, state)
             return True
         if state.pop("awaiting_custom_audience", False):
-            tags = data.get("audience_tags") or []
+            tags = normalize_audience_tags(data.get("audience_tags"))
             if "all" not in tags and text not in tags:
                 tags.append(text)
-            data["audience_tags"] = tags
+            data["audience_tags"] = normalize_audience_tags(tags)
             logger.info("Radar create added custom audience tag=%r tags=%s", text, tags)
             await update.message.reply_text(
                 "تگ سفارشی اضافه شد. انتخاب مخاطب را ادامه دهید یا تأیید کنید.",
@@ -708,7 +735,7 @@ async def handle_radar_creation_message(update: Update, context: ContextTypes.DE
         elif field == "urgency":
             data[field] = text if text in ("low", "medium", "high", "urgent") else "low"
         elif field == "audience_tags":
-            data[field] = [tag.strip() for tag in text.replace("،", ",").split(",") if tag.strip()]
+            data[field] = normalize_audience_tags(text)
         else:
             data[field] = text
         logger.info("Radar create stored field=%s", field)
@@ -784,28 +811,44 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         if action == "aud":
-            value = parts[2]
-            selected = data.get("audience_tags") or []
-            if value == "all":
-                selected = [] if selected == ["all"] else ["all"]
-            elif "all" not in selected:
-                if value in selected:
-                    selected.remove(value)
+            try:
+                value = parts[2]
+                selected = normalize_audience_tags(data.get("audience_tags"))
+                if value == "all":
+                    selected = ["all"]
+                    await query.answer("گزینه «همه» انتخاب شد و بقیه مخاطب‌ها پاک شدند.")
                 else:
-                    selected.append(value)
-            data["audience_tags"] = selected
-            await query.edit_message_text(
-                RADAR_CREATE_FIELDS[field_index("audience_tags")][1],
-                reply_markup=selector_keyboard("audience_tags", data),
-            )
+                    if "all" in selected:
+                        selected = []
+                        await query.answer("برای انتخاب مخاطب خاص، گزینه «همه» پاک شد.")
+                    if value in selected:
+                        selected.remove(value)
+                    else:
+                        selected.append(value)
+                data["audience_tags"] = normalize_audience_tags(selected)
+                await safe_edit_message_text(
+                    query,
+                    RADAR_CREATE_FIELDS[field_index("audience_tags")][1],
+                    reply_markup=selector_keyboard("audience_tags", data),
+                )
+            except Exception:
+                logger.exception("Radar audience selector failed data=%s callback=%r", data, query.data)
+                await query.answer("انتخاب مخاطب ثبت نشد. لطفاً دوباره یکی از گزینه‌ها را بزنید.", show_alert=True)
             return
 
         if action == "aud_done":
-            data["audience_tags"] = data.get("audience_tags") or ["all"]
-            await finish_radar_field_from_query(query, state)
+            try:
+                data["audience_tags"] = normalize_audience_tags(data.get("audience_tags")) or ["all"]
+                await finish_radar_field_from_query(query, state)
+            except Exception:
+                logger.exception("Radar audience confirmation failed data=%s callback=%r", data, query.data)
+                await query.answer("مخاطب انتخاب‌شده معتبر نیست. لطفاً دوباره انتخاب کنید.", show_alert=True)
             return
 
         if action == "aud_custom":
+            if normalize_audience_tags(data.get("audience_tags")) == ["all"]:
+                data["audience_tags"] = []
+                await query.answer("برای افزودن تگ سفارشی، گزینه «همه» پاک شد.")
             state["awaiting_custom_audience"] = True
             await query.edit_message_text("تگ سفارشی مخاطب را بفرستید:")
             return
