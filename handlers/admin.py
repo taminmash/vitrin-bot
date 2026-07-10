@@ -39,12 +39,14 @@ from handlers.radar import channel_post_keyboard, format_radar_channel_post
 ADMIN_PENDING = "📥 موارد در انتظار بررسی"
 ADMIN_REPORTS = "🚩 گزارش‌ها"
 ADMIN_BACK = "🏠 بازگشت"
+ADMIN_RADAR_MANAGE = "📡 مدیریت رادار"
 ADMIN_RADAR = "📡 انتشار رادار"
-ADMIN_RADAR_NEW = "➕ محتوای جدید رادار"
+ADMIN_RADAR_NEW = "➕ محتوای جدید"
 ADMIN_RADAR_DRAFTS = "📝 پیش‌نویس‌ها"
 ADMIN_RADAR_READY = "✅ آماده انتشار"
 ADMIN_RADAR_PUBLISHED = "📤 منتشرشده‌ها"
 ADMIN_RADAR_FAILED = "❌ ناموفق‌ها"
+ADMIN_RADAR_SOURCES = "📚 منابع رادار"
 RADAR_STATUS_LABELS = {
     "draft": "پیش‌نویس",
     "ready": "آماده انتشار",
@@ -56,9 +58,19 @@ ADMIN_PANEL_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton(ADMIN_PENDING)],
         [KeyboardButton(ADMIN_REPORTS)],
+        [KeyboardButton(ADMIN_RADAR_MANAGE)],
+        [KeyboardButton(ADMIN_BACK)],
+    ],
+    resize_keyboard=True,
+)
+
+ADMIN_RADAR_KEYBOARD = ReplyKeyboardMarkup(
+    [
         [KeyboardButton(ADMIN_RADAR_NEW)],
-        [KeyboardButton(ADMIN_RADAR_DRAFTS), KeyboardButton(ADMIN_RADAR_READY)],
-        [KeyboardButton(ADMIN_RADAR_PUBLISHED), KeyboardButton(ADMIN_RADAR_FAILED)],
+        [KeyboardButton(ADMIN_RADAR_DRAFTS)],
+        [KeyboardButton(ADMIN_RADAR_READY)],
+        [KeyboardButton(ADMIN_RADAR_PUBLISHED)],
+        [KeyboardButton(ADMIN_RADAR_SOURCES)],
         [KeyboardButton(ADMIN_BACK)],
     ],
     resize_keyboard=True,
@@ -282,9 +294,39 @@ async def send_admin_radar_list(message, only_status=None):
     )
 
 
+async def send_admin_radar_menu(message):
+    await message.reply_text(
+        "📡 مدیریت رادار\n\n"
+        "یکی از بخش‌های رادار را انتخاب کنید:",
+        reply_markup=ADMIN_RADAR_KEYBOARD,
+    )
+
+
+async def send_admin_radar_sources(message):
+    sources = list_source_registry()
+    if not sources:
+        await message.reply_text("منبع فعالی برای رادار ثبت نشده است.", reply_markup=ADMIN_RADAR_KEYBOARD)
+        return
+
+    lines = ["📚 منابع رادار", ""]
+    current_category = None
+    for source in sources:
+        category = source.get("category") or "Other"
+        if category != current_category:
+            current_category = category
+            lines.extend(["", f"• {category}"])
+        active = "فعال" if source.get("is_active") else "غیرفعال"
+        lines.append(
+            f"- {source.get('name') or '-'} | {source.get('source_type') or '-'} | "
+            f"اعتماد: {source.get('trust_level') or '-'} | {active}"
+        )
+
+    await message.reply_text("\n".join(lines).strip(), reply_markup=ADMIN_RADAR_KEYBOARD)
+
+
 async def start_radar_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["radar_create"] = {"step": 0, "data": {}}
-    await update.message.reply_text(RADAR_CREATE_FIELDS[0][1], reply_markup=ADMIN_PANEL_KEYBOARD)
+    await update.message.reply_text(RADAR_CREATE_FIELDS[0][1], reply_markup=ADMIN_RADAR_KEYBOARD)
 
 
 async def handle_radar_creation_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -599,6 +641,30 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         if await handle_radar_creation_message(update, context):
             return
 
+    if context.user_data.get("admin_radar_menu") and not (
+        context.user_data.get("admin_comment_reject_id")
+        or context.user_data.get("admin_reason_action")
+    ):
+        if text == ADMIN_RADAR_NEW:
+            await start_radar_creation(update, context)
+            return
+        if text == ADMIN_RADAR_DRAFTS:
+            await send_admin_radar_list(update.message, "draft")
+            return
+        if text == ADMIN_RADAR_READY:
+            await send_admin_radar_list(update.message, "ready")
+            return
+        if text == ADMIN_RADAR_PUBLISHED:
+            await send_admin_radar_list(update.message, "published")
+            return
+        if text == ADMIN_RADAR_SOURCES:
+            await send_admin_radar_sources(update.message)
+            return
+        if text == ADMIN_BACK:
+            context.user_data.pop("admin_radar_menu", None)
+            await update.message.reply_text("به پنل ادمین برگشتید.", reply_markup=ADMIN_PANEL_KEYBOARD)
+            return
+
     if context.user_data.get("admin_panel") and not (
         context.user_data.get("admin_comment_reject_id")
         or context.user_data.get("admin_reason_action")
@@ -608,6 +674,10 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             return
         if text == ADMIN_REPORTS:
             await show_admin_reports(update)
+            return
+        if text == ADMIN_RADAR_MANAGE:
+            context.user_data["admin_radar_menu"] = True
+            await send_admin_radar_menu(update.message)
             return
         if text == ADMIN_RADAR:
             await send_admin_radar_list(update.message)
