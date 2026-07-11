@@ -1,11 +1,16 @@
 from pathlib import Path
+import subprocess
+import sys
 import unittest
+import xml.etree.ElementTree as ET
 
 from radar_engine.models import RawRadarItem
-from radar_engine.sources.boe import BOESource
+from radar_engine.source_manager import SourceManager
+from radar_engine.sources.boe import BOESource, BOERawEntry
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "boe_sample.xml"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class BOESourceTests(unittest.IsolatedAsyncioTestCase):
@@ -22,6 +27,12 @@ class BOESourceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("https://www.boe.es/diario_boe/", item.source_url)
         self.assertIsNotNone(item.published_at)
         self.assertEqual(item.raw_category, "I. Disposiciones generales")
+
+    def test_valid_relative_document_url_is_resolved(self):
+        source = BOESource(max_items=10)
+        entries = source.parse_xml(FIXTURE.read_bytes())
+        item = source.normalize(entries[0])
+        self.assertEqual(item.source_url, "https://www.boe.es/diario_boe/xml.php?id=BOE-A-2026-10001")
 
     def test_missing_optional_fields_do_not_crash(self):
         source = BOESource(max_items=10)
@@ -54,3 +65,54 @@ class BOESourceTests(unittest.IsolatedAsyncioTestCase):
         normalized = await source.fetch_normalized()
         self.assertTrue(called)
         self.assertGreaterEqual(len(normalized), 2)
+
+    async def test_total_network_failure_becomes_fatal_report(self):
+        source = BOESource(days_back=2)
+
+        def fail_read(url):
+            raise OSError("network unavailable")
+
+        source._read_url = fail_read
+        with self.assertRaisesRegex(RuntimeError, "failed for all attempted"):
+            await source.fetch()
+
+        manager = SourceManager(store_func=lambda item: None)
+        manager.register(source)
+        report = await manager.ingest_source("boe")
+        self.assertEqual(report.fetched_count, 0)
+        self.assertGreaterEqual(report.failed_count, 1)
+        self.assertIn("fetch failed", report.errors[0])
+
+    async def test_partial_network_failure_returns_successful_entries(self):
+        source = BOESource(days_back=2, max_items=10)
+        calls = []
+
+        def read_url(url):
+            calls.append(url)
+            if len(calls) == 1:
+                raise OSError("temporary unavailable")
+            return FIXTURE.read_bytes()
+
+        source._read_url = read_url
+        entries = await source.fetch()
+        self.assertEqual(len(calls), 2)
+        self.assertGreaterEqual(len(entries), 2)
+
+    def test_missing_identity_does_not_use_boe_homepage(self):
+        element = ET.fromstring("<item><titulo>Sin identidad</titulo><texto>Texto</texto></item>")
+        source = BOESource()
+        with self.assertRaisesRegex(ValueError, "missing both external identifier and document URL"):
+            source.normalize(BOERawEntry(element, None, None))
+
+
+class RadarRunnerTests(unittest.TestCase):
+    def test_documented_script_help_runs_without_database(self):
+        result = subprocess.run(
+            [sys.executable, "scripts/run_radar_source.py", "--help"],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Run a manual Radar source ingestion", result.stdout)

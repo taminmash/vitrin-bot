@@ -1,9 +1,13 @@
 import argparse
 import asyncio
+from pathlib import Path
 import sys
 
-from database.db import init_db
-from radar_engine.source_manager import build_default_source_manager
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def print_report(report) -> None:
@@ -21,6 +25,9 @@ def print_report(report) -> None:
 
 
 async def run(source_key: str) -> int:
+    from database.db import init_db
+    from radar_engine.source_manager import build_default_source_manager
+
     init_db()
     manager = build_default_source_manager()
     report = await manager.ingest_source(source_key)

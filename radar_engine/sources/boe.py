@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
@@ -49,17 +49,28 @@ class BOESource(BaseRadarSource):
 
     def _fetch_sync(self) -> list[BOERawEntry]:
         entries: list[BOERawEntry] = []
+        attempted_count = 0
+        fetched_count = 0
+        errors: list[str] = []
         today = datetime.now(timezone.utc).date()
         for offset in range(self.days_back):
             date_value = today - timedelta(days=offset)
             url = BOE_DAILY_XML_URL.format(date=date_value.strftime("%Y%m%d"))
+            attempted_count += 1
             try:
                 payload = self._read_url(url)
                 entries.extend(self.parse_xml(payload))
+                fetched_count += 1
             except Exception as error:
+                errors.append(f"{date_value.isoformat()}: {error}")
                 logger.warning("Could not fetch BOE XML for %s: %s", date_value.isoformat(), error)
             if len(entries) >= self.max_items:
                 break
+        if attempted_count and fetched_count == 0:
+            raise RuntimeError(
+                f"BOE fetch failed for all attempted daily XML documents "
+                f"(attempted={attempted_count}; first_error={errors[0] if errors else 'unknown'})"
+            )
         return entries[: self.max_items]
 
     def _read_url(self, url: str) -> bytes:
@@ -93,6 +104,13 @@ class BOESource(BaseRadarSource):
             or self._text(item, "link")
             or self._text(item, "urlPdf")
         )
+        if not external_id:
+            external_id = self._external_id_from_url(url)
+        official_url = self._document_url(url, external_id)
+        if not external_id and not official_url:
+            raise ValueError("BOE item is missing both external identifier and document URL")
+        if not official_url:
+            raise ValueError(f"BOE item {external_id or '-'} is missing a document-specific official URL")
         description = (
             self._text(item, "texto")
             or self._text(item, "descripcion")
@@ -100,7 +118,6 @@ class BOESource(BaseRadarSource):
             or title
         )
         published_at = self._published_at(item, raw_item.issue_date)
-        official_url = urljoin(BOE_BASE_URL, url or "")
         metadata = {
             "boe_id": external_id,
             "section": raw_item.section,
@@ -169,3 +186,23 @@ class BOESource(BaseRadarSource):
 
     def _absolute(self, url: str | None) -> str | None:
         return urljoin(BOE_BASE_URL, url) if url else None
+
+    def _external_id_from_url(self, url: str | None) -> str | None:
+        if not url:
+            return None
+        query = parse_qs(urlsplit(urljoin(BOE_BASE_URL, url)).query)
+        values = query.get("id") or []
+        if values and values[0].startswith("BOE-"):
+            return values[0]
+        return None
+
+    def _document_url(self, url: str | None, external_id: str | None) -> str | None:
+        if url:
+            absolute = urljoin(BOE_BASE_URL, url)
+            parsed = urlsplit(absolute)
+            if parsed.netloc.endswith("boe.es") and parsed.path.strip("/"):
+                if absolute.rstrip("/") != BOE_BASE_URL.rstrip("/"):
+                    return absolute
+        if external_id and external_id.startswith("BOE-"):
+            return urljoin(BOE_BASE_URL, f"diario_boe/txt.php?id={external_id}")
+        return None
