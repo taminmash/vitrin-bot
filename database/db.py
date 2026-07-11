@@ -659,6 +659,60 @@ def init_db():
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_reviews (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                review_status TEXT NOT NULL DEFAULT 'pending',
+                reviewed_by BIGINT,
+                reviewed_at TIMESTAMP,
+                admin_note TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_reviews", "candidate_id", "UUID")
+        ensure_column(cur, "radar_reviews", "review_status", "TEXT NOT NULL DEFAULT 'pending'", "'pending'")
+        ensure_column(cur, "radar_reviews", "reviewed_by", "BIGINT")
+        ensure_column(cur, "radar_reviews", "reviewed_at", "TIMESTAMP")
+        ensure_column(cur, "radar_reviews", "admin_note", "TEXT")
+        ensure_column(cur, "radar_reviews", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_reviews", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_reviews_candidate_unique
+            ON radar_reviews (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_reviews_status_idx
+            ON radar_reviews (review_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_reviews_reviewed_at_idx
+            ON radar_reviews (reviewed_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_reviews_status_check'
+                ) THEN
+                    ALTER TABLE radar_reviews
+                    ADD CONSTRAINT radar_reviews_status_check
+                    CHECK (review_status IN ('pending', 'approved', 'rejected', 'needs_edit'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS radar_reactions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,

@@ -49,6 +49,14 @@ from handlers.radar import (
     format_radar_channel_post,
     renderer_field_log,
 )
+from radar_engine.review.storage import (
+    approve_candidate,
+    load_review_queue,
+    needs_edit_candidate,
+    reject_candidate,
+    review_status_report,
+)
+from radar_engine.review.presentation import build_review_item_text, build_review_queue_display
 
 
 logger = logging.getLogger(__name__)
@@ -67,6 +75,7 @@ ADMIN_RADAR_READY = "✅ آماده انتشار"
 ADMIN_RADAR_PUBLISHED = "📤 منتشرشده‌ها"
 ADMIN_RADAR_FAILED = "❌ ناموفق‌ها"
 ADMIN_RADAR_SOURCES = "📚 منابع رادار"
+ADMIN_RADAR_REVIEW = "🧭 بازبینی رادار"
 RADAR_STATUS_LABELS = {
     "draft": "پیش‌نویس",
     "ready": "آماده انتشار",
@@ -93,6 +102,7 @@ ADMIN_RADAR_KEYBOARD = ReplyKeyboardMarkup(
         [KeyboardButton(ADMIN_RADAR_PUBLISHED)],
         [KeyboardButton(ADMIN_RADAR_FAILED)],
         [KeyboardButton(ADMIN_RADAR_SOURCES)],
+        [KeyboardButton(ADMIN_RADAR_REVIEW)],
         [KeyboardButton(ADMIN_RADAR_BACK)],
     ],
     resize_keyboard=True,
@@ -255,6 +265,7 @@ def admin_radar_menu_keyboard():
                 InlineKeyboardButton(ADMIN_RADAR_PUBLISHED, callback_data="admin_radar:menu:published"),
                 InlineKeyboardButton(ADMIN_RADAR_FAILED, callback_data="admin_radar:menu:failed"),
             ],
+            [InlineKeyboardButton(ADMIN_RADAR_REVIEW, callback_data="admin_radar:review:list")],
             [InlineKeyboardButton(ADMIN_RADAR_SOURCES, callback_data="admin_radar:menu:sources")],
             [
                 InlineKeyboardButton("⬅️ بازگشت به پنل ادمین", callback_data="admin_radar:menu:admin"),
@@ -668,6 +679,60 @@ def radar_item_preview_keyboard(item):
     return InlineKeyboardMarkup(rows)
 
 
+def radar_review_queue_text(items):
+    text, _ = radar_review_queue_payload(items)
+    return text
+
+
+def radar_review_queue_payload(items):
+    return build_review_queue_display(items, review_status_report())
+
+
+def radar_review_queue_keyboard(items):
+    rows = [
+        [
+            InlineKeyboardButton(
+                short_radar_title({"title": item.candidate.title}),
+                callback_data=f"admin_radar:review:item:{item.candidate_id}",
+            )
+        ]
+        for item in items
+    ]
+    rows.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="admin_radar:review:list")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت به مدیریت رادار", callback_data="admin_radar:menu:open")])
+    return InlineKeyboardMarkup(rows)
+
+
+def radar_review_item_text(item):
+    return build_review_item_text(
+        item,
+        category_labeler=category_labels,
+        audience_labeler=audience_labels,
+        urgency_labeler=urgency_label,
+    )
+
+
+def radar_review_item_keyboard(candidate_id):
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✅ تأیید", callback_data=f"admin_radar:review:approve:{candidate_id}")],
+            [InlineKeyboardButton("❌ رد", callback_data=f"admin_radar:review:reject:{candidate_id}")],
+            [InlineKeyboardButton("✏️ نیازمند ویرایش", callback_data=f"admin_radar:review:needs_edit:{candidate_id}")],
+            [InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")],
+        ]
+    )
+
+
+async def edit_admin_radar_review_queue(query):
+    items = load_review_queue(limit=20)
+    text, visible_items = radar_review_queue_payload(items)
+    await query.edit_message_text(
+        text,
+        reply_markup=radar_review_queue_keyboard(visible_items),
+        disable_web_page_preview=True,
+    )
+
+
 async def send_admin_radar_list(message, only_status=None):
     grouped = list_admin_radar_items()
     if only_status:
@@ -976,6 +1041,62 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_reply_markup(reply_markup=None)
             return
         await edit_admin_radar_menu(query)
+        return
+
+    if action == "review":
+        operation = parts[2] if len(parts) > 2 else "list"
+        candidate_id = parts[3] if len(parts) > 3 else None
+        if operation == "list":
+            await edit_admin_radar_review_queue(query)
+            return
+        if operation == "item" and candidate_id:
+            items = load_review_queue(limit=1, candidate_id=candidate_id)
+            if not items:
+                await query.edit_message_text(
+                    "این گزینه برای بازبینی پیدا نشد یا قبلاً تصمیم‌گیری شده است.",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                    ),
+                )
+                return
+            await query.edit_message_text(
+                radar_review_item_text(items[0]),
+                reply_markup=radar_review_item_keyboard(candidate_id),
+                disable_web_page_preview=True,
+            )
+            return
+        if operation in ("approve", "reject", "needs_edit") and candidate_id:
+            note = "Telegram admin Radar review"
+            if operation == "approve":
+                stored = approve_candidate(candidate_id, query.from_user.id, note)
+                label = "تأیید شد"
+            elif operation == "reject":
+                stored = reject_candidate(candidate_id, query.from_user.id, note)
+                label = "رد شد"
+            else:
+                stored = needs_edit_candidate(candidate_id, query.from_user.id, note)
+                label = "نیازمند ویرایش شد"
+            if not stored:
+                await query.edit_message_text(
+                    "برای این گزینه قبلاً تصمیم ثبت شده است.",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                    ),
+                )
+                return
+            await query.edit_message_text(
+                f"✅ تصمیم بازبینی ثبت شد: {label}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                ),
+            )
+            return
+        await query.edit_message_text(
+            "درخواست بازبینی معتبر نیست.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+            ),
+        )
         return
 
     if action in ("cat", "cat_done", "aud", "aud_done", "aud_custom", "city", "date", "urgency", "edit_field"):
@@ -1496,6 +1617,15 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         if text == ADMIN_RADAR_SOURCES:
             await send_admin_radar_sources(update.message)
             stop_admin_update("admin_radar_sources")
+        if text == ADMIN_RADAR_REVIEW:
+            items = load_review_queue(limit=20)
+            queue_text, visible_items = radar_review_queue_payload(items)
+            await update.message.reply_text(
+                queue_text,
+                reply_markup=radar_review_queue_keyboard(visible_items),
+                disable_web_page_preview=True,
+            )
+            stop_admin_update("admin_radar_review")
         if text == ADMIN_RADAR_BACK:
             context.user_data.pop("admin_radar_menu", None)
             await update.message.reply_text("به پنل ادمین برگشتید.", reply_markup=admin_panel_inline_keyboard())
@@ -1544,6 +1674,15 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
         if text == ADMIN_RADAR_FAILED:
             await send_admin_radar_list(update.message, "failed")
             stop_admin_update("admin_panel_radar_failed")
+        if text == ADMIN_RADAR_REVIEW:
+            items = load_review_queue(limit=20)
+            queue_text, visible_items = radar_review_queue_payload(items)
+            await update.message.reply_text(
+                queue_text,
+                reply_markup=radar_review_queue_keyboard(visible_items),
+                disable_web_page_preview=True,
+            )
+            stop_admin_update("admin_panel_radar_review")
         if text == ADMIN_HOME:
             context.user_data.pop("admin_panel", None)
             from handlers.start import MAIN_MENU
