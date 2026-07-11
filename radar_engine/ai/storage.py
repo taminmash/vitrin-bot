@@ -88,7 +88,3 @@ def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
                 result.processing_time_ms,
             ),
         )
-
-
-def mark_candidate_ai_failed(candidate_id: str, error: str | None = None) -> None:
-    return None

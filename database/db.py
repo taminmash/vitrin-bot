@@ -479,13 +479,6 @@ def init_db():
         )
         cur.execute(
             """
-            UPDATE radar_candidates
-            SET candidate_status = 'pending_ai', updated_at = CURRENT_TIMESTAMP
-            WHERE candidate_status NOT IN ('pending_ai', 'rejected', 'failed')
-            """
-        )
-        cur.execute(
-            """
             ALTER TABLE radar_candidates
             ADD CONSTRAINT radar_candidates_candidate_status_check
             CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed'))
