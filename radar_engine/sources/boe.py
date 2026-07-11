@@ -200,7 +200,8 @@ class BOESource(BaseRadarSource):
         if url:
             absolute = urljoin(BOE_BASE_URL, url)
             parsed = urlsplit(absolute)
-            if parsed.netloc.endswith("boe.es") and parsed.path.strip("/"):
+            hostname = parsed.hostname or ""
+            if (hostname == "boe.es" or hostname.endswith(".boe.es")) and parsed.path.strip("/"):
                 if absolute.rstrip("/") != BOE_BASE_URL.rstrip("/"):
                     return absolute
         if external_id and external_id.startswith("BOE-"):

@@ -407,6 +407,90 @@ def init_db():
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_candidates (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                raw_item_id UUID NOT NULL REFERENCES radar_raw_items(id) ON DELETE CASCADE,
+                source_key TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                external_id TEXT,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                language TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                canonical_url TEXT,
+                published_at TIMESTAMP,
+                valid_from TIMESTAMP,
+                valid_until TIMESTAMP,
+                source_category TEXT,
+                source_location TEXT,
+                country TEXT NOT NULL DEFAULT 'Spain',
+                source_type TEXT NOT NULL,
+                trust_level INTEGER NOT NULL CHECK (trust_level BETWEEN 1 AND 5),
+                candidate_status TEXT NOT NULL DEFAULT 'pending_ai'
+                    CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed')),
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+                pipeline_version TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_candidates", "raw_item_id", "UUID")
+        ensure_column(cur, "radar_candidates", "source_key", "TEXT")
+        ensure_column(cur, "radar_candidates", "source_name", "TEXT")
+        ensure_column(cur, "radar_candidates", "external_id", "TEXT")
+        ensure_column(cur, "radar_candidates", "title", "TEXT")
+        ensure_column(cur, "radar_candidates", "body", "TEXT")
+        ensure_column(cur, "radar_candidates", "language", "TEXT")
+        ensure_column(cur, "radar_candidates", "source_url", "TEXT")
+        ensure_column(cur, "radar_candidates", "canonical_url", "TEXT")
+        ensure_column(cur, "radar_candidates", "published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "valid_from", "TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "valid_until", "TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "source_category", "TEXT")
+        ensure_column(cur, "radar_candidates", "source_location", "TEXT")
+        ensure_column(cur, "radar_candidates", "country", "TEXT NOT NULL DEFAULT 'Spain'", "'Spain'")
+        ensure_column(cur, "radar_candidates", "source_type", "TEXT")
+        ensure_column(cur, "radar_candidates", "trust_level", "INTEGER")
+        ensure_column(cur, "radar_candidates", "candidate_status", "TEXT NOT NULL DEFAULT 'pending_ai'", "'pending_ai'")
+        ensure_column(cur, "radar_candidates", "metadata", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "radar_candidates", "validation_errors", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_candidates", "pipeline_version", "TEXT")
+        ensure_column(cur, "radar_candidates", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_candidates_raw_item_unique
+            ON radar_candidates (raw_item_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_status_idx
+            ON radar_candidates (candidate_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_source_key_idx
+            ON radar_candidates (source_key)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_published_at_idx
+            ON radar_candidates (published_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_created_at_idx
+            ON radar_candidates (created_at)
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS radar_reactions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
