@@ -56,6 +56,7 @@ from radar_engine.review.storage import (
     reject_candidate,
     review_status_report,
 )
+from radar_engine.review.presentation import build_review_item_text, build_review_queue_display
 
 
 logger = logging.getLogger(__name__)
@@ -679,30 +680,12 @@ def radar_item_preview_keyboard(item):
 
 
 def radar_review_queue_text(items):
-    report = review_status_report()
-    lines = [
-        "🧭 بازبینی رادار",
-        "",
-        f"در انتظار: {report.pending}",
-        f"تأیید شده: {report.approved}",
-        f"رد شده: {report.rejected}",
-        f"نیازمند ویرایش: {report.needs_edit}",
-        "",
-    ]
-    if not items:
-        lines.append("موردی برای بازبینی وجود ندارد.")
-        return "\n".join(lines).strip()
-    lines.append("موارد آماده بازبینی:")
-    for item in items:
-        candidate = item.candidate
-        classification = item.classification
-        lines.append(
-            f"- {candidate.title or '-'} | "
-            f"{classification.primary_category} | "
-            f"{classification.urgency} | "
-            f"priority {classification.priority_score}"
-        )
-    return "\n".join(lines).strip()
+    text, _ = radar_review_queue_payload(items)
+    return text
+
+
+def radar_review_queue_payload(items):
+    return build_review_queue_display(items, review_status_report())
 
 
 def radar_review_queue_keyboard(items):
@@ -721,35 +704,11 @@ def radar_review_queue_keyboard(items):
 
 
 def radar_review_item_text(item):
-    candidate = item.candidate
-    summary = item.summary
-    classification = item.classification
-    categories = "، ".join(category_labels([classification.primary_category])) or classification.primary_category
-    category_tags = "، ".join(category_labels(classification.category_tags)) or "-"
-    audience = "، ".join(audience_labels(classification.audience_tags)) or "-"
-    cities = "، ".join(classification.cities) or "-"
-    return (
-        "🧭 بازبینی رادار\n\n"
-        "متن اصلی:\n"
-        f"{candidate.title or '-'}\n"
-        f"{candidate.body or '-'}\n\n"
-        "خلاصه هوش مصنوعی:\n"
-        f"{summary.headline}\n"
-        f"{summary.summary}\n"
-        f"چرا مهم است: {summary.why_it_matters}\n"
-        f"اعتماد خلاصه: {summary.confidence}\n\n"
-        "طبقه‌بندی هوش مصنوعی:\n"
-        f"دسته اصلی: {categories}\n"
-        f"تگ‌های دسته: {category_tags}\n"
-        f"مخاطب: {audience}\n"
-        f"محدوده: {classification.geographic_scope}\n"
-        f"شهرها: {cities}\n"
-        f"فوریت: {urgency_label(classification.urgency)}\n"
-        f"اولویت: {classification.priority_score}\n"
-        f"اعتماد طبقه‌بندی: {classification.confidence}\n\n"
-        "منبع اصلی:\n"
-        f"{candidate.source_name}\n"
-        f"{candidate.source_url}"
+    return build_review_item_text(
+        item,
+        category_labeler=category_labels,
+        audience_labeler=audience_labels,
+        urgency_labeler=urgency_label,
     )
 
 
@@ -766,9 +725,10 @@ def radar_review_item_keyboard(candidate_id):
 
 async def edit_admin_radar_review_queue(query):
     items = load_review_queue(limit=20)
+    text, visible_items = radar_review_queue_payload(items)
     await query.edit_message_text(
-        radar_review_queue_text(items),
-        reply_markup=radar_review_queue_keyboard(items),
+        text,
+        reply_markup=radar_review_queue_keyboard(visible_items),
         disable_web_page_preview=True,
     )
 
@@ -1659,9 +1619,10 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             stop_admin_update("admin_radar_sources")
         if text == ADMIN_RADAR_REVIEW:
             items = load_review_queue(limit=20)
+            queue_text, visible_items = radar_review_queue_payload(items)
             await update.message.reply_text(
-                radar_review_queue_text(items),
-                reply_markup=radar_review_queue_keyboard(items),
+                queue_text,
+                reply_markup=radar_review_queue_keyboard(visible_items),
                 disable_web_page_preview=True,
             )
             stop_admin_update("admin_radar_review")
@@ -1715,9 +1676,10 @@ async def admin_edit_reason_handler(update: Update, context: ContextTypes.DEFAUL
             stop_admin_update("admin_panel_radar_failed")
         if text == ADMIN_RADAR_REVIEW:
             items = load_review_queue(limit=20)
+            queue_text, visible_items = radar_review_queue_payload(items)
             await update.message.reply_text(
-                radar_review_queue_text(items),
-                reply_markup=radar_review_queue_keyboard(items),
+                queue_text,
+                reply_markup=radar_review_queue_keyboard(visible_items),
                 disable_web_page_preview=True,
             )
             stop_admin_update("admin_panel_radar_review")
