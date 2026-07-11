@@ -547,6 +547,118 @@ def init_db():
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_ai_classifications (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                ai_result_id UUID REFERENCES radar_ai_results(id) ON DELETE SET NULL,
+                primary_category TEXT NOT NULL,
+                category_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+                audience_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+                cities JSONB NOT NULL DEFAULT '[]'::jsonb,
+                geographic_scope TEXT NOT NULL,
+                urgency TEXT NOT NULL,
+                priority_score INTEGER NOT NULL,
+                confidence DOUBLE PRECISION NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                latency INTEGER NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_ai_classifications", "candidate_id", "UUID")
+        ensure_column(cur, "radar_ai_classifications", "ai_result_id", "UUID")
+        ensure_column(cur, "radar_ai_classifications", "primary_category", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "category_tags", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_ai_classifications", "audience_tags", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_ai_classifications", "cities", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_ai_classifications", "geographic_scope", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "urgency", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "priority_score", "INTEGER")
+        ensure_column(cur, "radar_ai_classifications", "confidence", "DOUBLE PRECISION")
+        ensure_column(cur, "radar_ai_classifications", "model", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "prompt_version", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "latency", "INTEGER")
+        ensure_column(cur, "radar_ai_classifications", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_ai_classifications", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_ai_classifications_candidate_unique
+            ON radar_ai_classifications (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_primary_category_idx
+            ON radar_ai_classifications (primary_category)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_geographic_scope_idx
+            ON radar_ai_classifications (geographic_scope)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_urgency_idx
+            ON radar_ai_classifications (urgency)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_priority_score_idx
+            ON radar_ai_classifications (priority_score)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_created_at_idx
+            ON radar_ai_classifications (created_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_priority_score_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_priority_score_check
+                    CHECK (priority_score BETWEEN 0 AND 100);
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_confidence_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_confidence_check
+                    CHECK (confidence BETWEEN 0 AND 1);
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_geographic_scope_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_geographic_scope_check
+                    CHECK (geographic_scope IN ('national', 'autonomous_community', 'province', 'city', 'unknown'));
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_urgency_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_urgency_check
+                    CHECK (urgency IN ('low', 'medium', 'high', 'urgent'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS radar_reactions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
