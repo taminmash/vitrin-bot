@@ -26,12 +26,12 @@ class RadarAIEngine:
         store_result=None,
         mark_failed=None,
     ):
-        from radar_engine.ai.storage import load_pending_ai_candidates, mark_candidate_ai_failed, store_ai_result
+        from radar_engine.ai.storage import load_pending_ai_candidates, store_ai_result
 
         self.summarizer = summarizer or RadarAISummarizer()
         self.load_candidates = load_candidates or load_pending_ai_candidates
         self.store_result = store_result or store_ai_result
-        self.mark_failed = mark_failed or mark_candidate_ai_failed
+        self.mark_failed = mark_failed
 
     def run(self, limit: int = 50, candidate_id: str | None = None, dry_run: bool = False) -> AIReport:
         safe_limit = max(1, min(int(limit), 200))
@@ -50,7 +50,7 @@ class RadarAIEngine:
                 logger.exception("Radar AI processing failed for candidate %s", getattr(item, "candidate_id", "-"))
                 report.failed += 1
                 report.errors.append(f"{getattr(item, 'candidate_id', '-')}: {error}")
-                if not dry_run:
+                if self.mark_failed and not dry_run:
                     try:
                         self.mark_failed(getattr(item, "candidate_id", None), str(error))
                     except Exception:

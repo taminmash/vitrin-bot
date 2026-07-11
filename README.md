@@ -221,7 +221,9 @@ Raw processing statuses used by the pipeline:
 The AI summarization stage is the first optional AI layer after candidate
 creation. It reads validated `radar_candidates` with `candidate_status =
 pending_ai`, calls OpenAI for a structured JSON response, stores the result in
-`radar_ai_results`, and marks the candidate `ai_completed`.
+`radar_ai_results`, and leaves candidate status unchanged. A successful row in
+`radar_ai_results` is the completion marker; the unique `candidate_id`
+constraint prevents duplicate AI results.
 
 Manual one-off processing:
 

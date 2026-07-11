@@ -39,6 +39,9 @@ def load_pending_ai_candidates(limit: int = 50, candidate_id: str | None = None)
                 SELECT *
                 FROM radar_candidates
                 WHERE id = %s AND candidate_status = %s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
+                  )
                 LIMIT 1
                 """,
                 (candidate_id, "pending_ai"),
@@ -72,14 +75,7 @@ def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
                 confidence, model, prompt_version, latency
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (candidate_id) DO UPDATE
-            SET headline = EXCLUDED.headline,
-                summary = EXCLUDED.summary,
-                why_it_matters = EXCLUDED.why_it_matters,
-                confidence = EXCLUDED.confidence,
-                model = EXCLUDED.model,
-                prompt_version = EXCLUDED.prompt_version,
-                latency = EXCLUDED.latency
+            ON CONFLICT (candidate_id) DO NOTHING
             """,
             (
                 candidate_id,
@@ -92,27 +88,7 @@ def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
                 result.processing_time_ms,
             ),
         )
-        cur.execute(
-            """
-            UPDATE radar_candidates
-            SET candidate_status = %s, updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-            """,
-            ("ai_completed", candidate_id),
-        )
 
 
 def mark_candidate_ai_failed(candidate_id: str, error: str | None = None) -> None:
-    if not candidate_id:
-        return
-    from database.db import db_cursor
-
-    with db_cursor() as (_, cur):
-        cur.execute(
-            """
-            UPDATE radar_candidates
-            SET candidate_status = %s, updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-            """,
-            ("failed", candidate_id),
-        )
+    return None

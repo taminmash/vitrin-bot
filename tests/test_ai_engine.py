@@ -9,7 +9,7 @@ from radar_engine.ai.client import OpenAIClient
 from radar_engine.ai.engine import RadarAIEngine
 from radar_engine.ai.models import AITaskResult, StoredAICandidate
 from radar_engine.ai.summarizer import RadarAISummarizer
-from radar_engine.ai.storage import store_ai_result
+from radar_engine.ai.storage import load_pending_ai_candidates, store_ai_result
 from tests.test_radar_candidate import make_candidate
 
 
@@ -125,15 +125,19 @@ class AIEngineTests(unittest.TestCase):
 
 
 class FakeCursor:
-    def __init__(self):
+    def __init__(self, rows=None):
         self.executed = []
+        self.rows = rows or []
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
 
+    def fetchall(self):
+        return self.rows
+
 
 class AIStorageTests(unittest.TestCase):
-    def test_store_ai_result_writes_result_and_marks_completed(self):
+    def test_store_ai_result_writes_result_without_candidate_status_update(self):
         cursor = FakeCursor()
         db = types.ModuleType("database.db")
 
@@ -147,5 +151,21 @@ class AIStorageTests(unittest.TestCase):
             store_ai_result("candidate-1", result)
         sql = "\n".join(statement for statement, _ in cursor.executed)
         self.assertIn("radar_ai_results", sql)
-        self.assertIn("UPDATE radar_candidates", sql)
-        self.assertEqual(cursor.executed[1][1][0], "ai_completed")
+        self.assertIn("ON CONFLICT (candidate_id) DO NOTHING", sql)
+        self.assertNotIn("UPDATE radar_candidates", sql)
+        self.assertNotIn("ai_completed", sql)
+
+    def test_loader_skips_candidates_with_existing_ai_result(self):
+        cursor = FakeCursor()
+        db = types.ModuleType("database.db")
+
+        @contextmanager
+        def db_cursor(dict_cursor=False):
+            yield None, cursor
+
+        db.db_cursor = db_cursor
+        with patch.dict(sys.modules, {"database.db": db}):
+            self.assertEqual(load_pending_ai_candidates(candidate_id="candidate-1"), [])
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertIn("NOT EXISTS", sql)
+        self.assertIn("radar_ai_results", sql)

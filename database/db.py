@@ -427,7 +427,7 @@ def init_db():
                 source_type TEXT NOT NULL,
                 trust_level INTEGER NOT NULL CHECK (trust_level BETWEEN 1 AND 5),
                 candidate_status TEXT NOT NULL DEFAULT 'pending_ai'
-                    CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed', 'ai_completed')),
+                    CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed')),
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                 validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
                 pipeline_version TEXT NOT NULL,
@@ -479,9 +479,16 @@ def init_db():
         )
         cur.execute(
             """
+            UPDATE radar_candidates
+            SET candidate_status = 'pending_ai', updated_at = CURRENT_TIMESTAMP
+            WHERE candidate_status NOT IN ('pending_ai', 'rejected', 'failed')
+            """
+        )
+        cur.execute(
+            """
             ALTER TABLE radar_candidates
             ADD CONSTRAINT radar_candidates_candidate_status_check
-            CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed', 'ai_completed'))
+            CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed'))
             """
         )
         cur.execute(
