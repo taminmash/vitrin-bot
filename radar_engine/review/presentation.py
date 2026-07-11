@@ -3,6 +3,10 @@ from __future__ import annotations
 
 SAFE_TELEGRAM_TEXT_LIMIT = 3800
 TRUNCATION_MARKER = "… [متن اصلی کوتاه شده است]"
+AI_TRUNCATION_MARKER = "… [متن هوش مصنوعی کوتاه شده است]"
+LIST_TRUNCATION_MARKER = "… [فهرست کوتاه شده است]"
+SOURCE_NAME_TRUNCATION_MARKER = "… [نام منبع کوتاه شده است]"
+URL_TRUNCATION_MARKER = "…[نشانی کوتاه شده است]…"
 QUEUE_MORE_ITEMS_NOTE = "موارد بیشتری باقی مانده است."
 SHORT_TRUNCATION_MARKER = "…"
 
@@ -18,6 +22,20 @@ def truncate_text(value, max_length: int, marker: str = TRUNCATION_MARKER) -> st
     return text[: max_length - len(marker)].rstrip() + marker
 
 
+def truncate_middle(value, max_length: int, marker: str = URL_TRUNCATION_MARKER) -> str:
+    text = (value or "").strip()
+    if max_length <= 0:
+        return ""
+    if len(text) <= max_length:
+        return text
+    if max_length <= len(marker):
+        return marker[:max_length]
+    remaining = max_length - len(marker)
+    left = max(1, remaining // 2)
+    right = max(1, remaining - left)
+    return f"{text[:left]}{marker}{text[-right:]}"
+
+
 def _format_list(values, labeler=None) -> str:
     values = values or []
     if labeler:
@@ -27,28 +45,87 @@ def _format_list(values, labeler=None) -> str:
     return "، ".join(labels) or "-"
 
 
-def _build_original_block(header: str, title: str, body: str, available_length: int) -> str:
-    if available_length <= 0:
+def _review_item_text_from_fields(fields: dict[str, str], classification) -> str:
+    return (
+        "🧭 بازبینی رادار\n\n"
+        "متن اصلی:\n"
+        f"{fields['title']}\n"
+        f"{fields['body']}\n\n"
+        "خلاصه هوش مصنوعی:\n"
+        f"{fields['headline']}\n"
+        f"{fields['summary']}\n"
+        f"چرا مهم است: {fields['why_it_matters']}\n"
+        f"اعتماد خلاصه: {fields['summary_confidence']}\n\n"
+        "طبقه‌بندی هوش مصنوعی:\n"
+        f"دسته اصلی: {fields['categories']}\n"
+        f"تگ‌های دسته: {fields['category_tags']}\n"
+        f"مخاطب: {fields['audience']}\n"
+        f"محدوده: {fields['geographic_scope']}\n"
+        f"شهرها: {fields['cities']}\n"
+        f"فوریت: {fields['urgency']}\n"
+        f"اولویت: {classification.priority_score}\n"
+        f"اعتماد طبقه‌بندی: {classification.confidence}\n\n"
+        "منبع اصلی:\n"
+        f"{fields['source_name']}\n"
+        f"{fields['source_url']}"
+    )
+
+
+def _reduce_field(fields: dict[str, str], key: str, marker: str, max_chars: int = 0) -> bool:
+    current = fields[key]
+    if len(current) <= max_chars:
+        return False
+    if max_chars <= 0:
+        max_chars = len(marker)
+    fields[key] = truncate_text(current, max_chars, marker=marker)
+    return True
+
+
+def _guarantee_review_item_length(fields: dict[str, str], classification, max_length: int) -> str:
+    if max_length <= 0:
         return ""
 
-    title = title or "-"
-    body = body or "-"
-    minimum_title_length = min(len(title), 120)
-    title_budget = min(len(title), max(1, min(180, available_length - len(header) - 1)))
-    if available_length - len(header) - title_budget - 1 > 0:
-        title_text = truncate_text(title, title_budget, marker=SHORT_TRUNCATION_MARKER)
-    else:
-        title_text = truncate_text(title, max(1, available_length - len(header) - 1), marker=SHORT_TRUNCATION_MARKER)
+    text = _review_item_text_from_fields(fields, classification)
+    if len(text) <= max_length:
+        return text
 
-    prefix = f"{header}{title_text}\n"
-    body_budget = available_length - len(prefix)
-    if body_budget <= 0 and len(title_text) > minimum_title_length:
-        title_text = truncate_text(title, minimum_title_length, marker=SHORT_TRUNCATION_MARKER)
-        prefix = f"{header}{title_text}\n"
-        body_budget = available_length - len(prefix)
+    reduction_order = (
+        ("body", TRUNCATION_MARKER, 0),
+        ("title", SHORT_TRUNCATION_MARKER, 0),
+        ("why_it_matters", AI_TRUNCATION_MARKER, 0),
+        ("summary", AI_TRUNCATION_MARKER, 0),
+        ("headline", AI_TRUNCATION_MARKER, 0),
+        ("category_tags", LIST_TRUNCATION_MARKER, 0),
+        ("audience", LIST_TRUNCATION_MARKER, 0),
+        ("cities", LIST_TRUNCATION_MARKER, 0),
+        ("categories", LIST_TRUNCATION_MARKER, len(str(classification.primary_category))),
+        ("source_name", SOURCE_NAME_TRUNCATION_MARKER, 0),
+    )
 
-    body_text = truncate_text(body, body_budget)
-    return f"{prefix}{body_text}"
+    for key, marker, minimum in reduction_order:
+        text = _review_item_text_from_fields(fields, classification)
+        if len(text) <= max_length:
+            return text
+        overage = len(text) - max_length
+        current_length = len(fields[key])
+        target_length = max(minimum, current_length - overage)
+        if target_length >= current_length:
+            target_length = minimum
+        _reduce_field(fields, key, marker, target_length)
+
+    text = _review_item_text_from_fields(fields, classification)
+    if len(text) <= max_length:
+        return text
+
+    fixed_without_url = len(text) - len(fields["source_url"])
+    url_budget = max(0, max_length - fixed_without_url)
+    fields["source_url"] = truncate_middle(fields["source_url"], url_budget)
+    text = _review_item_text_from_fields(fields, classification)
+    if len(text) <= max_length:
+        return text
+
+    # Tiny test limits may be smaller than the required labels themselves.
+    return text[:max_length]
 
 
 def build_review_item_text(
@@ -66,41 +143,23 @@ def build_review_item_text(
     audience = _format_list(classification.audience_tags, audience_labeler)
     cities = _format_list(classification.cities)
     urgency = urgency_labeler(classification.urgency) if urgency_labeler else classification.urgency
-
-    source_section = (
-        "منبع اصلی:\n"
-        f"{candidate.source_name}\n"
-        f"{candidate.source_url}"
-    )
-    preserved_tail = (
-        "\n\nخلاصه هوش مصنوعی:\n"
-        f"{summary.headline}\n"
-        f"{summary.summary}\n"
-        f"چرا مهم است: {summary.why_it_matters}\n"
-        f"اعتماد خلاصه: {summary.confidence}\n\n"
-        "طبقه‌بندی هوش مصنوعی:\n"
-        f"دسته اصلی: {categories}\n"
-        f"تگ‌های دسته: {category_tags}\n"
-        f"مخاطب: {audience}\n"
-        f"محدوده: {classification.geographic_scope}\n"
-        f"شهرها: {cities}\n"
-        f"فوریت: {urgency}\n"
-        f"اولویت: {classification.priority_score}\n"
-        f"اعتماد طبقه‌بندی: {classification.confidence}\n\n"
-        f"{source_section}"
-    )
-    header = "🧭 بازبینی رادار\n\nمتن اصلی:\n"
-    title = candidate.title or "-"
-    body = candidate.body or "-"
-    available_for_original = max_length - len(preserved_tail)
-    original_block = _build_original_block(header, title, body, available_for_original)
-    text = f"{original_block}{preserved_tail}"
-    if len(text) <= max_length:
-        return text
-
-    # Preserve AI review details and source URL; only the original source block may shrink.
-    original_block = _build_original_block(header, title, body, max(0, max_length - len(preserved_tail)))
-    return f"{original_block}{preserved_tail}"
+    fields = {
+        "title": candidate.title or "-",
+        "body": candidate.body or "-",
+        "headline": summary.headline,
+        "summary": summary.summary,
+        "why_it_matters": summary.why_it_matters,
+        "summary_confidence": str(summary.confidence),
+        "categories": categories,
+        "category_tags": category_tags,
+        "audience": audience,
+        "geographic_scope": classification.geographic_scope,
+        "cities": cities,
+        "urgency": urgency,
+        "source_name": candidate.source_name,
+        "source_url": candidate.source_url,
+    }
+    return _guarantee_review_item_length(fields, classification, max_length)
 
 
 def build_review_queue_display(items, report, max_length: int = SAFE_TELEGRAM_TEXT_LIMIT):
@@ -115,7 +174,7 @@ def build_review_queue_display(items, report, max_length: int = SAFE_TELEGRAM_TE
     ]
     if not items:
         lines.append("موردی برای بازبینی وجود ندارد.")
-        return "\n".join(lines).strip(), []
+        return truncate_text("\n".join(lines).strip(), max_length, marker=SHORT_TRUNCATION_MARKER), []
 
     lines.append("موارد آماده بازبینی:")
     visible_items = []
@@ -144,4 +203,7 @@ def build_review_queue_display(items, report, max_length: int = SAFE_TELEGRAM_TE
             note_text = "\n".join(lines + [QUEUE_MORE_ITEMS_NOTE]).strip()
             if len(note_text) <= max_length:
                 lines.append(QUEUE_MORE_ITEMS_NOTE)
-    return "\n".join(lines).strip(), visible_items
+    text = "\n".join(lines).strip()
+    if len(text) <= max_length:
+        return text, visible_items
+    return truncate_text(text, max_length, marker=SHORT_TRUNCATION_MARKER), visible_items
