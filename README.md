@@ -179,9 +179,46 @@ Known limitations:
 - It does not schedule recurring runs.
 - BOE upstream XML availability or format changes can affect ingestion.
 
+## Radar Candidate Pipeline
+
+The candidate pipeline is the second isolated Radar source stage:
+
+```text
+radar_raw_items -> deterministic normalization -> validation -> factual enrichment -> radar_candidates
+```
+
+It is rule-based and does not call AI. It does not translate, summarize,
+classify final Radar categories, detect audiences, publish content, run on a
+cron, run during bot startup, or write to `radar_items`.
+
+Manual one-off processing:
+
+```bash
+python scripts/run_radar_pipeline.py
+python scripts/run_radar_pipeline.py --limit 50
+```
+
+The default limit is 100 and the maximum accepted limit is 500. Processing reads
+raw rows with `ingestion_status = raw`, creates idempotent candidate rows in
+`radar_candidates`, and updates raw processing state only after candidate
+handling succeeds.
+
+Candidate statuses in this phase:
+
+- `pending_ai`
+- `rejected`
+- `failed`
+
+Raw processing statuses used by the pipeline:
+
+- `raw`
+- `candidate_created`
+- `candidate_rejected`
+- `candidate_failed`
+
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/sources/base.py radar_engine/sources/boe.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py
 python -m unittest discover -s tests -v
 ```

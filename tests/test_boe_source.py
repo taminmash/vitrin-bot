@@ -104,6 +104,14 @@ class BOESourceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "missing both external identifier and document URL"):
             source.normalize(BOERawEntry(element, None, None))
 
+    def test_deceptive_boe_hostname_is_rejected(self):
+        source = BOESource()
+        self.assertIsNone(source._document_url("https://fakeboe.es/diario_boe/txt.php?id=BOE-A-1", None))
+        self.assertEqual(
+            source._document_url("https://www.boe.es/diario_boe/txt.php?id=BOE-A-1", None),
+            "https://www.boe.es/diario_boe/txt.php?id=BOE-A-1",
+        )
+
 
 class RadarRunnerTests(unittest.TestCase):
     def test_documented_script_help_runs_without_database(self):
