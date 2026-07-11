@@ -254,9 +254,51 @@ This stage does not publish, translate, classify final categories, detect
 audiences or cities, calculate urgency/priority, add tags, run on cron, run
 during bot startup, modify Telegram handlers, or write to `radar_items`.
 
+## Radar AI Classification
+
+The classification stage runs after successful AI summarization. It reads
+`radar_candidates` with `candidate_status = pending_ai` that already have a row
+in `radar_ai_results`, classifies them with controlled Radar vocabularies, and
+stores the result in `radar_ai_classifications`.
+
+A successful row in `radar_ai_classifications` is the completion marker. The
+unique `candidate_id` constraint prevents duplicate classification. This stage
+does not update `radar_candidates.candidate_status`, does not modify
+`radar_ai_results`, does not publish, does not run on cron/startup, and does not
+write to `radar_items`.
+
+Produced fields:
+
+- `primary_category`
+- `category_tags`
+- `audience_tags`
+- `cities`
+- `geographic_scope`
+- `urgency`
+- `priority_score`
+- `confidence`
+- model/prompt/latency metadata
+
+Manual one-off processing:
+
+```bash
+python scripts/run_radar_classification.py
+python scripts/run_radar_classification.py --limit 50
+python scripts/run_radar_classification.py --candidate-id <candidate_uuid>
+python scripts/run_radar_classification.py --dry-run
+```
+
+Required environment variable for actual processing:
+
+- `OPENAI_API_KEY`
+
+Optional:
+
+- `OPENAI_MODEL` defaults to `gpt-4o-mini`
+
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py
 python -m unittest discover -s tests -v
 ```
