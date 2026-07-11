@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sumario fecha="2026-07-11">
+  <diario nbo="166" fecha="2026-07-11">
+    <seccion num="1" nombre="I. Disposiciones generales">
+      <departamento nombre="Ministerio de Inclusión, Seguridad Social y Migraciones">
+        <item id="BOE-A-2026-10001">
+          <titulo>Real Decreto de prueba sobre servicios públicos</titulo>
+          <urlHtm>/diario_boe/txt.php?id=BOE-A-2026-10001</urlHtm>
+          <urlXml>/diario_boe/xml.php?id=BOE-A-2026-10001</urlXml>
+          <urlPdf>/boe/dias/2026/07/11/pdfs/BOE-A-2026-10001.pdf</urlPdf>
+          <texto>Texto oficial resumido de la disposición publicada.</texto>
+        </item>
+        <item id="BOE-A-2026-10002">
+          <titulo>Orden ministerial de prueba sin campos opcionales</titulo>
+          <urlHtm>/diario_boe/txt.php?id=BOE-A-2026-10002</urlHtm>
+        </item>
+        <item id="BOE-A-2026-10001">
+          <titulo>Real Decreto de prueba sobre servicios públicos</titulo>
+          <urlHtm>/diario_boe/txt.php?id=BOE-A-2026-10001</urlHtm>
+          <texto>Texto oficial resumido de la disposición publicada.</texto>
+        </item>
+        <item id="BOE-A-2026-BAD">
+          <urlHtm>/diario_boe/txt.php?id=BOE-A-2026-BAD</urlHtm>
+        </item>
+      </departamento>
+    </seccion>
+  </diario>
+</sumario>

@@ -327,6 +327,86 @@ def init_db():
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_raw_items (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                source_key TEXT NOT NULL,
+                external_id TEXT,
+                deduplication_key TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                canonical_url TEXT,
+                original_title TEXT NOT NULL,
+                original_text TEXT NOT NULL,
+                original_language TEXT NOT NULL DEFAULT 'es',
+                published_at TIMESTAMP,
+                valid_from TIMESTAMP,
+                valid_until TIMESTAMP,
+                raw_category TEXT,
+                raw_location TEXT,
+                content_hash TEXT NOT NULL,
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                ingestion_status TEXT NOT NULL DEFAULT 'raw',
+                first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_raw_items", "source_key", "TEXT")
+        ensure_column(cur, "radar_raw_items", "external_id", "TEXT")
+        ensure_column(cur, "radar_raw_items", "deduplication_key", "TEXT")
+        ensure_column(cur, "radar_raw_items", "source_name", "TEXT")
+        ensure_column(cur, "radar_raw_items", "source_url", "TEXT")
+        ensure_column(cur, "radar_raw_items", "canonical_url", "TEXT")
+        ensure_column(cur, "radar_raw_items", "original_title", "TEXT")
+        ensure_column(cur, "radar_raw_items", "original_text", "TEXT")
+        ensure_column(cur, "radar_raw_items", "original_language", "TEXT DEFAULT 'es'", "'es'")
+        ensure_column(cur, "radar_raw_items", "published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "valid_from", "TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "valid_until", "TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "raw_category", "TEXT")
+        ensure_column(cur, "radar_raw_items", "raw_location", "TEXT")
+        ensure_column(cur, "radar_raw_items", "content_hash", "TEXT")
+        ensure_column(cur, "radar_raw_items", "metadata", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "radar_raw_items", "ingestion_status", "TEXT NOT NULL DEFAULT 'raw'", "'raw'")
+        ensure_column(cur, "radar_raw_items", "first_seen_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "last_seen_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_raw_items_deduplication_key_unique
+            ON radar_raw_items (deduplication_key)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_source_key_idx
+            ON radar_raw_items (source_key)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_published_at_idx
+            ON radar_raw_items (published_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_ingestion_status_idx
+            ON radar_raw_items (ingestion_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_source_external_idx
+            ON radar_raw_items (source_key, external_id)
+            WHERE external_id IS NOT NULL
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS radar_reactions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,

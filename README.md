@@ -143,8 +143,45 @@ items are blocked from duplicate publishing.
 - Dashboard/Radar counts use database values when available and keep graceful
   fallback if the database is unavailable.
 
+## Radar Source Engine
+
+The `radar_engine` package is an isolated foundation for raw source ingestion.
+It does not run on bot startup, does not publish to Telegram, does not call AI,
+and does not write directly to `radar_items`.
+
+The first experimental connector is `boe`, which reads BOE's official daily
+summary XML endpoint:
+
+```text
+https://www.boe.es/diario_boe/xml.php?id=BOE-S-YYYYMMDD
+```
+
+Raw records are stored in the additive `radar_raw_items` table. The table keeps
+the source key, official URL, original Spanish title/text, publication dates,
+metadata, a deterministic content hash, and a deduplication key. Re-running the
+same source updates `last_seen_at` instead of creating duplicates.
+
+Manual one-off ingestion:
+
+```bash
+python scripts/run_radar_source.py boe
+```
+
+Required environment variable:
+
+- `DATABASE_URL`
+
+Known limitations:
+
+- BOE ingestion stores raw Spanish source records only.
+- It does not generate Persian summaries or classify category/city/audience.
+- It does not mark content as ready or published.
+- It does not schedule recurring runs.
+- BOE upstream XML availability or format changes can affect ingestion.
+
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/sources/base.py radar_engine/sources/boe.py
+python -m unittest discover -s tests -v
 ```
