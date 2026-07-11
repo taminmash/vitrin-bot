@@ -254,6 +254,29 @@ This stage does not publish, translate, classify final categories, detect
 audiences or cities, calculate urgency/priority, add tags, run on cron, run
 during bot startup, modify Telegram handlers, or write to `radar_items`.
 
+## Radar Admin Review
+
+The admin review stage is the final human review before any future publication
+step. It loads candidates that already have successful rows in both
+`radar_ai_results` and `radar_ai_classifications`, and have no row yet in
+`radar_reviews`.
+
+Review decisions are stored independently in `radar_reviews` with one row per
+candidate. Allowed statuses are `pending`, `approved`, `rejected`, and
+`needs_edit`. A successful review row is the review decision marker.
+
+Manual queue report:
+
+```bash
+python scripts/run_review_queue.py
+python scripts/run_review_queue.py --limit 50
+python scripts/run_review_queue.py --candidate-id <candidate_uuid>
+```
+
+This stage does not publish, does not write to `radar_items`, does not modify
+`radar_ai_results`, does not modify `radar_ai_classifications`, and does not
+change candidate statuses.
+
 ## Radar AI Classification
 
 The classification stage runs after successful AI summarization. It reads
@@ -299,6 +322,6 @@ Optional:
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py
 python -m unittest discover -s tests -v
 ```
