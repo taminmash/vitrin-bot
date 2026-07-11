@@ -43,7 +43,12 @@ from handlers.common import (
     need_edit_keyboard,
     need_edit_text,
 )
-from handlers.radar import channel_post_keyboard, format_radar_channel_post
+from handlers.radar import (
+    channel_post_keyboard,
+    format_radar_admin_preview,
+    format_radar_channel_post,
+    renderer_field_log,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -530,16 +535,17 @@ def radar_create_preview_text(data):
     categories = "، ".join(category_labels(data.get("category_tags") or [data.get("type")])) or "-"
     data["audience_tags"] = normalize_audience_tags(data.get("audience_tags"))
     audience = "، ".join(audience_labels(data.get("audience_tags") or [])) or "-"
-    return (
-        "پیش‌نمایش محتوای رادار\n\n"
-        f"{format_radar_channel_post(item)}\n\n"
-        "اطلاعات ادمین:\n"
-        f"دسته‌ها: {categories}\n"
-        f"مخاطب: {audience}\n"
-        f"فوریت: {urgency_label(data.get('urgency') or 'low')}\n"
-        f"محدوده: {data.get('city') or 'کل اسپانیا'}\n"
-        f"اعتبار: {data.get('start_date') or '-'} تا {data.get('end_date') or '-'}"
+    item.update(
+        {
+            "admin_categories": categories,
+            "admin_audience": audience,
+            "admin_urgency": urgency_label(data.get("urgency") or "low"),
+            "admin_validity": f"{data.get('start_date') or '-'} تا {data.get('end_date') or '-'}",
+            "admin_status": "پیش‌نویس در حال ساخت",
+        }
     )
+    logger.info("Rendering Radar create preview fields=%s", renderer_field_log(item))
+    return "پیش‌نمایش محتوای رادار\n\n" + format_radar_admin_preview(item)
 
 
 def radar_admin_item_preview_text(item):
@@ -547,14 +553,17 @@ def radar_admin_item_preview_text(item):
     audience = "، ".join(audience_labels(normalize_audience_tags(item.get("audience_tags")))) or "-"
     reactions = count_radar_reactions(item["id"])
     feedback_total = reactions.get("like", 0) + reactions.get("dislike", 0)
+    preview_item = {
+        **item,
+        "admin_categories": categories,
+        "admin_audience": audience,
+        "admin_urgency": urgency_label(item.get("urgency") or "low"),
+        "admin_validity": f"{item.get('start_date') or '-'} تا {item.get('end_date') or '-'}",
+        "admin_status": radar_status(item),
+    }
+    logger.info("Rendering Radar admin item preview fields=%s", renderer_field_log(preview_item))
     return (
-        f"{format_radar_channel_post(item)}\n\n"
-        "اطلاعات ادمین:\n"
-        f"دسته‌ها: {categories}\n"
-        f"مخاطب: {audience}\n"
-        f"فوریت: {urgency_label(item.get('urgency') or 'low')}\n"
-        f"محدوده: {item.get('city') or 'کل اسپانیا'}\n"
-        f"اعتبار: {item.get('start_date') or '-'} تا {item.get('end_date') or '-'}\n\n"
+        f"{format_radar_admin_preview(preview_item)}\n\n"
         f"👍 پسندیدم: {reactions.get('like', 0)}\n"
         f"👎 نپسندیدم: {reactions.get('dislike', 0)}\n"
         f"📊 مجموع بازخورد: {feedback_total}"
@@ -594,6 +603,7 @@ def create_payload_from_radar_data(data, status):
 
 
 async def publish_radar_item(context, item):
+    logger.info("Publishing Radar channel post fields=%s", renderer_field_log(item))
     message = await context.bot.send_message(
         chat_id=CHANNEL_VITRIN,
         text=format_radar_channel_post(item),

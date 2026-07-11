@@ -196,9 +196,19 @@ def channel_post_keyboard(item, reaction_counts=None):
 
 def full_item_keyboard(item):
     rows = []
+    rows.append([InlineKeyboardButton("📄 مشاهده جزئیات", callback_data=f"radar:details:{item['id']}")])
     if item.get("source_url"):
         rows.append([InlineKeyboardButton("🔗 منبع رسمی", url=item["source_url"])])
     rows.append([InlineKeyboardButton("📤 اشتراک‌گذاری", switch_inline_query=deep_link_for_item(item))])
+    rows.append([InlineKeyboardButton("🏠 خانه", callback_data="radar:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def details_keyboard(item):
+    rows = []
+    if item.get("source_url"):
+        rows.append([InlineKeyboardButton("🔗 منبع رسمی", url=item["source_url"])])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت به مطلب", callback_data=f"radar:item:{item['id']}")])
     rows.append([InlineKeyboardButton("🏠 خانه", callback_data="radar:home")])
     return InlineKeyboardMarkup(rows)
 
@@ -235,15 +245,6 @@ def shorten_words(text, max_words=36):
     return " ".join(words[:max_words]).rstrip("،.") + "..."
 
 
-def short_channel_lines(item, max_words=28):
-    source_text = item.get("ai_reason") or item.get("summary") or "-"
-    short = shorten_words(source_text, max_words)
-    words = short.split()
-    if len(words) <= 14:
-        return [short]
-    return [" ".join(words[:14]), " ".join(words[14:28])]
-
-
 def category_emoji(item):
     radar_type = item.get("type") or "alert"
     return RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
@@ -267,73 +268,111 @@ def clean_text(value):
     return str(value).strip()
 
 
-def meaningful_summary_for_full_view(item, why_text, why_uses_summary):
-    summary = clean_text(item.get("summary") or item.get("ai_summary"))
-    if not summary:
-        return ""
-    if why_uses_summary and summary == clean_text(why_text):
-        return ""
-    return summary
+def radar_summary_text(item):
+    summary = clean_text(item.get("summary"))
+    if summary:
+        return summary
+    ai_summary = clean_text(item.get("ai_summary"))
+    if ai_summary:
+        return ai_summary
+    body = clean_text(item.get("body") or item.get("original_text"))
+    if body:
+        return shorten_words(body, 24)
+    return "-"
 
 
-def radar_item_text(item):
-    radar_type = item.get("type") or "alert"
+def radar_reason_text(item):
+    return clean_text(item.get("ai_reason") or item.get("reason") or item.get("summary") or item.get("ai_summary")) or "-"
+
+
+def format_radar_public_body(item):
     emoji = category_emoji(item)
-    summary = clean_text(item.get("summary") or item.get("ai_summary"))
-    why_text = clean_text(item.get("ai_reason") or item.get("reason"))
-    why_uses_summary = False
-    if not why_text and summary:
-        why_text = summary
-        why_uses_summary = True
-    summary_text = meaningful_summary_for_full_view(item, why_text, why_uses_summary)
-    body = item.get("body") or item.get("original_text") or "-"
     sections = [
-        "📡 رادار اسپانیا",
-        "",
-        f"{emoji} {item.get('title') or '-'}",
-        "",
-        f"📍 محدوده: {location_text(item)}",
-        f"⏳ اعتبار/مهلت: {format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}",
-        f"🎯 مناسب برای: {audience_text(item)}",
-        "",
-        "💡 چرا مهم است؟",
-        why_text or "-",
-    ]
-    if summary_text:
-        sections.extend(["", "📝 خلاصه:", summary_text])
-    sections.extend(
-        [
-            "",
-            "📄 جزئیات:",
-            body,
-            "",
-            "🔗 منبع رسمی:",
-            item.get("source_url") or item.get("source_name") or "-",
-        ]
-    )
-    return "\n".join(sections)
-
-
-def format_radar_channel_post(item):
-    emoji = category_emoji(item)
-    lines = [
         "📡 رادار اسپانیا",
         "",
         f"{emoji} {clean_channel_title(item.get('title'))}",
         "",
+        "📝 خلاصه:",
+        radar_summary_text(item),
+        "",
         "💡 چرا مهم است؟",
-        *short_channel_lines(item),
+        radar_reason_text(item),
         "",
-        "🤖 جزئیات کامل داخل ربات",
+        "📍 محدوده:",
+        location_text(item),
+    ]
+    return "\n".join(sections)
+
+
+def format_radar_channel_post(item):
+    return format_radar_public_body(item)
+
+
+def format_radar_bot_overview(item):
+    lines = [
+        format_radar_public_body(item),
         "",
-        f"🔗 منبع: {item.get('source_name') or '-'}",
+        "⏳ اعتبار:",
+        f"{format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}",
+        "",
+        "🎯 مناسب برای:",
+        audience_text(item),
     ]
     return "\n".join(lines)
+
+
+def format_radar_details(item):
+    body = clean_text(item.get("body") or item.get("original_text")) or "-"
+    return "\n".join(["📄 جزئیات کامل", "", body])
+
+
+def format_radar_admin_preview(item):
+    categories = item.get("admin_categories") or item.get("categories") or "-"
+    audience = item.get("admin_audience") or audience_text(item)
+    urgency = item.get("admin_urgency") or item.get("urgency") or "-"
+    validity = item.get("admin_validity") or (
+        f"{format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}"
+    )
+    status = item.get("admin_status") or item.get("content_status") or item.get("channel_status") or "-"
+    return "\n".join(
+        [
+            format_radar_channel_post(item),
+            "",
+            "اطلاعات ادمین:",
+            f"- دسته‌ها: {categories}",
+            f"- مخاطب: {audience}",
+            f"- فوریت: {urgency}",
+            f"- اعتبار: {validity}",
+            f"- وضعیت: {status}",
+        ]
+    )
+
+
+def radar_item_text(item):
+    return format_radar_bot_overview(item)
+
+
+def renderer_field_log(item):
+    return {
+        "id": item.get("id"),
+        "has_summary": bool(clean_text(item.get("summary"))),
+        "has_ai_summary": bool(clean_text(item.get("ai_summary"))),
+        "has_ai_reason": bool(clean_text(item.get("ai_reason"))),
+        "has_reason": bool(clean_text(item.get("reason"))),
+        "has_body": bool(clean_text(item.get("body"))),
+        "has_source_url": bool(clean_text(item.get("source_url"))),
+    }
 
 
 def demo_item(radar_type):
     item = DEMO_ITEMS.get(radar_type) or DEMO_ITEMS["alert"]
     return {**item, "id": f"demo-{radar_type}", "start_date": now_spain(), "end_date": None}
+
+
+def get_active_or_demo_radar_item(item_id):
+    if str(item_id).startswith("demo-"):
+        return demo_item(str(item_id).removeprefix("demo-"))
+    return get_active_radar_item(item_id)
 
 
 def first_radar_item(radar_type):
@@ -354,9 +393,19 @@ async def show_radar_overview(query):
 
 
 async def send_radar_item_message(message, item):
+    logger.info("Rendering Radar bot overview fields=%s", renderer_field_log(item))
     await message.reply_text(
-        radar_item_text(item),
+        format_radar_bot_overview(item),
         reply_markup=full_item_keyboard(item),
+        disable_web_page_preview=True,
+    )
+
+
+async def send_radar_details_message(message, item):
+    logger.info("Rendering Radar details fields=%s", renderer_field_log(item))
+    await message.reply_text(
+        format_radar_details(item),
+        reply_markup=details_keyboard(item),
         disable_web_page_preview=True,
     )
 
@@ -370,7 +419,7 @@ async def send_missing_radar_item(message):
 
 async def open_radar_deep_link(update: Update, item_id: str):
     try:
-        item = get_active_radar_item(item_id)
+        item = get_active_or_demo_radar_item(item_id)
     except Exception:
         item = None
     if not item:
@@ -465,13 +514,25 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("radar:item:"):
         item_id = data.removeprefix("radar:item:")
         try:
-            item = get_active_radar_item(item_id)
+            item = get_active_or_demo_radar_item(item_id)
         except Exception:
             item = None
         if not item:
             await send_missing_radar_item(query.message)
             return
         await send_radar_item_message(query.message, item)
+        return
+
+    if data.startswith("radar:details:"):
+        item_id = data.removeprefix("radar:details:")
+        try:
+            item = get_active_or_demo_radar_item(item_id)
+        except Exception:
+            item = None
+        if not item:
+            await send_missing_radar_item(query.message)
+            return
+        await send_radar_details_message(query.message, item)
         return
 
     if data.startswith("radar:type:"):
