@@ -30,12 +30,11 @@ RADAR_AUDIENCE_VALUES = (
 )
 
 RADAR_CITY_VALUES = (
-    "ع©ظ„ ط§ط³ظ¾ط§ظ†غŒط§",
     "Madrid",
     "Barcelona",
     "Valencia",
     "Sevilla",
-    "Mأ،laga",
+    "Málaga",
     "Badajoz",
 )
 

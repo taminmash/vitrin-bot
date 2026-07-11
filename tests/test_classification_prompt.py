@@ -25,6 +25,9 @@ class ClassificationPromptTests(unittest.TestCase):
         self.assertIn("structured JSON only", text)
         self.assertIn("Do not invent facts", text)
         self.assertIn("Do not reinterpret laws", text)
+        self.assertIn("Málaga", text)
+        self.assertNotIn("M" + "\u0623\u060c" + "laga", text)
+        self.assertIn("Use national scope when the content clearly applies across Spain", text)
         for value in RADAR_CATEGORY_VALUES:
             self.assertIn(value, text)
         for value in RADAR_AUDIENCE_VALUES:

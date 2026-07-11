@@ -13,7 +13,7 @@ def valid_payload(**overrides):
         "primary_category": "legal",
         "category_tags": ["legal"],
         "audience_tags": ["migration"],
-        "cities": ["ع©ظ„ ط§ط³ظ¾ط§ظ†غŒط§"],
+        "cities": [],
         "geographic_scope": "national",
         "urgency": "high",
         "priority_score": 80,

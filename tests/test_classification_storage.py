@@ -34,9 +34,9 @@ def classification_row(**overrides):
         "candidate_status": "pending_ai",
         "metadata": {},
         "ai_result_id": "ai-1",
-        "ai_headline": "طھغŒطھط±",
-        "ai_summary": "ط®ظ„ط§طµظ‡",
-        "ai_why_it_matters": "ط¯ظ„غŒظ„",
+        "ai_headline": "تیتر",
+        "ai_summary": "خلاصه",
+        "ai_why_it_matters": "دلیل",
     }
     data.update(overrides)
     return data
@@ -94,8 +94,8 @@ class ClassificationStorageTests(unittest.TestCase):
             primary_category="legal",
             category_tags=["legal"],
             audience_tags=["migration"],
-            cities=["ع©ظ„ ط§ط³ظ¾ط§ظ†غŒط§"],
-            geographic_scope="national",
+            cities=["Málaga"],
+            geographic_scope="city",
             urgency="high",
             priority_score=80,
             confidence=0.9,
@@ -113,7 +113,8 @@ class ClassificationStorageTests(unittest.TestCase):
         self.assertEqual(params[0], "candidate-1")
         self.assertEqual(params[1], "ai-1")
         self.assertEqual(params[2], "legal")
-        self.assertEqual(params[6], "national")
+        self.assertEqual(params[5], '["Málaga"]')
+        self.assertEqual(params[6], "city")
 
 
 if __name__ == "__main__":
