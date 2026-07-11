@@ -36,9 +36,10 @@ class RadarCandidateTests(unittest.TestCase):
         self.assertEqual(candidate.metadata, {})
         self.assertEqual(candidate.trust_level, 5)
 
-    def test_blank_required_field_rejected(self):
-        with self.assertRaises(ValueError):
-            make_candidate(title=" ")
+    def test_blank_title_and_body_are_constructible_for_validation(self):
+        candidate = make_candidate(title=" ", body=" ")
+        self.assertEqual(candidate.title, "")
+        self.assertEqual(candidate.body, "")
 
     def test_invalid_trust_level_rejected(self):
         with self.assertRaises(ValueError):

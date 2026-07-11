@@ -19,6 +19,10 @@ def _trim_optional(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _trim_text(value: str | None) -> str:
+    return (value or "").strip()
+
+
 @dataclass
 class StoredRawRadarItem:
     id: str
@@ -49,8 +53,8 @@ class StoredRawRadarItem:
         self.source_name = _trim_required(self.source_name, "source_name")
         self.source_url = _trim_required(self.source_url, "source_url")
         self.canonical_url = _trim_optional(self.canonical_url)
-        self.original_title = _trim_required(self.original_title, "original_title")
-        self.original_text = _trim_required(self.original_text, "original_text")
+        self.original_title = _trim_text(self.original_title)
+        self.original_text = _trim_text(self.original_text)
         self.original_language = _trim_required(self.original_language, "original_language")
         self.raw_category = _trim_optional(self.raw_category)
         self.raw_location = _trim_optional(self.raw_location)
@@ -110,8 +114,8 @@ class RadarCandidate:
         self.source_key = _trim_required(self.source_key, "source_key")
         self.source_name = _trim_required(self.source_name, "source_name")
         self.external_id = _trim_optional(self.external_id)
-        self.title = _trim_required(self.title, "title")
-        self.body = _trim_required(self.body, "body")
+        self.title = _trim_text(self.title)
+        self.body = _trim_text(self.body)
         self.language = _trim_required(self.language, "language")
         self.source_url = _trim_required(self.source_url, "source_url")
         self.canonical_url = _trim_optional(self.canonical_url)

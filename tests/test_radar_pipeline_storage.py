@@ -114,6 +114,11 @@ class PipelineStorageTests(unittest.TestCase):
         validation = ValidationResult(False, [ValidationIssue("title", "blank", "missing")])
         result = mark_raw_rejected(make_candidate(), validation, PIPELINE_VERSION)
         self.assertEqual(result.status, "rejected")
+        insert_params = cursor.executed[0][1]
+        validation_json = insert_params[-2].value
+        self.assertEqual(validation_json, [{"field": "title", "code": "blank", "message": "missing"}])
+        self.assertEqual(insert_params[-4], "rejected")
+        self.assertEqual(cursor.executed[1][1][0], "candidate_rejected")
 
     def test_mark_raw_failed(self):
         cursor = FakeCursor([{"id": "raw-1"}])

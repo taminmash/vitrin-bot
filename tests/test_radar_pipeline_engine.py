@@ -74,3 +74,44 @@ class PipelineEngineTests(unittest.TestCase):
         report = pipeline.run()
         self.assertEqual(report.failed_count, 1)
         self.assertEqual(report.created_count, 1)
+
+    def test_blank_title_and_body_are_rejected_not_failed(self):
+        items = [raw("blank-title", title=" ", body="Valid body text"), raw("blank-body", title="Valid title", body=" ")]
+        rejected = []
+        failed = []
+
+        def store_rejected(candidate, validation, version):
+            rejected.append((candidate.raw_item_id, validation.as_dicts()))
+            return CandidateStoreResult("rejected", f"c-{candidate.raw_item_id}", candidate.raw_item_id)
+
+        pipeline = RadarCandidatePipeline(
+            load_raw_items=lambda limit: items,
+            load_source=lambda source_key: SourceInfo("boe", "BOE", "Government", "official", 5),
+            store_valid=lambda candidate, validation, version: CandidateStoreResult("created", "c", candidate.raw_item_id),
+            store_rejected=store_rejected,
+            mark_failed=lambda raw_id, error: failed.append(raw_id) or CandidateStoreResult("failed", None, raw_id),
+        )
+        report = pipeline.run()
+        self.assertEqual(report.rejected_count, 2)
+        self.assertEqual(report.failed_count, 0)
+        self.assertEqual(failed, [])
+        self.assertEqual([item[0] for item in rejected], ["blank-title", "blank-body"])
+        self.assertIn({"field": "title", "code": "blank", "message": "Title must not be blank."}, rejected[0][1])
+        self.assertIn({"field": "body", "code": "blank", "message": "Body must not be blank."}, rejected[1][1])
+
+    def test_short_title_and_body_are_structured_rejections(self):
+        captured = []
+        pipeline = RadarCandidatePipeline(
+            load_raw_items=lambda limit: [raw("short", title="abcd", body="short")],
+            load_source=lambda source_key: SourceInfo("boe", "BOE", "Government", "official", 5),
+            store_valid=lambda candidate, validation, version: CandidateStoreResult("created", "c", candidate.raw_item_id),
+            store_rejected=lambda candidate, validation, version: captured.extend(validation.as_dicts())
+            or CandidateStoreResult("rejected", "c-short", candidate.raw_item_id),
+            mark_failed=lambda raw_id, error: CandidateStoreResult("failed", None, raw_id),
+        )
+        report = pipeline.run()
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.failed_count, 0)
+        issue_codes = {(issue["field"], issue["code"]) for issue in captured}
+        self.assertIn(("title", "too_short"), issue_codes)
+        self.assertIn(("body", "too_short"), issue_codes)
