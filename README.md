@@ -216,9 +216,45 @@ Raw processing statuses used by the pipeline:
 - `candidate_rejected`
 - `candidate_failed`
 
+## Radar AI Summarization
+
+The AI summarization stage is the first optional AI layer after candidate
+creation. It reads validated `radar_candidates` with `candidate_status =
+pending_ai`, calls OpenAI for a structured JSON response, stores the result in
+`radar_ai_results`, and marks the candidate `ai_completed`.
+
+Manual one-off processing:
+
+```bash
+python scripts/run_radar_ai.py
+python scripts/run_radar_ai.py --limit 25
+python scripts/run_radar_ai.py --candidate-id <candidate_uuid>
+python scripts/run_radar_ai.py --dry-run
+```
+
+Required environment variable for actual processing:
+
+- `OPENAI_API_KEY`
+
+Optional:
+
+- `OPENAI_MODEL` defaults to `gpt-4o-mini`
+
+The prompt version is `radar-summary-v1`. The AI output is limited to:
+
+- `headline`
+- `short_summary`
+- `why_it_matters`
+- `confidence`
+- model/prompt/latency metadata
+
+This stage does not publish, translate, classify final categories, detect
+audiences or cities, calculate urgency/priority, add tags, run on cron, run
+during bot startup, modify Telegram handlers, or write to `radar_items`.
+
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py
 python -m unittest discover -s tests -v
 ```

@@ -427,7 +427,7 @@ def init_db():
                 source_type TEXT NOT NULL,
                 trust_level INTEGER NOT NULL CHECK (trust_level BETWEEN 1 AND 5),
                 candidate_status TEXT NOT NULL DEFAULT 'pending_ai'
-                    CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed')),
+                    CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed', 'ai_completed')),
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                 validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
                 pipeline_version TEXT NOT NULL,
@@ -461,6 +461,31 @@ def init_db():
         ensure_column(cur, "radar_candidates", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         cur.execute(
             """
+            DO $$
+            DECLARE constraint_name TEXT;
+            BEGIN
+                FOR constraint_name IN
+                    SELECT con.conname
+                    FROM pg_constraint con
+                    JOIN pg_class rel ON rel.oid = con.conrelid
+                    WHERE rel.relname = 'radar_candidates'
+                      AND con.contype = 'c'
+                      AND pg_get_constraintdef(con.oid) LIKE '%candidate_status%'
+                LOOP
+                    EXECUTE format('ALTER TABLE radar_candidates DROP CONSTRAINT IF EXISTS %I', constraint_name);
+                END LOOP;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE radar_candidates
+            ADD CONSTRAINT radar_candidates_candidate_status_check
+            CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed', 'ai_completed'))
+            """
+        )
+        cur.execute(
+            """
             CREATE UNIQUE INDEX IF NOT EXISTS radar_candidates_raw_item_unique
             ON radar_candidates (raw_item_id)
             """
@@ -487,6 +512,37 @@ def init_db():
             """
             CREATE INDEX IF NOT EXISTS radar_candidates_created_at_idx
             ON radar_candidates (created_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_ai_results (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                headline TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                why_it_matters TEXT NOT NULL,
+                confidence DOUBLE PRECISION NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                latency INTEGER NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_ai_results", "candidate_id", "UUID")
+        ensure_column(cur, "radar_ai_results", "headline", "TEXT")
+        ensure_column(cur, "radar_ai_results", "summary", "TEXT")
+        ensure_column(cur, "radar_ai_results", "why_it_matters", "TEXT")
+        ensure_column(cur, "radar_ai_results", "confidence", "DOUBLE PRECISION")
+        ensure_column(cur, "radar_ai_results", "model", "TEXT")
+        ensure_column(cur, "radar_ai_results", "prompt_version", "TEXT")
+        ensure_column(cur, "radar_ai_results", "latency", "INTEGER")
+        ensure_column(cur, "radar_ai_results", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_ai_results_candidate_unique
+            ON radar_ai_results (candidate_id)
             """
         )
         cur.execute(
