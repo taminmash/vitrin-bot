@@ -285,6 +285,7 @@ def init_db():
         ensure_column(cur, "radar_items", "channel_status", "TEXT DEFAULT 'not_sent'", "'not_sent'")
         ensure_column(cur, "radar_items", "channel_message_id", "BIGINT")
         ensure_column(cur, "radar_items", "channel_published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "channel_post_url", "TEXT")
         ensure_column(cur, "radar_items", "last_publish_error", "TEXT")
         ensure_column(cur, "radar_items", "ai_summary", "TEXT")
         ensure_column(cur, "radar_items", "ai_reason", "TEXT")
@@ -761,6 +762,75 @@ def init_db():
                     ALTER TABLE radar_promotions
                     ADD CONSTRAINT radar_promotions_status_check
                     CHECK (promotion_status IN ('completed'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_publications (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                channel_id TEXT NOT NULL,
+                telegram_message_id BIGINT NOT NULL,
+                channel_post_url TEXT,
+                publication_status TEXT NOT NULL DEFAULT 'published',
+                attempt_count INTEGER NOT NULL DEFAULT 1,
+                published_by BIGINT,
+                published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_error TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_publications", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_publications", "channel_id", "TEXT")
+        ensure_column(cur, "radar_publications", "telegram_message_id", "BIGINT")
+        ensure_column(cur, "radar_publications", "channel_post_url", "TEXT")
+        ensure_column(cur, "radar_publications", "publication_status", "TEXT NOT NULL DEFAULT 'published'", "'published'")
+        ensure_column(cur, "radar_publications", "attempt_count", "INTEGER NOT NULL DEFAULT 1", "1")
+        ensure_column(cur, "radar_publications", "published_by", "BIGINT")
+        ensure_column(cur, "radar_publications", "published_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publications", "last_error", "TEXT")
+        ensure_column(cur, "radar_publications", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publications", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_publications_item_published_unique
+            ON radar_publications (radar_item_id)
+            WHERE publication_status = 'published'
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publications_status_idx
+            ON radar_publications (publication_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publications_message_idx
+            ON radar_publications (telegram_message_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publications_published_at_idx
+            ON radar_publications (published_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_publications_status_check'
+                ) THEN
+                    ALTER TABLE radar_publications
+                    ADD CONSTRAINT radar_publications_status_check
+                    CHECK (publication_status IN ('published', 'failed'));
                 END IF;
             END $$;
             """

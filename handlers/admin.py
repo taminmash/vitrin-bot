@@ -9,7 +9,7 @@ from telegram import (
     ReplyKeyboardRemove,
     Update,
 )
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
@@ -25,7 +25,6 @@ from database.db import (
     list_source_registry,
     list_pending_content,
     mark_radar_channel_failed,
-    mark_radar_channel_published,
     resolve_comment,
     resolve_review,
     save_publication,
@@ -49,6 +48,9 @@ from handlers.radar import (
     format_radar_channel_post,
     renderer_field_log,
 )
+from radar_engine.publication.engine import RadarPublicationEngine
+from radar_engine.publication.models import EligiblePublicationItem
+from radar_engine.publication.publisher import RadarTelegramPublisher
 from radar_engine.review.storage import (
     approve_candidate,
     load_review_queue,
@@ -614,15 +616,20 @@ def create_payload_from_radar_data(data, status):
     }
 
 
-async def publish_radar_item(context, item):
-    logger.info("Publishing Radar channel post fields=%s", renderer_field_log(item))
-    message = await context.bot.send_message(
-        chat_id=CHANNEL_VITRIN,
-        text=format_radar_channel_post(item),
-        reply_markup=channel_post_keyboard(item),
-        disable_web_page_preview=True,
+async def publish_radar_item(context, item, published_by=None):
+    publisher = RadarTelegramPublisher(
+        context.bot,
+        channel_id=CHANNEL_VITRIN,
+        renderer=format_radar_channel_post,
+        keyboard_builder=channel_post_keyboard,
     )
-    return mark_radar_channel_published(item["id"], message.message_id)
+    result = await RadarPublicationEngine(publisher=publisher).publish_item(
+        EligiblePublicationItem(item),
+        published_by=published_by,
+    )
+    if not result.published:
+        raise RuntimeError(result.error or result.status)
+    return get_radar_item(item["id"])
 
 
 def radar_admin_list_text(grouped_items):
@@ -670,7 +677,7 @@ def radar_admin_list_keyboard(grouped_items):
 
 def radar_item_preview_keyboard(item):
     rows = []
-    if radar_status(item) != "published":
+    if radar_status(item) in ("ready", "failed"):
         rows.append([InlineKeyboardButton("📤 انتشار در کانال", callback_data=f"admin_radar:publish:{item['id']}")])
     elif item.get("channel_message_id"):
         rows.append(
@@ -1352,8 +1359,8 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.edit_message_text("این آیتم منقضی شده و قابل انتشار نیست.")
                 return
             try:
-                published = await publish_radar_item(context, item)
-            except TelegramError as error:
+                published = await publish_radar_item(context, item, published_by=query.from_user.id)
+            except Exception as error:
                 logging.exception("Failed to publish new Radar item to channel")
                 mark_radar_channel_failed(item["id"], str(error))
                 await query.edit_message_text(f"❌ انتشار رادار در کانال ناموفق بود.\n\nخطا: {error}")
@@ -1425,7 +1432,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 ),
             )
             return
-        if item.get("channel_status") == "published":
+        if item.get("channel_status") == "published" or item.get("channel_message_id"):
             await query.edit_message_text(
                 "این آیتم قبلاً منتشر شده است.\n\n"
                 f"Message ID: {item.get('channel_message_id') or '-'}",
@@ -1434,29 +1441,83 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 ),
             )
             return
-        update_radar_content_status(item_id, "ready")
-        item = get_radar_item(item_id)
-        try:
-            published = await publish_radar_item(context, item)
-        except TelegramError as error:
-            logging.exception("Failed to publish Radar item %s to channel", item_id)
-            mark_radar_channel_failed(item_id, str(error))
+        await query.edit_message_text(
+            "انتشار این آیتم در کانال ویترین را تأیید می‌کنید؟",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("✅ تأیید انتشار", callback_data=f"admin_radar:publish_confirm:{item_id}")],
+                    [InlineKeyboardButton("↩️ بازگشت به آیتم", callback_data=f"admin_radar:item:{item_id}")],
+                ]
+            ),
+        )
+        return
+
+    if action == "publish_confirm":
+        if radar_status(item) == "expired":
             await query.edit_message_text(
-                "❌ انتشار رادار در کانال ناموفق بود.\n\n"
-                f"خطا: {error}",
+                "این آیتم منقضی شده و قابل انتشار نیست.",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
                 ),
             )
             return
-
+        if item.get("channel_status") == "published" or item.get("channel_message_id"):
+            await query.edit_message_text(
+                "این آیتم قبلاً منتشر شده است.\n\n"
+                f"Message ID: {item.get('channel_message_id') or '-'}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+        publisher = RadarTelegramPublisher(
+            context.bot,
+            channel_id=CHANNEL_VITRIN,
+            renderer=format_radar_channel_post,
+            keyboard_builder=channel_post_keyboard,
+        )
+        result = await RadarPublicationEngine(publisher=publisher).publish_item(
+            EligiblePublicationItem(item),
+            published_by=query.from_user.id,
+        )
+        if result.published:
+            await query.edit_message_text(
+                "✅ آیتم رادار در کانال منتشر شد.\n\n"
+                f"Message ID: {result.telegram_message_id or '-'}\n"
+                f"URL: {result.channel_post_url or '-'}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+        if result.already_published:
+            await query.edit_message_text(
+                "این آیتم قبلاً منتشر شده است و پیام تکراری ارسال نشد.\n\n"
+                f"Message ID: {result.telegram_message_id or '-'}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
+        if result.reconciliation_required:
+            await query.edit_message_text(
+                "پیام در تلگرام ارسال شد اما ثبت دیتابیس کامل نشد و نیاز به تطبیق دستی دارد.\n\n"
+                f"Radar item ID: {item_id}\n"
+                f"Message ID: {result.telegram_message_id or '-'}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                ),
+            )
+            return
         await query.edit_message_text(
-            "✅ آیتم رادار در کانال منتشر شد.\n\n"
-            f"Message ID: {published.get('channel_message_id') or '-'}",
+            "❌ انتشار رادار انجام نشد.\n\n"
+            f"وضعیت: {result.status}\n"
+            f"خطا: {result.error or '-'}",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
             ),
         )
+        return
 
 
 async def send_content_to_admin(context: ContextTypes.DEFAULT_TYPE, content):
