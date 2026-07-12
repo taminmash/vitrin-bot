@@ -421,12 +421,35 @@ def release_publication_attempt(
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
+            UPDATE radar_publication_attempts
+            SET attempt_status = 'ambiguous',
+                last_error = COALESCE(last_error, 'sending claim expired before release request; manual verification required'),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE radar_item_id = %s
+              AND attempt_status = 'sending'
+              AND expires_at <= CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (radar_item_id,),
+        )
+        expired = cur.fetchone()
+        if expired:
+            return PublicationResult(
+                radar_item_id,
+                "persistence_failed_reconciliation_required",
+                telegram_message_id=expired.get("telegram_message_id"),
+                channel_id=expired.get("channel_id"),
+                channel_post_url=expired.get("channel_post_url"),
+                error="expired sending attempt requires manual verification before release",
+            )
+        cur.execute(
+            """
             SELECT *
             FROM radar_publication_attempts
             WHERE radar_item_id = %s
-              AND attempt_status IN ('sent_unpersisted', 'ambiguous', 'sending')
             ORDER BY updated_at DESC
             LIMIT 1
+            FOR UPDATE
             """,
             (radar_item_id,),
         )
@@ -434,6 +457,8 @@ def release_publication_attempt(
         if not attempt:
             return PublicationResult(radar_item_id, "release_rejected", error="no releasable publication attempt found")
         attempt_status = attempt["attempt_status"]
+        if attempt_status == "sending":
+            return PublicationResult(radar_item_id, "publication_in_progress", error="publication attempt is still active")
         if attempt_status == "sent_unpersisted":
             return PublicationResult(
                 radar_item_id,
@@ -442,6 +467,12 @@ def release_publication_attempt(
                 channel_id=attempt.get("channel_id"),
                 channel_post_url=attempt.get("channel_post_url"),
                 error="sent_unpersisted attempt requires reconciliation, not release",
+            )
+        if attempt_status != "ambiguous":
+            return PublicationResult(
+                radar_item_id,
+                "release_rejected",
+                error=f"{attempt_status} attempt cannot be released",
             )
         cur.execute(
             """
@@ -452,7 +483,7 @@ def release_publication_attempt(
                 last_error = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
-              AND attempt_status IN ('ambiguous', 'sending')
+              AND attempt_status = 'ambiguous'
             RETURNING *
             """,
             (released_by, safe_note, attempt["id"]),

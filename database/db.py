@@ -890,17 +890,25 @@ def init_db():
         cur.execute(
             """
             DO $$
+            DECLARE
+                current_definition TEXT;
             BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'radar_publication_attempts_status_check'
-                ) THEN
+                SELECT pg_get_constraintdef(oid)
+                INTO current_definition
+                FROM pg_constraint
+                WHERE conname = 'radar_publication_attempts_status_check';
+
+                IF current_definition IS NULL THEN
+                    ALTER TABLE radar_publication_attempts
+                    ADD CONSTRAINT radar_publication_attempts_status_check
+                    CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous', 'cancelled'));
+                ELSIF current_definition NOT ILIKE '%cancelled%' THEN
                     ALTER TABLE radar_publication_attempts
                     DROP CONSTRAINT radar_publication_attempts_status_check;
+                    ALTER TABLE radar_publication_attempts
+                    ADD CONSTRAINT radar_publication_attempts_status_check
+                    CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous', 'cancelled'));
                 END IF;
-                ALTER TABLE radar_publication_attempts
-                ADD CONSTRAINT radar_publication_attempts_status_check
-                CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous', 'cancelled'));
             END $$;
             """
         )
