@@ -22,6 +22,29 @@ class PublicationAdminStaticTests(unittest.TestCase):
         self.assertNotIn("send_message", helper)
         self.assertNotIn("mark_radar_channel_published", helper)
 
+    def test_admin_preserves_structured_publication_statuses(self):
+        admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
+        result_helper = admin_text.split("async def edit_radar_publication_result", 1)[1].split(
+            "\n\ndef radar_admin_list_text", 1
+        )[0]
+        self.assertIn("result.in_progress", result_helper)
+        self.assertIn("result.reconciliation_required", result_helper)
+        self.assertIn("result.already_published", result_helper)
+        self.assertIn("result.published", result_helper)
+
+    def test_admin_no_longer_calls_generic_failure_mutation_for_publication_results(self):
+        admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
+        self.assertNotIn("mark_radar_channel_failed", admin_text)
+        self.assertIn("publication_in_progress", (PROJECT_ROOT / "radar_engine" / "publication" / "models.py").read_text(encoding="utf-8"))
+
+    def test_admin_ready_payload_is_not_pre_marked_public(self):
+        admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
+        payload_helper = admin_text.split("def create_payload_from_radar_data", 1)[1].split(
+            "\n\nasync def publish_radar_item", 1
+        )[0]
+        self.assertIn('"is_published": status == "published"', payload_helper)
+        self.assertNotIn('"is_published": status in ("ready", "published")', payload_helper)
+
 
 if __name__ == "__main__":
     unittest.main()

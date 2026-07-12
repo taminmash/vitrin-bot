@@ -837,6 +837,71 @@ def init_db():
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_publication_attempts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                attempt_token UUID NOT NULL,
+                attempt_status TEXT NOT NULL,
+                claimed_by BIGINT,
+                claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                telegram_message_id BIGINT,
+                channel_id TEXT,
+                channel_post_url TEXT,
+                last_error TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_publication_attempts", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_publication_attempts", "attempt_token", "UUID")
+        ensure_column(cur, "radar_publication_attempts", "attempt_status", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "claimed_by", "BIGINT")
+        ensure_column(cur, "radar_publication_attempts", "claimed_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "expires_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "telegram_message_id", "BIGINT")
+        ensure_column(cur, "radar_publication_attempts", "channel_id", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "channel_post_url", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "last_error", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_publication_attempts_active_sending_unique
+            ON radar_publication_attempts (radar_item_id)
+            WHERE attempt_status = 'sending'
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publication_attempts_item_status_idx
+            ON radar_publication_attempts (radar_item_id, attempt_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publication_attempts_expires_idx
+            ON radar_publication_attempts (expires_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_publication_attempts_status_check'
+                ) THEN
+                    ALTER TABLE radar_publication_attempts
+                    ADD CONSTRAINT radar_publication_attempts_status_check
+                    CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS radar_reactions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,

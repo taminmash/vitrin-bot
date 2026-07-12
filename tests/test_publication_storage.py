@@ -4,10 +4,16 @@ import unittest
 from contextlib import contextmanager
 from unittest.mock import patch
 
-from radar_engine.publication.models import TelegramPublicationResponse
+from radar_engine.publication.models import PublicationAttempt, TelegramPublicationResponse
 from radar_engine.publication.storage import (
+    claim_publication_attempt,
+    complete_reconcilable_attempt,
     get_existing_successful_publication,
     load_ready_publication_items,
+    mark_attempt_ambiguous,
+    mark_attempt_completed,
+    mark_attempt_failed,
+    mark_attempt_sent,
     reconcile_publication,
     record_publication_failure,
     record_publication_success,
@@ -23,6 +29,21 @@ def publication_row(**overrides):
         "channel_status": "not_sent",
         "is_published": False,
         "channel_message_id": None,
+    }
+    data.update(overrides)
+    return data
+
+
+def attempt_row(**overrides):
+    data = {
+        "id": "attempt-1",
+        "radar_item_id": "radar-1",
+        "attempt_token": "token-1",
+        "attempt_status": "sending",
+        "telegram_message_id": None,
+        "channel_id": None,
+        "channel_post_url": None,
+        "last_error": None,
     }
     data.update(overrides)
     return data
@@ -154,16 +175,87 @@ class PublicationStorageTests(unittest.TestCase):
         self.assertEqual(row["telegram_message_id"], 777)
         self.assertIn("publication_status = 'published'", cursor.executed[0][0])
 
+    def test_claim_inserts_single_active_sending_attempt(self):
+        cursor = FakeCursor(one=[None, attempt_row()])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            claim = claim_publication_attempt("radar-1", claimed_by=123, ttl_seconds=600)
+        self.assertTrue(claim.claimed)
+        self.assertEqual(claim.attempt.attempt_status, "sending")
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertIn("expires_at <= CURRENT_TIMESTAMP", sql)
+        self.assertIn("INSERT INTO radar_publication_attempts", sql)
+        self.assertIn("ON CONFLICT (radar_item_id) WHERE attempt_status = 'sending'", sql)
+        self.assertEqual(cursor.executed[2][1][2], 123)
+
+    def test_active_sending_claim_blocks_second_sender(self):
+        cursor = FakeCursor(one=[None, None, attempt_row()])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            claim = claim_publication_attempt("radar-1")
+        self.assertTrue(claim.in_progress)
+        self.assertEqual(claim.attempt.attempt_status, "sending")
+
+    def test_expired_sending_claim_can_be_reclaimed_safely(self):
+        cursor = FakeCursor(one=[None, attempt_row(attempt_token="token-2")])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            claim = claim_publication_attempt("radar-1")
+        self.assertTrue(claim.claimed)
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertIn("attempt_status = 'failed'", sql)
+        self.assertIn("expires_at <= CURRENT_TIMESTAMP", sql)
+
+    def test_ambiguous_and_sent_unpersisted_claims_are_not_reclaimed(self):
+        for status in ("ambiguous", "sent_unpersisted"):
+            cursor = FakeCursor(one=[attempt_row(attempt_status=status, telegram_message_id=999)])
+            with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+                claim = claim_publication_attempt("radar-1")
+            self.assertTrue(claim.reconciliation_required)
+            self.assertEqual(claim.attempt.attempt_status, status)
+            sql = "\n".join(statement for statement, _ in cursor.executed)
+            self.assertNotIn("INSERT INTO radar_publication_attempts", sql)
+
+    def test_attempt_status_transitions_are_parameterized(self):
+        cursor = FakeCursor(one=[attempt_row(attempt_status="sent_unpersisted", telegram_message_id=777)])
+        response = TelegramPublicationResponse("@vitrinspain", 777, "https://t.me/vitrinspain/777")
+        attempt = PublicationAttempt("radar-1", "token-1", "sending")
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            sent = mark_attempt_sent(attempt, response)
+        self.assertEqual(sent.attempt_status, "sent_unpersisted")
+        sql, params = cursor.executed[0]
+        self.assertIn("attempt_status = 'sent_unpersisted'", sql)
+        self.assertEqual(params[:3], (777, "@vitrinspain", "https://t.me/vitrinspain/777"))
+
+        cursor = FakeCursor()
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            mark_attempt_completed(attempt)
+            mark_attempt_failed(attempt, "bad request")
+            mark_attempt_ambiguous(attempt, "timeout")
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertIn("attempt_status = 'completed'", sql)
+        self.assertIn("attempt_status = 'failed'", sql)
+        self.assertIn("attempt_status = 'ambiguous'", sql)
+
     def test_reconcile_records_existing_message_without_sending(self):
         with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value=None), patch(
             "radar_engine.publication.storage.record_publication_success"
-        ) as record:
+        ) as record, patch("radar_engine.publication.storage.complete_reconcilable_attempt") as complete:
             record.return_value.status = "published"
             reconcile_publication("radar-1", 888, "@vitrinspain", "https://t.me/vitrinspain/888")
         args, kwargs = record.call_args
         self.assertEqual(args[0], "radar-1")
         self.assertEqual(args[1].telegram_message_id, 888)
         self.assertEqual(args[1].channel_post_url, "https://t.me/vitrinspain/888")
+        complete.assert_called_once()
+
+    def test_complete_reconcilable_attempt_does_not_send(self):
+        cursor = FakeCursor()
+        response = TelegramPublicationResponse("@vitrinspain", 888, "https://t.me/vitrinspain/888")
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            complete_reconcilable_attempt("radar-1", response)
+        sql, params = cursor.executed[0]
+        self.assertIn("attempt_status = 'completed'", sql)
+        self.assertIn("attempt_status IN ('sent_unpersisted', 'ambiguous')", sql)
+        self.assertNotIn("send_message", sql)
+        self.assertEqual(params, (888, "@vitrinspain", "https://t.me/vitrinspain/888", "radar-1"))
 
 
 if __name__ == "__main__":

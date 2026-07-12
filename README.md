@@ -311,10 +311,31 @@ Radar items that are already in `radar_items` with `content_status = ready`,
 message ID. It reuses the existing channel renderer and inline deep-link button,
 then records a successful send in the additive `radar_publications` audit table.
 
+Before any Telegram send, the engine creates a durable row in the additive
+`radar_publication_attempts` table. Only one active `sending` attempt is allowed
+per Radar item, so concurrent admin clicks or runner processes cannot both send
+the same item. Active duplicate attempts return `publication_in_progress`
+without calling Telegram.
+
 Duplicate publication is blocked by both the `radar_items` channel message
 fields and the unique successful `radar_publications` row. If Telegram returns
-an ambiguous timeout after a send attempt, the engine does not mark the item as
-failed; use reconciliation after checking the channel manually.
+an ambiguous timeout after a send attempt, the attempt is marked `ambiguous` and
+the item is not marked as a normal failed send. After Telegram success, the
+message identifiers are first stored on the attempt as `sent_unpersisted`; only
+then does the final `radar_publications` persistence run. If final persistence
+fails, use reconciliation after checking the channel manually.
+
+Attempt statuses:
+
+- `sending`
+- `sent_unpersisted`
+- `completed`
+- `failed`
+- `ambiguous`
+
+Stale `sending` attempts expire after a conservative window and may be claimed
+again. `ambiguous` and `sent_unpersisted` attempts are never automatically
+reclaimed because they may already have produced a Telegram channel message.
 
 Manual one-off commands:
 

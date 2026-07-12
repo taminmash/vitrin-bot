@@ -24,7 +24,6 @@ from database.db import (
     list_pending_comments,
     list_source_registry,
     list_pending_content,
-    mark_radar_channel_failed,
     resolve_comment,
     resolve_review,
     save_publication,
@@ -612,7 +611,7 @@ def create_payload_from_radar_data(data, status):
         "original_text": data.get("body"),
         "original_language": "fa",
         "is_verified": True,
-        "is_published": status in ("ready", "published"),
+        "is_published": status == "published",
     }
 
 
@@ -623,13 +622,59 @@ async def publish_radar_item(context, item, published_by=None):
         renderer=format_radar_channel_post,
         keyboard_builder=channel_post_keyboard,
     )
-    result = await RadarPublicationEngine(publisher=publisher).publish_item(
+    return await RadarPublicationEngine(publisher=publisher).publish_item(
         EligiblePublicationItem(item),
         published_by=published_by,
     )
-    if not result.published:
-        raise RuntimeError(result.error or result.status)
-    return get_radar_item(item["id"])
+
+
+async def edit_radar_publication_result(query, item_id, result):
+    if result.published:
+        await query.edit_message_text(
+            "✅ آیتم رادار در کانال منتشر شد.\n\n"
+            f"Message ID: {result.telegram_message_id or '-'}\n"
+            f"URL: {result.channel_post_url or '-'}",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            ),
+        )
+        return
+    if result.already_published:
+        await query.edit_message_text(
+            "این آیتم قبلاً منتشر شده است و پیام تکراری ارسال نشد.\n\n"
+            f"Message ID: {result.telegram_message_id or '-'}",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            ),
+        )
+        return
+    if result.in_progress:
+        await query.edit_message_text(
+            "انتشار این آیتم همین الان در حال انجام است.\n\n"
+            "لطفاً چند لحظه بعد دوباره وضعیت را بررسی کنید.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            ),
+        )
+        return
+    if result.reconciliation_required:
+        await query.edit_message_text(
+            "وضعیت انتشار قطعی نیست و نیاز به بررسی یا تطبیق دستی دارد.\n\n"
+            f"Radar item ID: {item_id}\n"
+            f"Message ID: {result.telegram_message_id or '-'}",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            ),
+        )
+        return
+    await query.edit_message_text(
+        "❌ انتشار رادار انجام نشد.\n\n"
+        f"وضعیت: {result.status}\n"
+        f"خطا: {result.error or '-'}",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+        ),
+    )
 
 
 def radar_admin_list_text(grouped_items):
@@ -1358,17 +1403,8 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             if is_radar_expired(item):
                 await query.edit_message_text("این آیتم منقضی شده و قابل انتشار نیست.")
                 return
-            try:
-                published = await publish_radar_item(context, item, published_by=query.from_user.id)
-            except Exception as error:
-                logging.exception("Failed to publish new Radar item to channel")
-                mark_radar_channel_failed(item["id"], str(error))
-                await query.edit_message_text(f"❌ انتشار رادار در کانال ناموفق بود.\n\nخطا: {error}")
-                return
-            await query.edit_message_text(
-                "✅ آیتم رادار در کانال منتشر شد.\n\n"
-                f"Message ID: {published.get('channel_message_id') or '-'}"
-            )
+            result = await publish_radar_item(context, item, published_by=query.from_user.id)
+            await edit_radar_publication_result(query, item["id"], result)
             return
 
     if len(parts) != 3:
@@ -1480,43 +1516,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             EligiblePublicationItem(item),
             published_by=query.from_user.id,
         )
-        if result.published:
-            await query.edit_message_text(
-                "✅ آیتم رادار در کانال منتشر شد.\n\n"
-                f"Message ID: {result.telegram_message_id or '-'}\n"
-                f"URL: {result.channel_post_url or '-'}",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
-                ),
-            )
-            return
-        if result.already_published:
-            await query.edit_message_text(
-                "این آیتم قبلاً منتشر شده است و پیام تکراری ارسال نشد.\n\n"
-                f"Message ID: {result.telegram_message_id or '-'}",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
-                ),
-            )
-            return
-        if result.reconciliation_required:
-            await query.edit_message_text(
-                "پیام در تلگرام ارسال شد اما ثبت دیتابیس کامل نشد و نیاز به تطبیق دستی دارد.\n\n"
-                f"Radar item ID: {item_id}\n"
-                f"Message ID: {result.telegram_message_id or '-'}",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
-                ),
-            )
-            return
-        await query.edit_message_text(
-            "❌ انتشار رادار انجام نشد.\n\n"
-            f"وضعیت: {result.status}\n"
-            f"خطا: {result.error or '-'}",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
-            ),
-        )
+        await edit_radar_publication_result(query, item_id, result)
         return
 
 
