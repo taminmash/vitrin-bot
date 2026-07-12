@@ -277,6 +277,32 @@ This stage does not publish, does not write to `radar_items`, does not modify
 `radar_ai_results`, does not modify `radar_ai_classifications`, and does not
 change candidate statuses.
 
+## Radar Approved Promotion
+
+The approved promotion stage is a manual bridge from admin review into the
+existing Radar publishing workflow. It requires an approved row in
+`radar_reviews`, successful AI summary/classification rows, and no existing row
+in `radar_promotions`.
+
+Promotion maps the reviewed candidate into the existing `radar_items` schema
+with `content_status = ready` and `channel_status = not_sent`. The completion
+marker is the independent `radar_promotions` row, which links the candidate,
+review, and generated Radar item. Approval and promotion remain separate admin
+actions.
+
+Manual one-off processing:
+
+```bash
+python scripts/run_radar_promotion.py
+python scripts/run_radar_promotion.py --limit 50
+python scripts/run_radar_promotion.py --candidate-id <candidate_uuid>
+python scripts/run_radar_promotion.py --dry-run
+```
+
+This stage does not publish, does not send Telegram channel posts, does not run
+on cron, does not run on bot startup, does not modify AI/classification outputs,
+does not change review decisions, and does not change candidate status.
+
 ## Radar AI Classification
 
 The classification stage runs after successful AI summarization. It reads
@@ -322,6 +348,6 @@ Optional:
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py
 python -m unittest discover -s tests -v
 ```
