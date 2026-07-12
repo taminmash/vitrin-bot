@@ -57,6 +57,7 @@ from radar_engine.review.storage import (
     review_status_report,
 )
 from radar_engine.review.presentation import build_review_item_text, build_review_queue_display
+from radar_engine.promotion.storage import get_approved_promotion_source, promote_candidate
 
 
 logger = logging.getLogger(__name__)
@@ -723,6 +724,17 @@ def radar_review_item_keyboard(candidate_id):
     )
 
 
+def radar_promotion_keyboard(candidate_id=None):
+    rows = []
+    if candidate_id:
+        rows.append(
+            [InlineKeyboardButton("آماده‌سازی برای انتشار", callback_data=f"admin_radar:promote:{candidate_id}")]
+        )
+    rows.append([InlineKeyboardButton("✅ آماده انتشارها", callback_data="admin_radar:menu:ready")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")])
+    return InlineKeyboardMarkup(rows)
+
+
 async def edit_admin_radar_review_queue(query):
     items = load_review_queue(limit=20)
     text, visible_items = radar_review_queue_payload(items)
@@ -1070,12 +1082,19 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             if operation == "approve":
                 stored = approve_candidate(candidate_id, query.from_user.id, note)
                 label = "تأیید شد"
+                reply_markup = radar_promotion_keyboard(candidate_id)
             elif operation == "reject":
                 stored = reject_candidate(candidate_id, query.from_user.id, note)
                 label = "رد شد"
+                reply_markup = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                )
             else:
                 stored = needs_edit_candidate(candidate_id, query.from_user.id, note)
                 label = "نیازمند ویرایش شد"
+                reply_markup = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                )
             if not stored:
                 await query.edit_message_text(
                     "برای این گزینه قبلاً تصمیم ثبت شده است.",
@@ -1086,9 +1105,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
             await query.edit_message_text(
                 f"✅ تصمیم بازبینی ثبت شد: {label}",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
-                ),
+                reply_markup=reply_markup,
             )
             return
         await query.edit_message_text(
@@ -1096,6 +1113,42 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
             ),
+        )
+        return
+
+    if action == "promote":
+        candidate_id = parts[2] if len(parts) > 2 else None
+        if not candidate_id:
+            await query.edit_message_text(
+                "درخواست آماده‌سازی معتبر نیست.",
+                reply_markup=radar_promotion_keyboard(),
+            )
+            return
+        source = get_approved_promotion_source(candidate_id)
+        if not source:
+            await query.edit_message_text(
+                "این گزینه برای آماده‌سازی پیدا نشد یا هنوز تأیید نشده است.",
+                reply_markup=radar_promotion_keyboard(),
+            )
+            return
+        result = promote_candidate(source, promoted_by=query.from_user.id)
+        if result.created:
+            await query.edit_message_text(
+                "✅ محتوای رادار با وضعیت آماده انتشار ساخته شد.\n\n"
+                f"Radar item ID: {result.radar_item_id}",
+                reply_markup=radar_promotion_keyboard(),
+            )
+            return
+        if result.already_promoted:
+            await query.edit_message_text(
+                "این گزینه قبلاً آماده‌سازی شده است و نسخه تکراری ساخته نشد.\n\n"
+                f"Radar item ID: {result.radar_item_id or '-'}",
+                reply_markup=radar_promotion_keyboard(),
+            )
+            return
+        await query.edit_message_text(
+            "آماده‌سازی انجام نشد؛ داده‌های این گزینه برای ساخت آیتم رادار کامل نیست.",
+            reply_markup=radar_promotion_keyboard(),
         )
         return
 

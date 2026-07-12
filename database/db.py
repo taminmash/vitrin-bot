@@ -713,6 +713,60 @@ def init_db():
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS radar_promotions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                review_id UUID NOT NULL REFERENCES radar_reviews(id) ON DELETE CASCADE,
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                promotion_status TEXT NOT NULL DEFAULT 'completed',
+                promoted_by BIGINT,
+                promoted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_promotions", "candidate_id", "UUID")
+        ensure_column(cur, "radar_promotions", "review_id", "UUID")
+        ensure_column(cur, "radar_promotions", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_promotions", "promotion_status", "TEXT NOT NULL DEFAULT 'completed'", "'completed'")
+        ensure_column(cur, "radar_promotions", "promoted_by", "BIGINT")
+        ensure_column(cur, "radar_promotions", "promoted_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_promotions", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_promotions_candidate_unique
+            ON radar_promotions (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_promotions_review_unique
+            ON radar_promotions (review_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_promotions_item_unique
+            ON radar_promotions (radar_item_id)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_promotions_status_check'
+                ) THEN
+                    ALTER TABLE radar_promotions
+                    ADD CONSTRAINT radar_promotions_status_check
+                    CHECK (promotion_status IN ('completed'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS radar_reactions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
