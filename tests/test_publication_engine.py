@@ -8,7 +8,7 @@ from radar_engine.publication.models import (
     PublicationResult,
     TelegramPublicationResponse,
 )
-from radar_engine.publication.publisher import AmbiguousTelegramFailure, DefiniteTelegramFailure
+from radar_engine.publication.publisher import AmbiguousTelegramFailure, DefiniteTelegramFailure, PublicationValidationError
 from tests.test_publication_publisher import ready_item
 
 
@@ -21,6 +21,8 @@ class FakePublisher:
         self.sent = []
 
     async def publish(self, item):
+        if isinstance(self.error, PublicationValidationError):
+            raise self.error
         self.sent.append(item.id)
         if self.error:
             raise self.error
@@ -68,6 +70,7 @@ def publication_engine(**overrides):
         "attempt_completed_marker": lambda attempt: None,
         "attempt_failed_marker": lambda attempt, error: None,
         "attempt_ambiguous_marker": lambda attempt, error: None,
+        "attempt_cancelled_marker": lambda attempt, error: None,
     }
     defaults.update(overrides)
     return RadarPublicationEngine(**defaults)
@@ -149,6 +152,20 @@ class PublicationEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("blank_title", result.error)
         self.assertEqual(publisher.sent, [])
 
+    async def test_publisher_validation_failure_closes_acquired_claim_without_send(self):
+        publisher = FakePublisher(error=PublicationValidationError("rendered post is empty"))
+        cancelled = []
+        engine = publication_engine(
+            publisher=publisher,
+            success_recorder=lambda *args, **kwargs: self.fail("success recorder should not run"),
+            failure_recorder=lambda *args, **kwargs: self.fail("failure recorder should not run"),
+            attempt_cancelled_marker=lambda attempt, error: cancelled.append((attempt.attempt_token, error)),
+        )
+        result = await engine.publish_item(EligiblePublicationItem(ready_item()))
+        self.assertEqual(result.status, "validation_failed")
+        self.assertEqual(cancelled, [("attempt-1", "rendered post is empty")])
+        self.assertEqual(publisher.sent, [])
+
     async def test_active_claim_prevents_send(self):
         publisher = FakePublisher()
         engine = publication_engine(
@@ -176,6 +193,21 @@ class PublicationEngineTests(unittest.IsolatedAsyncioTestCase):
         result = await engine.publish_item(EligiblePublicationItem(ready_item()))
         self.assertTrue(result.reconciliation_required)
         self.assertEqual(result.telegram_message_id, 555)
+        self.assertEqual(publisher.sent, [])
+
+    async def test_retry_after_expired_sending_claim_does_not_call_telegram(self):
+        publisher = FakePublisher()
+        engine = publication_engine(
+            publisher=publisher,
+            attempt_claimer=lambda item_id, claimed_by=None: fake_attempt(
+                "reconciliation_required",
+                attempt_status="ambiguous",
+            ),
+            success_recorder=lambda *args, **kwargs: self.fail("success recorder should not run"),
+            failure_recorder=lambda *args, **kwargs: self.fail("failure recorder should not run"),
+        )
+        result = await engine.publish_item(EligiblePublicationItem(ready_item()))
+        self.assertTrue(result.reconciliation_required)
         self.assertEqual(publisher.sent, [])
 
     async def test_simulated_concurrent_calls_send_once(self):

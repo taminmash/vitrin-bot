@@ -333,9 +333,11 @@ Attempt statuses:
 - `failed`
 - `ambiguous`
 
-Stale `sending` attempts expire after a conservative window and may be claimed
-again. `ambiguous` and `sent_unpersisted` attempts are never automatically
-reclaimed because they may already have produced a Telegram channel message.
+Stale `sending` attempts expire after a conservative window into `ambiguous`.
+They are not automatically reclaimed because the worker may have sent the
+Telegram message before crashing. `ambiguous` and `sent_unpersisted` attempts
+remain non-reclaimable until an admin/operator either reconciles a known channel
+message or explicitly confirms that no Telegram message was sent.
 
 Manual one-off commands:
 
@@ -345,7 +347,12 @@ python scripts/run_radar_publication.py --radar-item-id <radar_item_uuid>
 python scripts/run_radar_publication.py --publish-ready --confirm-publish --limit 5
 python scripts/run_radar_publication.py --publish-ready --dry-run
 python scripts/run_radar_publication.py --reconcile --radar-item-id <radar_item_uuid> --telegram-message-id <message_id> --channel-id <channel_id>
+python scripts/run_radar_publication.py --release-attempt --radar-item-id <radar_item_uuid> --confirm-not-sent
 ```
+
+`--release-attempt` never sends Telegram. It is only for manually verified
+"not sent" outcomes and rejects `sent_unpersisted` attempts and already
+published items.
 
 Required environment variables for real publication:
 

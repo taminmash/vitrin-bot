@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 
 PUBLICATION_STATUS_VALUES = ("published", "failed")
-ATTEMPT_STATUS_VALUES = ("sending", "sent_unpersisted", "completed", "failed", "ambiguous")
+ATTEMPT_STATUS_VALUES = ("sending", "sent_unpersisted", "completed", "failed", "ambiguous", "cancelled")
 RESULT_STATUS_VALUES = (
     "published",
     "already_published",
@@ -15,6 +15,8 @@ RESULT_STATUS_VALUES = (
     "persistence_failed_reconciliation_required",
     "failed",
     "dry_run",
+    "attempt_released",
+    "release_rejected",
 )
 
 

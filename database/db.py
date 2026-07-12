@@ -864,6 +864,8 @@ def init_db():
         ensure_column(cur, "radar_publication_attempts", "channel_id", "TEXT")
         ensure_column(cur, "radar_publication_attempts", "channel_post_url", "TEXT")
         ensure_column(cur, "radar_publication_attempts", "last_error", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "released_by", "BIGINT")
+        ensure_column(cur, "radar_publication_attempts", "released_at", "TIMESTAMP")
         ensure_column(cur, "radar_publication_attempts", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         ensure_column(cur, "radar_publication_attempts", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         cur.execute(
@@ -889,14 +891,16 @@ def init_db():
             """
             DO $$
             BEGIN
-                IF NOT EXISTS (
+                IF EXISTS (
                     SELECT 1 FROM pg_constraint
                     WHERE conname = 'radar_publication_attempts_status_check'
                 ) THEN
                     ALTER TABLE radar_publication_attempts
-                    ADD CONSTRAINT radar_publication_attempts_status_check
-                    CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous'));
+                    DROP CONSTRAINT radar_publication_attempts_status_check;
                 END IF;
+                ALTER TABLE radar_publication_attempts
+                ADD CONSTRAINT radar_publication_attempts_status_check
+                CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous', 'cancelled'));
             END $$;
             """
         )

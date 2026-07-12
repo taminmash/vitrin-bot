@@ -56,6 +56,36 @@ class PublicationRunnerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--reconcile requires --telegram-message-id, --channel-id", result.stderr)
 
+    def test_release_attempt_requires_explicit_confirm_not_sent(self):
+        result = subprocess.run(
+            [sys.executable, "scripts/run_radar_publication.py", "--release-attempt", "--radar-item-id", "radar-1"],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--release-attempt requires --confirm-not-sent", result.stderr)
+
+    def test_release_attempt_parse_is_explicit_and_never_reconcile(self):
+        args = parse_args(["--release-attempt", "--radar-item-id", "radar-1", "--confirm-not-sent"])
+        self.assertTrue(args.release_attempt)
+        self.assertTrue(args.confirm_not_sent)
+        with self.assertRaises(SystemExit):
+            parse_args(
+                [
+                    "--release-attempt",
+                    "--reconcile",
+                    "--radar-item-id",
+                    "radar-1",
+                    "--confirm-not-sent",
+                    "--telegram-message-id",
+                    "1",
+                    "--channel-id",
+                    "@vitrin",
+                ]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

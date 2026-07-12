@@ -11,10 +11,12 @@ from radar_engine.publication.storage import (
     get_existing_successful_publication,
     load_ready_publication_items,
     mark_attempt_ambiguous,
+    mark_attempt_cancelled,
     mark_attempt_completed,
     mark_attempt_failed,
     mark_attempt_sent,
     reconcile_publication,
+    release_publication_attempt,
     record_publication_failure,
     record_publication_success,
 )
@@ -194,14 +196,16 @@ class PublicationStorageTests(unittest.TestCase):
         self.assertTrue(claim.in_progress)
         self.assertEqual(claim.attempt.attempt_status, "sending")
 
-    def test_expired_sending_claim_can_be_reclaimed_safely(self):
-        cursor = FakeCursor(one=[None, attempt_row(attempt_token="token-2")])
+    def test_expired_sending_claim_becomes_ambiguous_and_is_not_reclaimed(self):
+        cursor = FakeCursor(one=[attempt_row(attempt_status="ambiguous")])
         with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
             claim = claim_publication_attempt("radar-1")
-        self.assertTrue(claim.claimed)
+        self.assertTrue(claim.reconciliation_required)
+        self.assertEqual(claim.attempt.attempt_status, "ambiguous")
         sql = "\n".join(statement for statement, _ in cursor.executed)
-        self.assertIn("attempt_status = 'failed'", sql)
+        self.assertIn("attempt_status = 'ambiguous'", sql)
         self.assertIn("expires_at <= CURRENT_TIMESTAMP", sql)
+        self.assertNotIn("INSERT INTO radar_publication_attempts", sql)
 
     def test_ambiguous_and_sent_unpersisted_claims_are_not_reclaimed(self):
         for status in ("ambiguous", "sent_unpersisted"):
@@ -229,10 +233,12 @@ class PublicationStorageTests(unittest.TestCase):
             mark_attempt_completed(attempt)
             mark_attempt_failed(attempt, "bad request")
             mark_attempt_ambiguous(attempt, "timeout")
+            mark_attempt_cancelled(attempt, "invalid render")
         sql = "\n".join(statement for statement, _ in cursor.executed)
         self.assertIn("attempt_status = 'completed'", sql)
         self.assertIn("attempt_status = 'failed'", sql)
         self.assertIn("attempt_status = 'ambiguous'", sql)
+        self.assertIn("attempt_status = 'cancelled'", sql)
 
     def test_reconcile_records_existing_message_without_sending(self):
         with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value=None), patch(
@@ -245,6 +251,57 @@ class PublicationStorageTests(unittest.TestCase):
         self.assertEqual(args[1].telegram_message_id, 888)
         self.assertEqual(args[1].channel_post_url, "https://t.me/vitrinspain/888")
         complete.assert_called_once()
+
+    def test_ambiguous_attempt_can_be_reconciled_without_sending(self):
+        with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value=None), patch(
+            "radar_engine.publication.storage.record_publication_success"
+        ) as record, patch("radar_engine.publication.storage.complete_reconcilable_attempt") as complete:
+            record.return_value = type("Result", (), {"status": "published", "published": True})()
+            result = reconcile_publication("radar-1", 889, "@vitrinspain", "https://t.me/vitrinspain/889")
+        self.assertEqual(result.status, "published")
+        self.assertEqual(record.call_args.args[1].telegram_message_id, 889)
+        complete.assert_called_once()
+
+    def test_release_confirmed_not_sent_allows_later_new_claim(self):
+        cursor = FakeCursor(one=[attempt_row(attempt_status="ambiguous"), attempt_row(attempt_status="cancelled")])
+        with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value=None), patch(
+            "radar_engine.publication.storage.get_radar_item_channel_message", return_value=None
+        ), patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            result = release_publication_attempt("radar-1", released_by=123)
+        self.assertEqual(result.status, "attempt_released")
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertIn("attempt_status = 'cancelled'", sql)
+        self.assertIn("released_by = %s", sql)
+
+        cursor = FakeCursor(one=[None, attempt_row(attempt_token="new-token")])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            claim = claim_publication_attempt("radar-1")
+        self.assertTrue(claim.claimed)
+
+    def test_release_action_never_sends_telegram(self):
+        cursor = FakeCursor(one=[attempt_row(attempt_status="ambiguous"), attempt_row(attempt_status="cancelled")])
+        with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value=None), patch(
+            "radar_engine.publication.storage.get_radar_item_channel_message", return_value=None
+        ), patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            release_publication_attempt("radar-1")
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertNotIn("send_message", sql)
+
+    def test_sent_unpersisted_cannot_be_released_as_not_sent(self):
+        cursor = FakeCursor(one=[attempt_row(attempt_status="sent_unpersisted", telegram_message_id=777)])
+        with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value=None), patch(
+            "radar_engine.publication.storage.get_radar_item_channel_message", return_value=None
+        ), patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            result = release_publication_attempt("radar-1")
+        self.assertEqual(result.status, "release_rejected")
+        self.assertIn("requires reconciliation", result.error)
+        sql = "\n".join(statement for statement, _ in cursor.executed)
+        self.assertNotIn("attempt_status = 'cancelled'", sql)
+
+    def test_successful_publication_cannot_be_released(self):
+        with patch("radar_engine.publication.storage.get_existing_successful_publication", return_value={"id": "pub-1"}):
+            result = release_publication_attempt("radar-1")
+        self.assertTrue(result.already_published)
 
     def test_complete_reconcilable_attempt_does_not_send(self):
         cursor = FakeCursor()

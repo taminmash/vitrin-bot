@@ -28,6 +28,7 @@ class RadarPublicationEngine:
         attempt_completed_marker=None,
         attempt_failed_marker=None,
         attempt_ambiguous_marker=None,
+        attempt_cancelled_marker=None,
     ):
         if (
             loader is None
@@ -40,6 +41,7 @@ class RadarPublicationEngine:
             or attempt_completed_marker is None
             or attempt_failed_marker is None
             or attempt_ambiguous_marker is None
+            or attempt_cancelled_marker is None
         ):
             from radar_engine.publication.storage import (
                 claim_publication_attempt,
@@ -47,6 +49,7 @@ class RadarPublicationEngine:
                 get_radar_item_channel_message,
                 load_ready_publication_items,
                 mark_attempt_ambiguous,
+                mark_attempt_cancelled,
                 mark_attempt_completed,
                 mark_attempt_failed,
                 mark_attempt_sent,
@@ -64,6 +67,7 @@ class RadarPublicationEngine:
             attempt_completed_marker = attempt_completed_marker or mark_attempt_completed
             attempt_failed_marker = attempt_failed_marker or mark_attempt_failed
             attempt_ambiguous_marker = attempt_ambiguous_marker or mark_attempt_ambiguous
+            attempt_cancelled_marker = attempt_cancelled_marker or mark_attempt_cancelled
         self.loader = loader
         self.publisher = publisher
         self.success_recorder = success_recorder
@@ -75,6 +79,7 @@ class RadarPublicationEngine:
         self.attempt_completed_marker = attempt_completed_marker
         self.attempt_failed_marker = attempt_failed_marker
         self.attempt_ambiguous_marker = attempt_ambiguous_marker
+        self.attempt_cancelled_marker = attempt_cancelled_marker
 
     async def publish_item(
         self,
@@ -112,6 +117,7 @@ class RadarPublicationEngine:
         try:
             response = await self.publisher.publish(item)
         except PublicationValidationError as error:
+            self.attempt_cancelled_marker(attempt, str(error))
             return PublicationResult(item.id, "validation_failed", error=str(error))
         except AmbiguousTelegramFailure as error:
             self.attempt_ambiguous_marker(attempt, str(error))

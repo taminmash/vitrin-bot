@@ -133,8 +133,8 @@ def claim_publication_attempt(
         cur.execute(
             """
             UPDATE radar_publication_attempts
-            SET attempt_status = 'failed',
-                last_error = COALESCE(last_error, 'sending claim expired before completion'),
+            SET attempt_status = 'ambiguous',
+                last_error = COALESCE(last_error, 'sending claim expired before completion; manual verification required'),
                 updated_at = CURRENT_TIMESTAMP
             WHERE radar_item_id = %s
               AND attempt_status = 'sending'
@@ -247,6 +247,25 @@ def mark_attempt_failed(attempt: PublicationAttempt, error_text: str) -> None:
             """
             UPDATE radar_publication_attempts
             SET attempt_status = 'failed',
+                last_error = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE radar_item_id = %s
+              AND attempt_token = %s
+              AND attempt_status = 'sending'
+            """,
+            (safe_error, attempt.radar_item_id, attempt.attempt_token),
+        )
+
+
+def mark_attempt_cancelled(attempt: PublicationAttempt, error_text: str) -> None:
+    from database.db import db_cursor
+
+    safe_error = (error_text or "publication attempt cancelled")[:1000]
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_publication_attempts
+            SET attempt_status = 'cancelled',
                 last_error = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE radar_item_id = %s
@@ -387,6 +406,61 @@ def reconcile_publication(
     if result.published:
         complete_reconcilable_attempt(radar_item_id, response)
     return result
+
+
+def release_publication_attempt(
+    radar_item_id: str,
+    released_by: int | None = None,
+    note: str | None = None,
+) -> PublicationResult:
+    if get_existing_successful_publication(radar_item_id) or get_radar_item_channel_message(radar_item_id):
+        return PublicationResult(radar_item_id, "already_published")
+    from database.db import db_cursor
+
+    safe_note = (note or "confirmed not sent; attempt released")[:1000]
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT *
+            FROM radar_publication_attempts
+            WHERE radar_item_id = %s
+              AND attempt_status IN ('sent_unpersisted', 'ambiguous', 'sending')
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (radar_item_id,),
+        )
+        attempt = cur.fetchone()
+        if not attempt:
+            return PublicationResult(radar_item_id, "release_rejected", error="no releasable publication attempt found")
+        attempt_status = attempt["attempt_status"]
+        if attempt_status == "sent_unpersisted":
+            return PublicationResult(
+                radar_item_id,
+                "release_rejected",
+                telegram_message_id=attempt.get("telegram_message_id"),
+                channel_id=attempt.get("channel_id"),
+                channel_post_url=attempt.get("channel_post_url"),
+                error="sent_unpersisted attempt requires reconciliation, not release",
+            )
+        cur.execute(
+            """
+            UPDATE radar_publication_attempts
+            SET attempt_status = 'cancelled',
+                released_by = %s,
+                released_at = CURRENT_TIMESTAMP,
+                last_error = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+              AND attempt_status IN ('ambiguous', 'sending')
+            RETURNING *
+            """,
+            (released_by, safe_note, attempt["id"]),
+        )
+        released = cur.fetchone()
+        if not released:
+            return PublicationResult(radar_item_id, "release_rejected", error="publication attempt could not be released")
+        return PublicationResult(radar_item_id, "attempt_released")
 
 
 def complete_reconcilable_attempt(radar_item_id: str, response: TelegramPublicationResponse) -> None:
