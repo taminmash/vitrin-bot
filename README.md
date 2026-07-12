@@ -303,6 +303,73 @@ This stage does not publish, does not send Telegram channel posts, does not run
 on cron, does not run on bot startup, does not modify AI/classification outputs,
 does not change review decisions, and does not change candidate status.
 
+## Radar Publication Engine
+
+The publication stage is an explicit, human-triggered send step for promoted
+Radar items that are already in `radar_items` with `content_status = ready`,
+`channel_status = not_sent`, `is_published = false`, and no Telegram channel
+message ID. It reuses the existing channel renderer and inline deep-link button,
+then records a successful send in the additive `radar_publications` audit table.
+
+Before any Telegram send, the engine creates a durable row in the additive
+`radar_publication_attempts` table. Only one active `sending` attempt is allowed
+per Radar item, so concurrent admin clicks or runner processes cannot both send
+the same item. Active duplicate attempts return `publication_in_progress`
+without calling Telegram.
+
+Duplicate publication is blocked by both the `radar_items` channel message
+fields and the unique successful `radar_publications` row. If Telegram returns
+an ambiguous timeout after a send attempt, the attempt is marked `ambiguous` and
+the item is not marked as a normal failed send. After Telegram success, the
+message identifiers are first stored on the attempt as `sent_unpersisted`; only
+then does the final `radar_publications` persistence run. If final persistence
+fails, use reconciliation after checking the channel manually.
+
+Attempt statuses:
+
+- `sending`
+- `sent_unpersisted`
+- `completed`
+- `failed`
+- `ambiguous`
+
+Stale `sending` attempts expire after a conservative window into `ambiguous`.
+They are not automatically reclaimed because the worker may have sent the
+Telegram message before crashing. `ambiguous` and `sent_unpersisted` attempts
+remain non-reclaimable until an admin/operator either reconciles a known channel
+message or explicitly confirms that no Telegram message was sent.
+
+Manual one-off commands:
+
+```bash
+python scripts/run_radar_publication.py --help
+python scripts/run_radar_publication.py --radar-item-id <radar_item_uuid>
+python scripts/run_radar_publication.py --publish-ready --confirm-publish --limit 5
+python scripts/run_radar_publication.py --publish-ready --dry-run
+python scripts/run_radar_publication.py --reconcile --radar-item-id <radar_item_uuid> --telegram-message-id <message_id> --channel-id <channel_id>
+python scripts/run_radar_publication.py --release-attempt --radar-item-id <radar_item_uuid> --confirm-not-sent
+```
+
+`--release-attempt` never sends Telegram. It is only for manually verified
+"not sent" outcomes and rejects `sent_unpersisted` attempts and already
+published items.
+
+Required environment variables for real publication:
+
+- `BOT_TOKEN`
+- `DATABASE_URL`
+- `VITRIN_CHANNEL_ID`
+
+Optional config:
+
+- `CHANNEL_VITRIN_USERNAME` or a public `@channel` value can be configured in
+  `config_v2.py` for building public post URLs.
+
+This stage does not run on cron or startup, does not publish automatically after
+promotion, does not modify AI/classification/review rows, and does not write to
+`radar_items` until a Telegram send succeeds or a definite send failure is
+recorded.
+
 ## Radar AI Classification
 
 The classification stage runs after successful AI summarization. It reads
@@ -348,6 +415,6 @@ Optional:
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py scripts/run_radar_publication.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py radar_engine/publication/models.py radar_engine/publication/storage.py radar_engine/publication/publisher.py radar_engine/publication/engine.py
 python -m unittest discover -s tests -v
 ```
