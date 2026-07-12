@@ -167,9 +167,8 @@ def _insert_radar_item(cur, fields: dict) -> dict:
         "priority_score",
         "audience_tags",
         "is_verified",
-        "is_published",
-        "published_at",
         "expires_at",
+        "channel_published_at",
         "ai_summary",
         "ai_reason",
         "ai_tags",
@@ -180,7 +179,9 @@ def _insert_radar_item(cur, fields: dict) -> dict:
     payload = {key: value for key, value in fields.items() if key in allowed}
     payload["content_status"] = "ready"
     payload["channel_status"] = "not_sent"
-    payload["is_published"] = True
+    payload["is_published"] = False
+    payload["published_at"] = None
+    payload["channel_published_at"] = None
     columns = list(payload.keys())
     values = [
         json.dumps(payload[column], ensure_ascii=False) if column in ("audience_tags", "ai_tags", "category_tags") else payload[column]

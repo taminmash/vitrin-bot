@@ -96,6 +96,8 @@ class PromotionMapperTests(unittest.TestCase):
         self.assertEqual(fields["source_url"], "https://www.boe.es/test")
         self.assertEqual(fields["start_date"], datetime(2026, 7, 2, 0, 0))
         self.assertEqual(fields["end_date"], datetime(2026, 7, 9, 0, 0))
+        self.assertNotIn("is_published", fields)
+        self.assertNotIn("published_at", fields)
 
     def test_city_scope_preserves_first_city(self):
         classification = make_source().classification

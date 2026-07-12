@@ -72,8 +72,6 @@ def map_approved_source_to_radar_item(source: ApprovedPromotionSource) -> Mapped
         "priority_score": int(classification.priority_score),
         "audience_tags": audience_tags,
         "is_verified": True,
-        "is_published": True,
-        "published_at": candidate.published_at,
         "expires_at": expires_at,
         "ai_summary": _clean(summary.summary),
         "ai_reason": _clean(summary.why_it_matters),

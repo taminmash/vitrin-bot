@@ -2,10 +2,15 @@ import sys
 import types
 import unittest
 from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
-from radar_engine.promotion.storage import load_approved_unpromoted_candidates, promote_candidate
+from radar_engine.promotion.storage import _insert_radar_item, load_approved_unpromoted_candidates, promote_candidate
 from tests.test_promotion_mapper import make_source
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def promotion_row(**overrides):
@@ -106,6 +111,11 @@ def fake_database(cursor, connection=None):
 
 
 class PromotionStorageTests(unittest.TestCase):
+    def _insert_columns_and_params(self, cursor):
+        sql, params = cursor.executed[1]
+        column_text = sql.split("INSERT INTO radar_items (", 1)[1].split(")", 1)[0]
+        return [column.strip() for column in column_text.split(",")], params
+
     def test_loader_requires_approved_review_and_excludes_existing_promotions(self):
         cursor = FakeCursor(rows=[promotion_row()])
         with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
@@ -156,9 +166,44 @@ class PromotionStorageTests(unittest.TestCase):
         self.assertNotIn("UPDATE radar_reviews", sql)
         self.assertNotIn("UPDATE radar_ai_results", sql)
         self.assertNotIn("UPDATE radar_ai_classifications", sql)
-        radar_params = cursor.executed[1][1]
-        self.assertIn("ready", radar_params)
-        self.assertIn("not_sent", radar_params)
+        columns, radar_params = self._insert_columns_and_params(cursor)
+        values = dict(zip(columns, radar_params))
+        self.assertEqual(values["content_status"], "ready")
+        self.assertEqual(values["channel_status"], "not_sent")
+        self.assertIs(values["is_published"], False)
+        self.assertIsNone(values["published_at"])
+        self.assertIsNone(values["channel_published_at"])
+        self.assertNotIn("channel_message_id", columns)
+
+    def test_mapped_payload_cannot_override_unpublished_ready_state(self):
+        cursor = FakeCursor(one=[{"id": "radar-1"}])
+        _insert_radar_item(
+            cursor,
+            {
+                "title": "Title",
+                "summary": "Summary",
+                "type": "legal",
+                "category": "legal",
+                "source_url": "https://boe.es/test",
+                "source_name": "BOE",
+                "is_published": True,
+                "published_at": datetime(2026, 7, 1, 9, 0),
+                "channel_published_at": datetime(2026, 7, 1, 9, 1),
+                "channel_message_id": 123,
+                "content_status": "published",
+                "channel_status": "published",
+            },
+        )
+        sql, params = cursor.executed[0]
+        column_text = sql.split("INSERT INTO radar_items (", 1)[1].split(")", 1)[0]
+        columns = [column.strip() for column in column_text.split(",")]
+        values = dict(zip(columns, params))
+        self.assertEqual(values["content_status"], "ready")
+        self.assertEqual(values["channel_status"], "not_sent")
+        self.assertIs(values["is_published"], False)
+        self.assertIsNone(values["published_at"])
+        self.assertIsNone(values["channel_published_at"])
+        self.assertNotIn("channel_message_id", columns)
 
     def test_duplicate_promotion_is_prevented_before_insert(self):
         cursor = FakeCursor(one=[{"id": "promotion-1", "radar_item_id": "radar-1"}])
@@ -188,6 +233,29 @@ class PromotionStorageTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 promote_candidate(make_source())
         self.assertTrue(connection.rolled_back)
+
+    def test_ready_promotion_state_is_not_public_available_semantics(self):
+        db_text = (PROJECT_ROOT / "database" / "db.py").read_text(encoding="utf-8")
+        available_section = db_text.split("def available_radar_where():", 1)[1].split("def count_available_radar_by_type", 1)[0]
+        admin_section = db_text.split("def list_admin_radar_items", 1)[1].split("def radar_content_status", 1)[0]
+        self.assertIn("is_published = true", available_section)
+        self.assertIn("COALESCE(content_status, 'draft') = 'ready'", admin_section)
+        self.assertIn("COALESCE(content_status, 'draft') = 'published'", admin_section)
+
+    def test_promotion_scope_does_not_call_publication_or_telegram(self):
+        promotion_files = [
+            PROJECT_ROOT / "radar_engine" / "promotion" / "engine.py",
+            PROJECT_ROOT / "radar_engine" / "promotion" / "mapper.py",
+            PROJECT_ROOT / "radar_engine" / "promotion" / "models.py",
+            PROJECT_ROOT / "radar_engine" / "promotion" / "storage.py",
+            PROJECT_ROOT / "scripts" / "run_radar_promotion.py",
+        ]
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in promotion_files)
+        self.assertNotIn("publish_radar_item", combined)
+        self.assertNotIn("send_message", combined)
+        self.assertNotIn("send_photo", combined)
+        self.assertNotIn("send_video", combined)
+        self.assertNotIn("mark_radar_channel_published", combined)
 
 
 if __name__ == "__main__":
