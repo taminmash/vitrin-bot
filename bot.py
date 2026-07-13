@@ -20,6 +20,7 @@ from handlers.post_create import draft_callback, post_handler, published_callbac
 from handlers.profile import profile_handler
 from handlers.radar import radar_callback, radar_feedback_callback
 from handlers.start import start
+from radar_engine.scheduler import start_radar_scheduler, stop_radar_scheduler
 
 
 logging.basicConfig(
@@ -46,7 +47,13 @@ def main():
 
     init_db()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(start_radar_scheduler)
+        .post_shutdown(stop_radar_scheduler)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))

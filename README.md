@@ -20,6 +20,9 @@ Set these in Railway or your local shell:
 - `ADMIN_USER_IDS` comma-separated Telegram numeric IDs, for example `8747305714`
 - `VITRIN_CHANNEL_ID`
 - `HAYAT_CHANNEL_ID`
+- `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
+- `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled. Use `0`,
+  `false`, `no`, or `off` to disable automatic Radar ingestion.
 
 The bot checks membership through the public channel usernames configured in
 `config_v2.py`: `@vitrinspain` and `@hayatkhalvatspain`.
@@ -145,9 +148,10 @@ items are blocked from duplicate publishing.
 
 ## Radar Source Engine
 
-The `radar_engine` package is an isolated foundation for raw source ingestion.
-It does not run on bot startup, does not publish to Telegram, does not call AI,
-and does not write directly to `radar_items`.
+The `radar_engine` package includes the automated BOE ingestion foundation.
+On bot startup, the Radar scheduler starts automatically and logs
+`Radar scheduler started`. By default it runs every 15 minutes; override this
+with `RADAR_FETCH_INTERVAL_MINUTES`.
 
 The first experimental connector is `boe`, which reads BOE's official daily
 summary XML endpoint:
@@ -161,6 +165,31 @@ the source key, official URL, original Spanish title/text, publication dates,
 metadata, a deterministic content hash, and a deduplication key. Re-running the
 same source updates `last_seen_at` instead of creating duplicates.
 
+Automatic cycle:
+
+```text
+BOE fetch -> deduplicate/store raw -> candidate pipeline -> AI summary -> AI classification -> review queue
+```
+
+The scheduler prevents overlapping cycles in two layers:
+
+- an in-process guard logs `Previous fetch cycle still running.`
+- a PostgreSQL advisory lock for `radar_scheduler:boe` logs
+  `Previous Radar BOE cycle is running in another process.`
+
+The advisory lock uses a dedicated PostgreSQL session and is released in a
+`finally` path; no normal row transaction is held open during BOE network calls
+or AI processing. BOE or pipeline errors are logged and the scheduler retries on
+the next cycle. If BOE fails before fetching any item, downstream candidate, AI,
+and classification stages are skipped for that cycle. Nothing is published
+automatically.
+
+If a cycle inserts no new raw item, the existing backlog stages may still run:
+raw rows already waiting in the database can move through candidate, AI, and
+classification processing. The `Queued for review` metric means newly
+classification-completed items in that cycle, not the total historical review
+queue size.
+
 Manual one-off ingestion:
 
 ```bash
@@ -170,13 +199,16 @@ python scripts/run_radar_source.py boe
 Required environment variable:
 
 - `DATABASE_URL`
+- `OPENAI_API_KEY` for AI summary/classification during automatic processing
+- `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
+- `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled
 
 Known limitations:
 
-- BOE ingestion stores raw Spanish source records only.
-- It does not generate Persian summaries or classify category/city/audience.
+- BOE ingestion stores raw Spanish source records before pushing them through
+  the existing candidate, AI, classification, and review queue stages.
 - It does not mark content as ready or published.
-- It does not schedule recurring runs.
+- It does not publish to Telegram automatically.
 - BOE upstream XML availability or format changes can affect ingestion.
 
 ## Radar Candidate Pipeline
@@ -415,6 +447,6 @@ Optional:
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py scripts/run_radar_publication.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py radar_engine/publication/models.py radar_engine/publication/storage.py radar_engine/publication/publisher.py radar_engine/publication/engine.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py scripts/run_radar_publication.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/scheduler.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py radar_engine/publication/models.py radar_engine/publication/storage.py radar_engine/publication/publisher.py radar_engine/publication/engine.py
 python -m unittest discover -s tests -v
 ```
