@@ -89,7 +89,7 @@ class SourceManager:
         return report
 
 
-def build_default_source_manager() -> SourceManager:
+def build_default_source_manager(boe_days_back: int | None = None) -> SourceManager:
     manager = SourceManager()
-    manager.register(BOESource())
+    manager.register(BOESource(days_back=boe_days_back))
     return manager
