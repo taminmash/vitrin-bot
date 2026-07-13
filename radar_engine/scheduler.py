@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from hashlib import sha256
 import logging
 import os
 from time import monotonic
@@ -10,7 +12,6 @@ from typing import Awaitable, Callable
 from radar_engine.ai.engine import AIReport, RadarAIEngine
 from radar_engine.classification.engine import ClassificationReport, RadarClassificationEngine
 from radar_engine.pipeline.engine import PipelineReport, RadarCandidatePipeline
-from radar_engine.review.storage import load_review_queue
 from radar_engine.source_manager import IngestionReport, build_default_source_manager
 
 
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FETCH_INTERVAL_MINUTES = 15
 MIN_FETCH_INTERVAL_MINUTES = 1
+ADVISORY_LOCK_NAME = "radar_scheduler:boe"
+FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
 
 @dataclass
@@ -37,6 +40,46 @@ class RadarFetchCycleReport:
 
 
 AsyncStage = Callable[[], Awaitable[object]]
+LockFactory = Callable[[], AbstractContextManager[bool]]
+
+
+def advisory_lock_key(name: str = ADVISORY_LOCK_NAME) -> int:
+    digest = sha256(name.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big", signed=True)
+
+
+class PostgresAdvisoryLock:
+    def __init__(self, lock_name: str = ADVISORY_LOCK_NAME, connection_factory=None):
+        self.lock_name = lock_name
+        self.lock_key = advisory_lock_key(lock_name)
+        self.connection_factory = connection_factory
+        self.conn = None
+        self.acquired = False
+
+    def __enter__(self) -> bool:
+        if self.connection_factory:
+            self.conn = self.connection_factory()
+        else:
+            from database.db import get_connection
+
+            self.conn = get_connection()
+        self.conn.autocommit = True
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
+            row = cur.fetchone()
+        self.acquired = bool(row and row[0])
+        return self.acquired
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            if self.conn and self.acquired:
+                with self.conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_unlock(%s)", (self.lock_key,))
+        finally:
+            if self.conn:
+                self.conn.close()
+            self.conn = None
+            self.acquired = False
 
 
 def fetch_interval_minutes_from_env(value: str | None = None) -> int:
@@ -60,6 +103,13 @@ def fetch_interval_minutes_from_env(value: str | None = None) -> int:
         )
         return MIN_FETCH_INTERVAL_MINUTES
     return parsed
+
+
+def auto_ingestion_enabled(value: str | None = None) -> bool:
+    raw = os.getenv("RADAR_AUTO_INGESTION_ENABLED") if value is None else value
+    if raw is None or str(raw).strip() == "":
+        return True
+    return str(raw).strip().casefold() not in FALSE_ENV_VALUES
 
 
 def _default_ingest_stage(source_key: str):
@@ -91,13 +141,6 @@ def _default_classification_stage(limit: int):
     return run_classification
 
 
-def _default_review_queue_stage(limit: int):
-    async def load_queue():
-        return await asyncio.to_thread(load_review_queue, limit=limit)
-
-    return load_queue
-
-
 class RadarBOEIngestionScheduler:
     def __init__(
         self,
@@ -109,7 +152,7 @@ class RadarBOEIngestionScheduler:
         pipeline_stage: AsyncStage | None = None,
         ai_stage: AsyncStage | None = None,
         classification_stage: AsyncStage | None = None,
-        review_queue_stage: AsyncStage | None = None,
+        lock_factory: LockFactory | None = None,
         sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ):
         self.interval_minutes = interval_minutes or fetch_interval_minutes_from_env()
@@ -120,7 +163,7 @@ class RadarBOEIngestionScheduler:
         self.pipeline_stage = pipeline_stage or _default_pipeline_stage(self.stage_limit)
         self.ai_stage = ai_stage or _default_ai_stage(self.stage_limit)
         self.classification_stage = classification_stage or _default_classification_stage(self.stage_limit)
-        self.review_queue_stage = review_queue_stage or _default_review_queue_stage(self.stage_limit)
+        self.lock_factory = lock_factory or (lambda: PostgresAdvisoryLock(ADVISORY_LOCK_NAME))
         self.sleep_func = sleep_func
         self._running = False
         self._stop_event = asyncio.Event()
@@ -163,20 +206,28 @@ class RadarBOEIngestionScheduler:
         started_at = monotonic()
         report = RadarFetchCycleReport(source_key=self.source_key)
         try:
-            ingestion = await self.ingest_stage()
-            self._apply_ingestion(report, ingestion)
+            with self.lock_factory() as lock_acquired:
+                if not lock_acquired:
+                    logger.info("Previous Radar BOE cycle is running in another process.")
+                    report.skipped = True
+                    return report
 
-            pipeline = await self.pipeline_stage()
-            self._apply_pipeline(report, pipeline)
+                ingestion = await self.ingest_stage()
+                self._apply_ingestion(report, ingestion)
+                if self._fatal_ingestion_failure(ingestion):
+                    report.failed = True
+                    logger.error("Radar BOE ingestion failed before fetching any items; skipping downstream stages.")
+                    return report
 
-            ai = await self.ai_stage()
-            self._apply_ai(report, ai)
+                pipeline = await self.pipeline_stage()
+                self._apply_pipeline(report, pipeline)
 
-            classification = await self.classification_stage()
-            self._apply_classification(report, classification)
+                ai = await self.ai_stage()
+                self._apply_ai(report, ai)
 
-            review_items = await self.review_queue_stage()
-            report.queued_for_review = len(review_items or [])
+                classification = await self.classification_stage()
+                self._apply_classification(report, classification)
+                report.queued_for_review = report.classification_completed
         except Exception as error:
             report.failed = True
             report.errors.append(str(error))
@@ -186,6 +237,11 @@ class RadarBOEIngestionScheduler:
             self._running = False
             self._log_report(report)
         return report
+
+    def _fatal_ingestion_failure(self, ingestion) -> bool:
+        if not isinstance(ingestion, IngestionReport):
+            return False
+        return ingestion.fetched_count == 0 and ingestion.failed_count > 0
 
     def _apply_ingestion(self, report: RadarFetchCycleReport, ingestion) -> None:
         if not isinstance(ingestion, IngestionReport):
@@ -232,6 +288,12 @@ class RadarBOEIngestionScheduler:
 
 
 async def start_radar_scheduler(application) -> None:
+    if not auto_ingestion_enabled():
+        logger.info("Radar automatic ingestion is disabled")
+        return
+    existing = application.bot_data.get("radar_boe_scheduler")
+    if existing:
+        return
     scheduler = RadarBOEIngestionScheduler()
     application.bot_data["radar_boe_scheduler"] = scheduler
     scheduler.start()

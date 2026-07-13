@@ -21,6 +21,8 @@ Set these in Railway or your local shell:
 - `VITRIN_CHANNEL_ID`
 - `HAYAT_CHANNEL_ID`
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
+- `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled. Use `0`,
+  `false`, `no`, or `off` to disable automatic Radar ingestion.
 
 The bot checks membership through the public channel usernames configured in
 `config_v2.py`: `@vitrinspain` and `@hayatkhalvatspain`.
@@ -169,10 +171,24 @@ Automatic cycle:
 BOE fetch -> deduplicate/store raw -> candidate pipeline -> AI summary -> AI classification -> review queue
 ```
 
-The scheduler prevents overlapping cycles. If a previous cycle is still running,
-the next cycle is skipped and logs `Previous fetch cycle still running.` BOE or
-pipeline errors are logged and the scheduler retries on the next cycle. Nothing
-is published automatically.
+The scheduler prevents overlapping cycles in two layers:
+
+- an in-process guard logs `Previous fetch cycle still running.`
+- a PostgreSQL advisory lock for `radar_scheduler:boe` logs
+  `Previous Radar BOE cycle is running in another process.`
+
+The advisory lock uses a dedicated PostgreSQL session and is released in a
+`finally` path; no normal row transaction is held open during BOE network calls
+or AI processing. BOE or pipeline errors are logged and the scheduler retries on
+the next cycle. If BOE fails before fetching any item, downstream candidate, AI,
+and classification stages are skipped for that cycle. Nothing is published
+automatically.
+
+If a cycle inserts no new raw item, the existing backlog stages may still run:
+raw rows already waiting in the database can move through candidate, AI, and
+classification processing. The `Queued for review` metric means newly
+classification-completed items in that cycle, not the total historical review
+queue size.
 
 Manual one-off ingestion:
 
@@ -185,6 +201,7 @@ Required environment variable:
 - `DATABASE_URL`
 - `OPENAI_API_KEY` for AI summary/classification during automatic processing
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
+- `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled
 
 Known limitations:
 
