@@ -6,7 +6,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from config_v2 import BOT_USERNAME, CHANNEL_VITRIN
+from config_v2 import BOT_USERNAME, CHANNEL_VITRIN, CHANNEL_VITRIN_LINK
 from database.db import (
     count_available_radar_by_type,
     count_radar_reactions,
@@ -16,6 +16,23 @@ from database.db import (
     save_radar_reaction,
 )
 from handlers.start import MAIN_MENU, send_home_dashboard
+from radar_engine.renderer import (
+    channel_button_specs,
+    clean_text as render_clean_text,
+    details_button_specs,
+    field_log,
+    format_date as render_format_date,
+    location_text as render_location_text,
+    overview_button_specs,
+    render_admin_preview,
+    render_channel_post,
+    render_details_page,
+    render_ready_preview,
+    summary_text as render_summary_text,
+    reason_text as render_reason_text,
+    shorten_words as render_shorten_words,
+    type_emoji,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -148,24 +165,30 @@ def deep_link_for_item(item):
 
 
 def get_radar_cta_label(item_type):
-    labels = {
-        "alert": "🚨 مشاهده جزئیات هشدار",
-        "discount": "💶 مشاهده جزئیات تخفیف",
-        "event": "🎉 مشاهده جزئیات رویداد",
-        "job": "💼 مشاهده جزئیات فرصت شغلی",
-        "legal": "🏛 مشاهده جزئیات مطلب",
-        "travel": "✈️ مشاهده جزئیات پیشنهاد سفر",
-        "family": "👨‍👩‍👧 مشاهده جزئیات مطلب",
-        "weather": "🌦 مشاهده جزئیات وضعیت هوا",
-        "transport": "🚇 مشاهده جزئیات حمل‌ونقل",
-        "economy": "💰 مشاهده جزئیات مطلب اقتصادی",
-        "education": "📚 مشاهده جزئیات آموزشی",
-    }
-    return labels.get(item_type, "📄 مشاهده جزئیات مطلب")
+    return "📄 مشاهده جزئیات رویداد"
 
 
-def reaction_count_text(label, count):
-    return f"{label} · {count}" if count else label
+def telegram_keyboard(button_rows):
+    rows = []
+    for row in button_rows:
+        buttons = []
+        for button in row:
+            kwargs = {}
+            if button.callback_data:
+                kwargs["callback_data"] = button.callback_data
+            if button.url:
+                kwargs["url"] = button.url
+            if button.switch_inline_query:
+                kwargs["switch_inline_query"] = button.switch_inline_query
+            buttons.append(InlineKeyboardButton(button.text, **kwargs))
+        rows.append(buttons)
+    return InlineKeyboardMarkup(rows)
+
+
+def channel_url_for_item(item):
+    if item.get("channel_post_url"):
+        return item["channel_post_url"]
+    return CHANNEL_VITRIN_LINK or None
 
 
 def channel_post_keyboard(item, reaction_counts=None):
@@ -175,42 +198,15 @@ def channel_post_keyboard(item, reaction_counts=None):
             counts = count_radar_reactions(item["id"])
         except Exception:
             counts = {"like": 0, "dislike": 0}
-
-    item_id = item["id"]
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton(get_radar_cta_label(item.get("type")), url=deep_link_for_item(item))],
-            [
-                InlineKeyboardButton(
-                    reaction_count_text("👍 پسندیدم", counts.get("like", 0)),
-                    callback_data=f"radar_feedback:like:{item_id}",
-                ),
-                InlineKeyboardButton(
-                    reaction_count_text("👎 نپسندیدم", counts.get("dislike", 0)),
-                    callback_data=f"radar_feedback:dislike:{item_id}",
-                ),
-            ],
-        ]
-    )
+    return telegram_keyboard(channel_button_specs(item, deep_link_for_item(item), counts))
 
 
 def full_item_keyboard(item):
-    rows = []
-    rows.append([InlineKeyboardButton("📄 مشاهده جزئیات", callback_data=f"radar:details:{item['id']}")])
-    if item.get("source_url"):
-        rows.append([InlineKeyboardButton("🔗 منبع رسمی", url=item["source_url"])])
-    rows.append([InlineKeyboardButton("📤 اشتراک‌گذاری", switch_inline_query=deep_link_for_item(item))])
-    rows.append([InlineKeyboardButton("🏠 خانه", callback_data="radar:home")])
-    return InlineKeyboardMarkup(rows)
+    return telegram_keyboard(overview_button_specs(item, deep_link_for_item(item)))
 
 
 def details_keyboard(item):
-    rows = []
-    if item.get("source_url"):
-        rows.append([InlineKeyboardButton("🔗 منبع رسمی", url=item["source_url"])])
-    rows.append([InlineKeyboardButton("⬅️ بازگشت به مطلب", callback_data=f"radar:item:{item['id']}")])
-    rows.append([InlineKeyboardButton("🏠 خانه", callback_data="radar:home")])
-    return InlineKeyboardMarkup(rows)
+    return telegram_keyboard(details_button_specs(item, deep_link_for_item(item), channel_url_for_item(item)))
 
 
 def expired_item_keyboard():
@@ -218,134 +214,57 @@ def expired_item_keyboard():
 
 
 def format_date(value):
-    if not value:
-        return "-"
-    if hasattr(value, "strftime"):
-        return value.strftime("%Y-%m-%d")
-    return str(value)
+    return render_format_date(value)
 
 
 def audience_text(item):
-    tags = item.get("audience_tags") or item.get("ai_tags") or []
-    if isinstance(tags, str):
-        return tags
-    return "، ".join(tags) if tags else "عموم کاربران"
+    from radar_engine.renderer import audience_text as renderer_audience_text
+
+    return renderer_audience_text(item)
 
 
 def location_text(item):
-    return " / ".join(
-        value for value in [item.get("city"), item.get("province"), item.get("country")] if value
-    ) or "اسپانیا"
+    return render_location_text(item)
 
 
 def shorten_words(text, max_words=36):
-    words = (text or "-").split()
-    if len(words) <= max_words:
-        return " ".join(words)
-    return " ".join(words[:max_words]).rstrip("،.") + "..."
+    return render_shorten_words(text, max_words)
 
 
 def category_emoji(item):
-    radar_type = item.get("type") or "alert"
-    return RADAR_TYPES.get(radar_type, {}).get("emoji", "📡")
-
-
-def clean_channel_title(title):
-    text = (title or "-").strip()
-    for data in RADAR_TYPES.values():
-        emoji = data.get("emoji")
-        if emoji and text.startswith(emoji):
-            return text[len(emoji):].strip()
-    for emoji in ("🚨", "💶", "🎉", "💼", "🏛", "✈️", "👨‍👩‍👧", "🌦", "🚇", "💰", "📚", "🔥"):
-        if text.startswith(emoji):
-            return text[len(emoji):].strip()
-    return text
+    return type_emoji(item)
 
 
 def clean_text(value):
-    if value is None:
-        return ""
-    return str(value).strip()
+    return render_clean_text(value)
 
 
 def radar_summary_text(item):
-    summary = clean_text(item.get("summary"))
-    if summary:
-        return summary
-    ai_summary = clean_text(item.get("ai_summary"))
-    if ai_summary:
-        return ai_summary
-    body = clean_text(item.get("body") or item.get("original_text"))
-    if body:
-        return shorten_words(body, 24)
-    return "-"
+    return render_summary_text(item)
 
 
 def radar_reason_text(item):
-    return clean_text(item.get("ai_reason") or item.get("reason") or item.get("summary") or item.get("ai_summary")) or "-"
+    return render_reason_text(item)
 
 
 def format_radar_public_body(item):
-    emoji = category_emoji(item)
-    sections = [
-        "📡 رادار اسپانیا",
-        "",
-        f"{emoji} {clean_channel_title(item.get('title'))}",
-        "",
-        "📝 خلاصه:",
-        radar_summary_text(item),
-        "",
-        "💡 چرا مهم است؟",
-        radar_reason_text(item),
-        "",
-        "📍 محدوده:",
-        location_text(item),
-    ]
-    return "\n".join(sections)
+    return render_channel_post(item)
 
 
 def format_radar_channel_post(item):
-    return format_radar_public_body(item)
+    return render_channel_post(item)
 
 
 def format_radar_bot_overview(item):
-    lines = [
-        format_radar_public_body(item),
-        "",
-        "⏳ اعتبار:",
-        f"{format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}",
-        "",
-        "🎯 مناسب برای:",
-        audience_text(item),
-    ]
-    return "\n".join(lines)
+    return render_ready_preview(item)
 
 
 def format_radar_details(item):
-    body = clean_text(item.get("body") or item.get("original_text")) or "-"
-    return "\n".join(["📄 جزئیات کامل", "", body])
+    return render_details_page(item)
 
 
 def format_radar_admin_preview(item):
-    categories = item.get("admin_categories") or item.get("categories") or "-"
-    audience = item.get("admin_audience") or audience_text(item)
-    urgency = item.get("admin_urgency") or item.get("urgency") or "-"
-    validity = item.get("admin_validity") or (
-        f"{format_date(item.get('start_date'))} تا {format_date(item.get('end_date') or item.get('expires_at'))}"
-    )
-    status = item.get("admin_status") or item.get("content_status") or item.get("channel_status") or "-"
-    return "\n".join(
-        [
-            format_radar_channel_post(item),
-            "",
-            "اطلاعات ادمین:",
-            f"- دسته‌ها: {categories}",
-            f"- مخاطب: {audience}",
-            f"- فوریت: {urgency}",
-            f"- اعتبار: {validity}",
-            f"- وضعیت: {status}",
-        ]
-    )
+    return render_admin_preview(item)
 
 
 def radar_item_text(item):
@@ -353,15 +272,7 @@ def radar_item_text(item):
 
 
 def renderer_field_log(item):
-    return {
-        "id": item.get("id"),
-        "has_summary": bool(clean_text(item.get("summary"))),
-        "has_ai_summary": bool(clean_text(item.get("ai_summary"))),
-        "has_ai_reason": bool(clean_text(item.get("ai_reason"))),
-        "has_reason": bool(clean_text(item.get("reason"))),
-        "has_body": bool(clean_text(item.get("body"))),
-        "has_source_url": bool(clean_text(item.get("source_url"))),
-    }
+    return field_log(item)
 
 
 def demo_item(radar_type):

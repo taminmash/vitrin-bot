@@ -78,27 +78,23 @@ from handlers.radar import (
 
 
 def sample_item():
-    today = datetime(2026, 7, 11)
+    today = datetime(2026, 7, 13)
     return {
         "id": 999,
         "title": "عنوان تست",
         "summary": "این خلاصه باید مستقیم زیر عنوان دیده شود.",
         "ai_reason": "این بخش توضیح می‌دهد چرا خبر مهم است.",
-        "body": "این متن فقط بعد از زدن دکمه مشاهده جزئیات نمایش داده شود.",
+        "body": "این متن کامل فقط در صفحه جزئیات و پیش‌نمایش ادمین نمایش داده می‌شود.",
         "type": "alert",
         "city": "کل اسپانیا",
-        "province": "",
+        "province": "Spain",
         "country": "Spain",
         "start_date": today,
         "end_date": today + timedelta(days=7),
         "source_url": "https://example.com",
         "source_name": "Example",
         "urgency": "high",
-        "audience_tags": ["همه"],
-        "admin_categories": "فوری",
-        "admin_audience": "همه",
-        "admin_urgency": "بالا",
-        "admin_validity": "2026-07-11 تا 2026-07-18",
+        "audience_tags": ["all"],
         "admin_status": "ready",
     }
 
@@ -119,28 +115,30 @@ def main():
     admin = format_radar_admin_preview(item)
 
     expected_order = [
-        "عنوان تست",
-        "📝 خلاصه:",
-        "این خلاصه باید مستقیم زیر عنوان دیده شود.",
+        "🛰️ رادار اسپانیا",
+        "🔥 عنوان تست",
+        "━━━━━━━━━━━━━━━━━━",
+        "📝 خلاصه",
+        item["summary"],
         "💡 چرا مهم است؟",
-        "این بخش توضیح می‌دهد چرا خبر مهم است.",
-        "📍 محدوده:",
-        "کل اسپانیا",
+        item["ai_reason"],
     ]
-    assert_contains_in_order(channel, expected_order)
-    assert_contains_in_order(overview, expected_order)
-    assert_contains_in_order(admin, expected_order)
+    for text in (channel, overview, details, admin):
+        assert_contains_in_order(text, expected_order)
 
-    forbidden_public = ["https://example.com", "Example", item["body"]]
-    for forbidden in forbidden_public:
-        assert forbidden not in channel
-        assert forbidden not in overview
-        assert forbidden not in admin.split("اطلاعات ادمین:", 1)[0]
+    assert "📍 محدوده: کل اسپانیا" in details
+    assert "Spain / کل اسپانیا / Spain" not in details
+    assert "⚡ فوریت: مهم" in details
+    assert "وضعیت: آماده انتشار" in admin
+
+    assert item["body"] not in channel
+    assert item["source_url"] not in channel
+    assert item["source_name"] in channel
 
     assert item["body"] in details
-    assert item["summary"] not in details
-    assert item["ai_reason"] not in details
-    assert "https://example.com" not in details
+    assert item["source_url"] in details
+    assert item["body"] in admin
+    assert item["source_url"] in admin
 
     print("Radar renderer checks passed")
 
