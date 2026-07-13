@@ -38,7 +38,7 @@ class ClassifierTests(unittest.TestCase):
     def test_malformed_json_is_rejected(self):
         client = OpenAIClient(api_key="key", model="model", max_retries=0)
         response = {"choices": [{"message": {"content": "not-json"}}]}
-        with patch("radar_engine.ai.client.urlopen", return_value=FakeResponse(response)):
+        with patch("radar_engine.ai.providers.openai.urlopen", return_value=FakeResponse(response)):
             with self.assertRaises(ValueError):
                 RadarAIClassifier(client).classify(make_classification_source())
 
@@ -88,14 +88,14 @@ class ClassifierTests(unittest.TestCase):
                 raise item
             return item
 
-        with patch("radar_engine.ai.client.urlopen", side_effect=fake_urlopen), patch("radar_engine.ai.client.time.sleep"):
+        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=fake_urlopen), patch("radar_engine.ai.providers.base.time.sleep"):
             result = RadarAIClassifier(client).classify(make_classification_source())
         self.assertEqual(result.primary_category, "legal")
 
     def test_non_retryable_malformed_response_is_not_retried(self):
         client = OpenAIClient(api_key="key", model="model", max_retries=2, backoff_seconds=0)
         response = {"choices": [{"message": {"content": ""}}]}
-        with patch("radar_engine.ai.client.urlopen", return_value=FakeResponse(response)) as urlopen_mock:
+        with patch("radar_engine.ai.providers.openai.urlopen", return_value=FakeResponse(response)) as urlopen_mock:
             with self.assertRaises(ValueError):
                 RadarAIClassifier(client).classify(make_classification_source())
         self.assertEqual(urlopen_mock.call_count, 1)

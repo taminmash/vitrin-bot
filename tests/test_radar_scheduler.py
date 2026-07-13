@@ -12,6 +12,8 @@ from radar_engine.scheduler import (
     PostgresAdvisoryLock,
     RadarBOEIngestionScheduler,
     advisory_lock_key,
+    ai_batch_limit_from_env,
+    ai_request_delay_seconds_from_env,
     auto_ingestion_enabled,
     fetch_interval_minutes_from_env,
     start_radar_scheduler,
@@ -58,6 +60,18 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(auto_ingestion_enabled("yes"))
         for value in ("0", "false", "no", "off", " FALSE "):
             self.assertFalse(auto_ingestion_enabled(value))
+
+    def test_ai_batch_and_delay_env_are_bounded(self):
+        self.assertEqual(ai_batch_limit_from_env(None), 10)
+        self.assertEqual(ai_batch_limit_from_env("0"), 1)
+        self.assertEqual(ai_batch_limit_from_env("25"), 25)
+        self.assertEqual(ai_batch_limit_from_env("999"), 50)
+        self.assertEqual(ai_batch_limit_from_env("bad"), 10)
+        self.assertEqual(ai_request_delay_seconds_from_env(None), 1.0)
+        self.assertEqual(ai_request_delay_seconds_from_env("-1"), 0.0)
+        self.assertEqual(ai_request_delay_seconds_from_env("2.5"), 2.5)
+        self.assertEqual(ai_request_delay_seconds_from_env("99"), 30.0)
+        self.assertEqual(ai_request_delay_seconds_from_env("bad"), 1.0)
 
     def test_advisory_lock_uses_stable_dedicated_key(self):
         self.assertEqual(advisory_lock_key(), advisory_lock_key(ADVISORY_LOCK_NAME))

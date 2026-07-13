@@ -23,9 +23,13 @@ def print_report(report) -> None:
 
 def run(limit: int, candidate_id: str | None, dry_run: bool) -> int:
     from database.db import init_db
+    from radar_engine.ai.client import provider_info
     from radar_engine.classification.engine import RadarClassificationEngine
 
     init_db()
+    info = provider_info()
+    print(f"AI provider: {info.provider}")
+    print(f"AI model: {info.model}")
     report = RadarClassificationEngine().run(
         limit=limit,
         candidate_id=candidate_id,

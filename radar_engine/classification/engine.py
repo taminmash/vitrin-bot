@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+import time
 
 from radar_engine.classification.classifier import RadarAIClassifier
 
@@ -25,6 +26,7 @@ class RadarClassificationEngine:
         classifier: RadarAIClassifier | None = None,
         load_candidates=None,
         store_result=None,
+        request_delay_seconds: float = 0.0,
     ):
         from radar_engine.classification.storage import (
             load_pending_classification_candidates,
@@ -34,6 +36,7 @@ class RadarClassificationEngine:
         self.classifier = classifier or RadarAIClassifier()
         self.load_candidates = load_candidates or load_pending_classification_candidates
         self.store_result = store_result or store_classification_result
+        self.request_delay_seconds = max(0.0, float(request_delay_seconds))
 
     def run(
         self,
@@ -44,7 +47,7 @@ class RadarClassificationEngine:
         safe_limit = max(1, min(int(limit), 200))
         sources = self.load_candidates(limit=safe_limit, candidate_id=candidate_id)
         report = ClassificationReport(loaded=len(sources))
-        for source in sources:
+        for index, source in enumerate(sources):
             try:
                 result = self.classifier.classify(source)
                 report.processed += 1
@@ -60,4 +63,6 @@ class RadarClassificationEngine:
                 )
                 report.failed += 1
                 report.errors.append(f"{getattr(source, 'candidate_id', '-')}: {error}")
+            if self.request_delay_seconds and index < len(sources) - 1:
+                time.sleep(self.request_delay_seconds)
         return report

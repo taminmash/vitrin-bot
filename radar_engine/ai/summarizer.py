@@ -2,19 +2,35 @@ from __future__ import annotations
 
 import time
 
-from radar_engine.ai.client import OpenAIClient
+from radar_engine.ai.client import AIClient
 from radar_engine.ai.models import AITaskResult
 from radar_engine.ai.prompts import PROMPT_VERSION, build_summary_prompt
 from radar_engine.pipeline.candidate import RadarCandidate
 
 
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "short_summary": {"type": "string"},
+        "why_it_matters": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["headline", "short_summary", "why_it_matters", "confidence"],
+}
+
+
 class RadarAISummarizer:
-    def __init__(self, client: OpenAIClient | None = None):
-        self.client = client or OpenAIClient()
+    def __init__(self, client: AIClient | None = None):
+        self.client = client or AIClient()
 
     def summarize(self, candidate: RadarCandidate) -> AITaskResult:
         started = time.perf_counter()
-        payload = self.client.complete_json(build_summary_prompt(candidate))
+        messages = build_summary_prompt(candidate)
+        try:
+            payload = self.client.complete_json(messages, schema=SUMMARY_SCHEMA)
+        except TypeError:
+            payload = self.client.complete_json(messages)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return AITaskResult(
             headline=payload.get("headline"),

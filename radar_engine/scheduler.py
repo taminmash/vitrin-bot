@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FETCH_INTERVAL_MINUTES = 15
 MIN_FETCH_INTERVAL_MINUTES = 1
+DEFAULT_AI_BATCH_LIMIT = 10
+MIN_AI_BATCH_LIMIT = 1
+MAX_AI_BATCH_LIMIT = 50
+DEFAULT_AI_REQUEST_DELAY_SECONDS = 1.0
+MIN_AI_REQUEST_DELAY_SECONDS = 0.0
+MAX_AI_REQUEST_DELAY_SECONDS = 30.0
 ADVISORY_LOCK_NAME = "radar_scheduler:boe"
 FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
@@ -112,6 +118,34 @@ def auto_ingestion_enabled(value: str | None = None) -> bool:
     return str(raw).strip().casefold() not in FALSE_ENV_VALUES
 
 
+def ai_batch_limit_from_env(value: str | None = None) -> int:
+    raw = os.getenv("RADAR_AI_BATCH_LIMIT") if value is None else value
+    if raw is None or str(raw).strip() == "":
+        return DEFAULT_AI_BATCH_LIMIT
+    try:
+        parsed = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning("Invalid RADAR_AI_BATCH_LIMIT=%r; using default %s", raw, DEFAULT_AI_BATCH_LIMIT)
+        return DEFAULT_AI_BATCH_LIMIT
+    return min(MAX_AI_BATCH_LIMIT, max(MIN_AI_BATCH_LIMIT, parsed))
+
+
+def ai_request_delay_seconds_from_env(value: str | None = None) -> float:
+    raw = os.getenv("RADAR_AI_REQUEST_DELAY_SECONDS") if value is None else value
+    if raw is None or str(raw).strip() == "":
+        return DEFAULT_AI_REQUEST_DELAY_SECONDS
+    try:
+        parsed = float(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid RADAR_AI_REQUEST_DELAY_SECONDS=%r; using default %s",
+            raw,
+            DEFAULT_AI_REQUEST_DELAY_SECONDS,
+        )
+        return DEFAULT_AI_REQUEST_DELAY_SECONDS
+    return min(MAX_AI_REQUEST_DELAY_SECONDS, max(MIN_AI_REQUEST_DELAY_SECONDS, parsed))
+
+
 def _default_ingest_stage(source_key: str):
     async def ingest():
         manager = build_default_source_manager()
@@ -127,16 +161,19 @@ def _default_pipeline_stage(limit: int):
     return run_pipeline
 
 
-def _default_ai_stage(limit: int):
+def _default_ai_stage(limit: int, request_delay_seconds: float = 0.0):
     async def run_ai():
-        return await asyncio.to_thread(RadarAIEngine().run, limit=limit)
+        return await asyncio.to_thread(RadarAIEngine(request_delay_seconds=request_delay_seconds).run, limit=limit)
 
     return run_ai
 
 
-def _default_classification_stage(limit: int):
+def _default_classification_stage(limit: int, request_delay_seconds: float = 0.0):
     async def run_classification():
-        return await asyncio.to_thread(RadarClassificationEngine().run, limit=limit)
+        return await asyncio.to_thread(
+            RadarClassificationEngine(request_delay_seconds=request_delay_seconds).run,
+            limit=limit,
+        )
 
     return run_classification
 
@@ -148,6 +185,8 @@ class RadarBOEIngestionScheduler:
         interval_minutes: int | None = None,
         source_key: str = "boe",
         stage_limit: int = 50,
+        ai_batch_limit: int | None = None,
+        ai_request_delay_seconds: float | None = None,
         ingest_stage: AsyncStage | None = None,
         pipeline_stage: AsyncStage | None = None,
         ai_stage: AsyncStage | None = None,
@@ -159,10 +198,24 @@ class RadarBOEIngestionScheduler:
         self.interval_seconds = max(1, int(self.interval_minutes * 60))
         self.source_key = source_key
         self.stage_limit = max(1, min(int(stage_limit), 200))
+        self.ai_batch_limit = ai_batch_limit if ai_batch_limit is not None else ai_batch_limit_from_env()
+        self.ai_batch_limit = min(MAX_AI_BATCH_LIMIT, max(MIN_AI_BATCH_LIMIT, int(self.ai_batch_limit)))
+        self.ai_request_delay_seconds = (
+            ai_request_delay_seconds
+            if ai_request_delay_seconds is not None
+            else ai_request_delay_seconds_from_env()
+        )
+        self.ai_request_delay_seconds = min(
+            MAX_AI_REQUEST_DELAY_SECONDS,
+            max(MIN_AI_REQUEST_DELAY_SECONDS, float(self.ai_request_delay_seconds)),
+        )
         self.ingest_stage = ingest_stage or _default_ingest_stage(source_key)
         self.pipeline_stage = pipeline_stage or _default_pipeline_stage(self.stage_limit)
-        self.ai_stage = ai_stage or _default_ai_stage(self.stage_limit)
-        self.classification_stage = classification_stage or _default_classification_stage(self.stage_limit)
+        self.ai_stage = ai_stage or _default_ai_stage(self.ai_batch_limit, self.ai_request_delay_seconds)
+        self.classification_stage = classification_stage or _default_classification_stage(
+            self.ai_batch_limit,
+            self.ai_request_delay_seconds,
+        )
         self.lock_factory = lock_factory or (lambda: PostgresAdvisoryLock(ADVISORY_LOCK_NAME))
         self.sleep_func = sleep_func
         self._running = False
