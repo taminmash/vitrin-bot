@@ -1,66 +1,62 @@
 from __future__ import annotations
 
-import json
 import os
-import time
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+
+from radar_engine.ai.providers import (
+    AIConfigurationError,
+    GeminiProvider,
+    JSONAIProvider,
+    OpenAIProvider,
+    ProviderInfo,
+)
 
 
-OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_AI_PROVIDER = "gemini"
+ALLOWED_AI_PROVIDERS = {"gemini", "openai"}
 
 
-class OpenAIClient:
-    def __init__(
-        self,
-        api_key: str | None = None,
-        model: str | None = None,
-        timeout_seconds: int = 30,
-        max_retries: int = 2,
-        backoff_seconds: float = 0.5,
-    ):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        self.timeout_seconds = timeout_seconds
-        self.max_retries = max_retries
-        self.backoff_seconds = backoff_seconds
+def selected_ai_provider(value: str | None = None) -> str:
+    raw = os.getenv("AI_PROVIDER") if value is None else value
+    provider = (raw or DEFAULT_AI_PROVIDER).strip().casefold()
+    if provider not in ALLOWED_AI_PROVIDERS:
+        raise AIConfigurationError(
+            f"Invalid AI_PROVIDER={raw!r}; expected one of: {', '.join(sorted(ALLOWED_AI_PROVIDERS))}"
+        )
+    return provider
 
-    def complete_json(self, messages: list[dict[str, str]]) -> dict:
-        if not self.api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured")
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-        }
-        body = json.dumps(payload).encode("utf-8")
-        last_error = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                request = Request(
-                    OPENAI_CHAT_COMPLETIONS_URL,
-                    data=body,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    method="POST",
-                )
-                with urlopen(request, timeout=self.timeout_seconds) as response:
-                    response_payload = json.loads(response.read().decode("utf-8"))
-                content = response_payload["choices"][0]["message"]["content"]
-                if not content:
-                    raise ValueError("OpenAI response content is empty")
-                parsed = json.loads(content)
-                if not isinstance(parsed, dict):
-                    raise ValueError("OpenAI response JSON must be an object")
-                return parsed
-            except (OSError, URLError, TimeoutError) as error:
-                last_error = error
-                if attempt >= self.max_retries:
-                    break
-                time.sleep(self.backoff_seconds * (2**attempt))
-            except (KeyError, IndexError, json.JSONDecodeError, ValueError):
-                raise
-        raise RuntimeError(f"OpenAI request failed after retries: {last_error}")
+
+def build_ai_provider(provider_name: str | None = None) -> JSONAIProvider:
+    provider = selected_ai_provider(provider_name)
+    if provider == "gemini":
+        return GeminiProvider()
+    if provider == "openai":
+        return OpenAIProvider()
+    raise AIConfigurationError(f"Unsupported AI provider: {provider}")
+
+
+def provider_info(provider_name: str | None = None) -> ProviderInfo:
+    provider = build_ai_provider(provider_name)
+    api_key = getattr(provider, "api_key", None)
+    return ProviderInfo(provider=getattr(provider, "provider_name", ""), model=provider.model, configured=bool(api_key))
+
+
+class OpenAIClient(OpenAIProvider):
+    """Backward-compatible alias for tests and explicit OpenAI use."""
+
+
+class AIClient:
+    """Default provider facade used by summarization and classification."""
+
+    def __init__(self, provider: JSONAIProvider | None = None):
+        self.provider = provider or build_ai_provider()
+
+    @property
+    def model(self) -> str:
+        return self.provider.model
+
+    @property
+    def provider_name(self) -> str:
+        return getattr(self.provider, "provider_name", selected_ai_provider())
+
+    def complete_json(self, messages: list[dict[str, str]], schema: dict | None = None) -> dict:
+        return self.provider.complete_json(messages, schema=schema)

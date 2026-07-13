@@ -5,7 +5,9 @@ import unittest
 from contextlib import contextmanager
 from unittest.mock import patch
 
-from radar_engine.ai.client import OpenAIClient
+from radar_engine.ai.client import AIClient, OpenAIClient, provider_info, selected_ai_provider
+from radar_engine.ai.providers import AIConfigurationError
+from radar_engine.ai.providers.gemini import DEFAULT_GEMINI_MODEL, GeminiProvider
 from radar_engine.ai.engine import RadarAIEngine
 from radar_engine.ai.models import AITaskResult, StoredAICandidate
 from radar_engine.ai.summarizer import RadarAISummarizer
@@ -28,21 +30,34 @@ class FakeResponse:
 
 
 class AIClientTests(unittest.TestCase):
+    def test_provider_selection_defaults_to_gemini_and_rejects_invalid(self):
+        self.assertEqual(selected_ai_provider(None), "gemini")
+        self.assertEqual(selected_ai_provider("openai"), "openai")
+        with self.assertRaises(AIConfigurationError):
+            selected_ai_provider("anthropic")
+
+    def test_provider_info_uses_selected_provider_without_exposing_key(self):
+        with patch.dict("os.environ", {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "secret"}, clear=False):
+            info = provider_info()
+        self.assertEqual(info.provider, "gemini")
+        self.assertEqual(info.model, DEFAULT_GEMINI_MODEL)
+        self.assertTrue(info.configured)
+
     def test_successful_structured_response(self):
         payload = {"choices": [{"message": {"content": json.dumps({"headline": "h", "short_summary": "s", "why_it_matters": "w", "confidence": 0.8})}}]}
         client = OpenAIClient(api_key="key", model="model", max_retries=0)
-        with patch("radar_engine.ai.client.urlopen", return_value=FakeResponse(payload)):
+        with patch("radar_engine.ai.providers.openai.urlopen", return_value=FakeResponse(payload)):
             result = client.complete_json([{"role": "user", "content": "x"}])
         self.assertEqual(result["headline"], "h")
 
     def test_invalid_json_and_empty_response_are_rejected(self):
         client = OpenAIClient(api_key="key", model="model", max_retries=0)
         invalid = {"choices": [{"message": {"content": "not-json"}}]}
-        with patch("radar_engine.ai.client.urlopen", return_value=FakeResponse(invalid)):
+        with patch("radar_engine.ai.providers.openai.urlopen", return_value=FakeResponse(invalid)):
             with self.assertRaises(ValueError):
                 client.complete_json([{"role": "user", "content": "x"}])
         empty = {"choices": [{"message": {"content": ""}}]}
-        with patch("radar_engine.ai.client.urlopen", return_value=FakeResponse(empty)):
+        with patch("radar_engine.ai.providers.openai.urlopen", return_value=FakeResponse(empty)):
             with self.assertRaises(ValueError):
                 client.complete_json([{"role": "user", "content": "x"}])
 
@@ -57,15 +72,35 @@ class AIClientTests(unittest.TestCase):
                 raise item
             return item
 
-        with patch("radar_engine.ai.client.urlopen", side_effect=fake_urlopen), patch("radar_engine.ai.client.time.sleep"):
+        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=fake_urlopen), patch("radar_engine.ai.providers.base.time.sleep"):
             result = client.complete_json([{"role": "user", "content": "x"}])
         self.assertEqual(result["headline"], "h")
 
     def test_timeout_failure_after_retries(self):
         client = OpenAIClient(api_key="key", model="model", max_retries=1, backoff_seconds=0)
-        with patch("radar_engine.ai.client.urlopen", side_effect=TimeoutError("timeout")), patch("radar_engine.ai.client.time.sleep"):
+        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=TimeoutError("timeout")), patch("radar_engine.ai.providers.base.time.sleep"):
             with self.assertRaises(RuntimeError):
                 client.complete_json([{"role": "user", "content": "x"}])
+
+    def test_gemini_structured_response_and_json_fence(self):
+        response = {"output_text": "```json\n{\"headline\":\"تیتر\",\"short_summary\":\"خلاصه\",\"why_it_matters\":\"دلیل\",\"confidence\":0.9}\n```"}
+        client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
+        with patch("radar_engine.ai.providers.gemini.urlopen", return_value=FakeResponse(response)):
+            result = client.complete_json([{"role": "user", "content": "x"}], schema={"type": "object"})
+        self.assertEqual(result["headline"], "تیتر")
+
+    def test_default_ai_client_uses_configured_provider(self):
+        class Provider:
+            model = "m"
+            provider_name = "test"
+
+            def complete_json(self, messages, schema=None):
+                return {"ok": True}
+
+        client = AIClient(Provider())
+        self.assertEqual(client.model, "m")
+        self.assertEqual(client.provider_name, "test")
+        self.assertEqual(client.complete_json([], schema={"type": "object"}), {"ok": True})
 
 
 class AISummarizerTests(unittest.TestCase):

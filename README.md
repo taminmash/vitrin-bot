@@ -23,6 +23,16 @@ Set these in Railway or your local shell:
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
 - `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled. Use `0`,
   `false`, `no`, or `off` to disable automatic Radar ingestion.
+- `AI_PROVIDER` optional; `gemini` by default. Allowed values: `gemini`,
+  `openai`.
+- `GEMINI_API_KEY` required when `AI_PROVIDER=gemini`.
+- `GEMINI_MODEL` optional; defaults to `gemini-3.5-flash`.
+- `OPENAI_API_KEY` required only when `AI_PROVIDER=openai`.
+- `OPENAI_MODEL` optional; defaults to `gpt-4o-mini`.
+- `RADAR_AI_BATCH_LIMIT` optional for automatic ingestion; defaults to `10`
+  and is clamped to `1` through `50`.
+- `RADAR_AI_REQUEST_DELAY_SECONDS` optional for automatic ingestion; defaults
+  to `1` and is clamped to `0` through `30`.
 
 The bot checks membership through the public channel usernames configured in
 `config_v2.py`: `@vitrinspain` and `@hayatkhalvatspain`.
@@ -261,10 +271,15 @@ Raw processing statuses used by the pipeline:
 
 The AI summarization stage is the first optional AI layer after candidate
 creation. It reads validated `radar_candidates` with `candidate_status =
-pending_ai`, calls OpenAI for a structured JSON response, stores the result in
-`radar_ai_results`, and leaves candidate status unchanged. A successful row in
+pending_ai`, calls the configured AI provider for a structured JSON response,
+stores the result in `radar_ai_results`, and leaves candidate status unchanged.
+A successful row in
 `radar_ai_results` is the completion marker; the unique `candidate_id`
 constraint prevents duplicate AI results.
+
+Gemini is the default provider because it supports API-key authentication and
+structured JSON output. Set `AI_PROVIDER=openai` to use the OpenAI-compatible
+provider explicitly; there is no silent fallback between providers.
 
 Manual one-off processing:
 
@@ -273,14 +288,18 @@ python scripts/run_radar_ai.py
 python scripts/run_radar_ai.py --limit 25
 python scripts/run_radar_ai.py --candidate-id <candidate_uuid>
 python scripts/run_radar_ai.py --dry-run
+python scripts/run_radar_ai.py --check-provider
 ```
 
 Required environment variable for actual processing:
 
-- `OPENAI_API_KEY`
+- `GEMINI_API_KEY` when `AI_PROVIDER=gemini`
+- `OPENAI_API_KEY` when `AI_PROVIDER=openai`
 
 Optional:
 
+- `AI_PROVIDER` defaults to `gemini`
+- `GEMINI_MODEL` defaults to `gemini-3.5-flash`
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 
 The prompt version is `radar-summary-v1`. The AI output is limited to:
@@ -447,15 +466,18 @@ python scripts/run_radar_classification.py --dry-run
 
 Required environment variable for actual processing:
 
-- `OPENAI_API_KEY`
+- `GEMINI_API_KEY` when `AI_PROVIDER=gemini`
+- `OPENAI_API_KEY` when `AI_PROVIDER=openai`
 
 Optional:
 
+- `AI_PROVIDER` defaults to `gemini`
+- `GEMINI_MODEL` defaults to `gemini-3.5-flash`
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 
 ## Validation
 
 ```bash
-python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py scripts/run_radar_publication.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/scheduler.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py radar_engine/publication/models.py radar_engine/publication/storage.py radar_engine/publication/publisher.py radar_engine/publication/engine.py
+python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py scripts/run_radar_publication.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/scheduler.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/ai/providers/__init__.py radar_engine/ai/providers/base.py radar_engine/ai/providers/gemini.py radar_engine/ai/providers/openai.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py radar_engine/publication/models.py radar_engine/publication/storage.py radar_engine/publication/publisher.py radar_engine/publication/engine.py
 python -m unittest discover -s tests -v
 ```
