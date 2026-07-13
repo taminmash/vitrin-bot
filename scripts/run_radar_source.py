@@ -24,12 +24,12 @@ def print_report(report) -> None:
             print(f"- {error}")
 
 
-async def run(source_key: str) -> int:
+async def run(source_key: str, lookback_days: int | None = None) -> int:
     from database.db import init_db
     from radar_engine.source_manager import build_default_source_manager
 
     init_db()
-    manager = build_default_source_manager()
+    manager = build_default_source_manager(boe_days_back=lookback_days if source_key == "boe" else None)
     report = await manager.ingest_source(source_key)
     print_report(report)
     if report.fetched_count == 0 and report.failed_count:
@@ -42,9 +42,15 @@ async def run(source_key: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a manual Radar source ingestion.")
     parser.add_argument("source_key", help="Source key to ingest, for example: boe")
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=None,
+        help="Override BOE lookback window for diagnostics. Safe range is clamped by the source.",
+    )
     args = parser.parse_args()
     try:
-        return asyncio.run(run(args.source_key))
+        return asyncio.run(run(args.source_key, args.lookback_days))
     except KeyError as error:
         print(str(error))
         return 1

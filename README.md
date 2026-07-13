@@ -157,8 +157,15 @@ The first experimental connector is `boe`, which reads BOE's official daily
 summary XML endpoint:
 
 ```text
-https://www.boe.es/diario_boe/xml.php?id=BOE-S-YYYYMMDD
+https://www.boe.es/boe/dias/YYYY/MM/DD/sumario.xml
 ```
+
+The connector selects dates using `Europe/Madrid` and looks backward through a
+bounded window. Configure the window with `BOE_LOOKBACK_DAYS`; it defaults to
+`7` and is clamped to the safe range `1` through `30`. Ordinary dates with no
+BOE edition, such as some weekends or holidays, are treated as non-fatal and
+the connector checks the next older date. Network errors, rate limits, server
+errors, malformed XML, or HTML error pages are treated as source failures.
 
 Raw records are stored in the additive `radar_raw_items` table. The table keeps
 the source key, official URL, original Spanish title/text, publication dates,
@@ -194,6 +201,7 @@ Manual one-off ingestion:
 
 ```bash
 python scripts/run_radar_source.py boe
+python scripts/run_radar_source.py boe --lookback-days 7
 ```
 
 Required environment variable:
@@ -202,6 +210,7 @@ Required environment variable:
 - `OPENAI_API_KEY` for AI summary/classification during automatic processing
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
 - `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled
+- `BOE_LOOKBACK_DAYS` optional; defaults to `7`, clamped between `1` and `30`
 
 Known limitations:
 
