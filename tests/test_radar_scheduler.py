@@ -62,16 +62,18 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(auto_ingestion_enabled(value))
 
     def test_ai_batch_and_delay_env_are_bounded(self):
-        self.assertEqual(ai_batch_limit_from_env(None), 10)
+        self.assertEqual(ai_batch_limit_from_env(None, provider="gemini"), 1)
+        self.assertEqual(ai_batch_limit_from_env(None, provider="openai"), 10)
         self.assertEqual(ai_batch_limit_from_env("0"), 1)
-        self.assertEqual(ai_batch_limit_from_env("25"), 25)
-        self.assertEqual(ai_batch_limit_from_env("999"), 50)
-        self.assertEqual(ai_batch_limit_from_env("bad"), 10)
-        self.assertEqual(ai_request_delay_seconds_from_env(None), 1.0)
+        self.assertEqual(ai_batch_limit_from_env("25"), 10)
+        self.assertEqual(ai_batch_limit_from_env("999"), 10)
+        self.assertEqual(ai_batch_limit_from_env("bad", provider="gemini"), 1)
+        self.assertEqual(ai_request_delay_seconds_from_env(None, provider="gemini"), 15.0)
+        self.assertEqual(ai_request_delay_seconds_from_env(None, provider="openai"), 1.0)
         self.assertEqual(ai_request_delay_seconds_from_env("-1"), 0.0)
         self.assertEqual(ai_request_delay_seconds_from_env("2.5"), 2.5)
-        self.assertEqual(ai_request_delay_seconds_from_env("99"), 30.0)
-        self.assertEqual(ai_request_delay_seconds_from_env("bad"), 1.0)
+        self.assertEqual(ai_request_delay_seconds_from_env("99"), 60.0)
+        self.assertEqual(ai_request_delay_seconds_from_env("bad", provider="gemini"), 15.0)
 
     def test_advisory_lock_uses_stable_dedicated_key(self):
         self.assertEqual(advisory_lock_key(), advisory_lock_key(ADVISORY_LOCK_NAME))
@@ -306,6 +308,25 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         )
         report = await scheduler.run_once()
         self.assertEqual(report.queued_for_review, 1)
+
+    async def test_ai_rate_limit_skips_classification_until_next_cycle(self):
+        calls = []
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=1, inserted_count=0)),
+            pipeline_stage=lambda: immediate_report(PipelineReport(created_count=0)),
+            ai_stage=lambda: immediate_report(
+                AIReport(loaded=2, processed=1, completed=0, remaining=2, rate_limited=1, stopped_early=True)
+            ),
+            classification_stage=lambda: calls.append("classification") or immediate_report(ClassificationReport(completed=1)),
+            lock_factory=lambda: FakeLock(True),
+        )
+        report = await scheduler.run_once()
+        self.assertEqual(calls, [])
+        self.assertEqual(report.ai_processed, 1)
+        self.assertEqual(report.ai_completed, 0)
+        self.assertEqual(report.ai_postponed, 2)
+        self.assertEqual(report.classification_completed, 0)
 
     async def test_run_forever_retries_after_failed_cycle(self):
         attempts = 0

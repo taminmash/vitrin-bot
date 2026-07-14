@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import logging
 import time
 
+from radar_engine.ai.providers import AIQuotaError
 from radar_engine.classification.classifier import RadarAIClassifier
 
 
@@ -17,6 +18,9 @@ class ClassificationReport:
     completed: int = 0
     failed: int = 0
     skipped: int = 0
+    remaining: int = 0
+    rate_limited: int = 0
+    stopped_early: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -49,13 +53,20 @@ class RadarClassificationEngine:
         report = ClassificationReport(loaded=len(sources))
         for index, source in enumerate(sources):
             try:
-                result = self.classifier.classify(source)
                 report.processed += 1
+                result = self.classifier.classify(source)
                 if dry_run:
                     report.skipped += 1
                     continue
                 self.store_result(result, source.ai_result_id)
                 report.completed += 1
+            except AIQuotaError as error:
+                logger.warning("Gemini rate limit reached. Remaining AI jobs postponed to next cycle.")
+                report.rate_limited += 1
+                report.stopped_early = True
+                report.remaining = len(sources) - index
+                report.errors.append(str(error))
+                break
             except Exception as error:
                 logger.exception(
                     "Radar classification failed for candidate %s",
@@ -65,4 +76,6 @@ class RadarClassificationEngine:
                 report.errors.append(f"{getattr(source, 'candidate_id', '-')}: {error}")
             if self.request_delay_seconds and index < len(sources) - 1:
                 time.sleep(self.request_delay_seconds)
+        if not report.stopped_early:
+            report.remaining = 0
         return report

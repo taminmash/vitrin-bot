@@ -20,6 +20,7 @@ class AIRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Run Radar AI summarization", result.stdout)
         self.assertIn("--check-provider", result.stdout)
+        self.assertIn("--provider-smoke-test", result.stdout)
 
     def test_check_provider_runs_without_database(self):
         env = os.environ.copy()
@@ -34,6 +35,8 @@ class AIRunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("AI provider: gemini", result.stdout)
+        self.assertIn("Automatic batch limit: 1", result.stdout)
+        self.assertIn("Request delay seconds: 15.0", result.stdout)
         self.assertIn("API key configured: yes", result.stdout)
         self.assertNotIn("test-key", result.stdout)
 

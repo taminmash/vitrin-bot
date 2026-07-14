@@ -1,5 +1,6 @@
 import unittest
 
+from radar_engine.ai.providers import AIQuotaError
 from radar_engine.classification.engine import RadarClassificationEngine
 from tests.test_classification_models import make_classification_result, make_classification_source
 
@@ -45,7 +46,7 @@ class ClassificationEngineTests(unittest.TestCase):
         )
         report = engine.run()
         self.assertEqual(report.loaded, 2)
-        self.assertEqual(report.processed, 1)
+        self.assertEqual(report.processed, 2)
         self.assertEqual(report.completed, 1)
         self.assertEqual(report.failed, 1)
         self.assertEqual(stored, ["good"])
@@ -97,6 +98,41 @@ class ClassificationEngineTests(unittest.TestCase):
         self.assertEqual(report.failed, 1)
         self.assertEqual(writes, [])
         self.assertEqual(source.candidate.candidate_status, "pending_ai")
+
+    def test_rate_limit_stops_batch_without_writes(self):
+        sources = [
+            make_classification_source(candidate_id="c1"),
+            make_classification_source(candidate_id="c2"),
+        ]
+
+        class Classifier:
+            calls = 0
+
+            def classify(self, item):
+                self.calls += 1
+                raise AIQuotaError("Gemini quota or rate limit exceeded")
+
+        classifier = Classifier()
+        stored = []
+        engine = RadarClassificationEngine(
+            classifier=classifier,
+            load_candidates=lambda limit, candidate_id=None: sources,
+            store_result=lambda result, ai_result_id=None: stored.append(result.candidate_id),
+        )
+        with self.assertLogs("radar_engine.classification.engine", level="WARNING") as logs:
+            report = engine.run()
+        self.assertEqual(classifier.calls, 1)
+        self.assertEqual(report.processed, 1)
+        self.assertEqual(report.completed, 0)
+        self.assertEqual(report.failed, 0)
+        self.assertEqual(report.rate_limited, 1)
+        self.assertEqual(report.remaining, 2)
+        self.assertTrue(report.stopped_early)
+        self.assertEqual(stored, [])
+        self.assertEqual(
+            "\n".join(logs.output).count("Gemini rate limit reached. Remaining AI jobs postponed to next cycle."),
+            1,
+        )
 
 
 if __name__ == "__main__":

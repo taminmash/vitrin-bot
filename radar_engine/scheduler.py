@@ -10,6 +10,8 @@ from time import monotonic
 from typing import Awaitable, Callable
 
 from radar_engine.ai.engine import AIReport, RadarAIEngine
+from radar_engine.ai.client import selected_ai_provider
+from radar_engine.ai.providers import AIConfigurationError
 from radar_engine.classification.engine import ClassificationReport, RadarClassificationEngine
 from radar_engine.pipeline.engine import PipelineReport, RadarCandidatePipeline
 from radar_engine.source_manager import IngestionReport, build_default_source_manager
@@ -20,11 +22,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_FETCH_INTERVAL_MINUTES = 15
 MIN_FETCH_INTERVAL_MINUTES = 1
 DEFAULT_AI_BATCH_LIMIT = 10
+DEFAULT_GEMINI_AI_BATCH_LIMIT = 1
 MIN_AI_BATCH_LIMIT = 1
-MAX_AI_BATCH_LIMIT = 50
+MAX_AI_BATCH_LIMIT = 10
 DEFAULT_AI_REQUEST_DELAY_SECONDS = 1.0
+DEFAULT_GEMINI_AI_REQUEST_DELAY_SECONDS = 15.0
 MIN_AI_REQUEST_DELAY_SECONDS = 0.0
-MAX_AI_REQUEST_DELAY_SECONDS = 30.0
+MAX_AI_REQUEST_DELAY_SECONDS = 60.0
 ADVISORY_LOCK_NAME = "radar_scheduler:boe"
 FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
@@ -37,7 +41,11 @@ class RadarFetchCycleReport:
     inserted_raw: int = 0
     candidate_created: int = 0
     ai_completed: int = 0
+    ai_processed: int = 0
+    ai_failed: int = 0
+    ai_postponed: int = 0
     classification_completed: int = 0
+    classification_postponed: int = 0
     queued_for_review: int = 0
     duration_seconds: float = 0.0
     skipped: bool = False
@@ -118,31 +126,49 @@ def auto_ingestion_enabled(value: str | None = None) -> bool:
     return str(raw).strip().casefold() not in FALSE_ENV_VALUES
 
 
-def ai_batch_limit_from_env(value: str | None = None) -> int:
+def _selected_provider_for_defaults() -> str:
+    try:
+        return selected_ai_provider()
+    except AIConfigurationError:
+        return "gemini"
+
+
+def _default_ai_batch_limit(provider: str | None = None) -> int:
+    provider = provider or _selected_provider_for_defaults()
+    return DEFAULT_GEMINI_AI_BATCH_LIMIT if provider == "gemini" else DEFAULT_AI_BATCH_LIMIT
+
+
+def _default_ai_request_delay_seconds(provider: str | None = None) -> float:
+    provider = provider or _selected_provider_for_defaults()
+    return DEFAULT_GEMINI_AI_REQUEST_DELAY_SECONDS if provider == "gemini" else DEFAULT_AI_REQUEST_DELAY_SECONDS
+
+
+def ai_batch_limit_from_env(value: str | None = None, provider: str | None = None) -> int:
     raw = os.getenv("RADAR_AI_BATCH_LIMIT") if value is None else value
     if raw is None or str(raw).strip() == "":
-        return DEFAULT_AI_BATCH_LIMIT
+        return _default_ai_batch_limit(provider)
     try:
         parsed = int(str(raw).strip())
     except (TypeError, ValueError):
-        logger.warning("Invalid RADAR_AI_BATCH_LIMIT=%r; using default %s", raw, DEFAULT_AI_BATCH_LIMIT)
-        return DEFAULT_AI_BATCH_LIMIT
+        default = _default_ai_batch_limit(provider)
+        logger.warning("Invalid RADAR_AI_BATCH_LIMIT=%r; using default %s", raw, default)
+        return default
     return min(MAX_AI_BATCH_LIMIT, max(MIN_AI_BATCH_LIMIT, parsed))
 
 
-def ai_request_delay_seconds_from_env(value: str | None = None) -> float:
+def ai_request_delay_seconds_from_env(value: str | None = None, provider: str | None = None) -> float:
     raw = os.getenv("RADAR_AI_REQUEST_DELAY_SECONDS") if value is None else value
     if raw is None or str(raw).strip() == "":
-        return DEFAULT_AI_REQUEST_DELAY_SECONDS
+        return _default_ai_request_delay_seconds(provider)
     try:
         parsed = float(str(raw).strip())
     except (TypeError, ValueError):
         logger.warning(
             "Invalid RADAR_AI_REQUEST_DELAY_SECONDS=%r; using default %s",
             raw,
-            DEFAULT_AI_REQUEST_DELAY_SECONDS,
+            _default_ai_request_delay_seconds(provider),
         )
-        return DEFAULT_AI_REQUEST_DELAY_SECONDS
+        return _default_ai_request_delay_seconds(provider)
     return min(MAX_AI_REQUEST_DELAY_SECONDS, max(MIN_AI_REQUEST_DELAY_SECONDS, parsed))
 
 
@@ -198,12 +224,13 @@ class RadarBOEIngestionScheduler:
         self.interval_seconds = max(1, int(self.interval_minutes * 60))
         self.source_key = source_key
         self.stage_limit = max(1, min(int(stage_limit), 200))
-        self.ai_batch_limit = ai_batch_limit if ai_batch_limit is not None else ai_batch_limit_from_env()
+        provider = _selected_provider_for_defaults()
+        self.ai_batch_limit = ai_batch_limit if ai_batch_limit is not None else ai_batch_limit_from_env(provider=provider)
         self.ai_batch_limit = min(MAX_AI_BATCH_LIMIT, max(MIN_AI_BATCH_LIMIT, int(self.ai_batch_limit)))
         self.ai_request_delay_seconds = (
             ai_request_delay_seconds
             if ai_request_delay_seconds is not None
-            else ai_request_delay_seconds_from_env()
+            else ai_request_delay_seconds_from_env(provider=provider)
         )
         self.ai_request_delay_seconds = min(
             MAX_AI_REQUEST_DELAY_SECONDS,
@@ -277,6 +304,8 @@ class RadarBOEIngestionScheduler:
 
                 ai = await self.ai_stage()
                 self._apply_ai(report, ai)
+                if isinstance(ai, AIReport) and ai.stopped_early:
+                    return report
 
                 classification = await self.classification_stage()
                 self._apply_classification(report, classification)
@@ -313,13 +342,17 @@ class RadarBOEIngestionScheduler:
     def _apply_ai(self, report: RadarFetchCycleReport, ai) -> None:
         if not isinstance(ai, AIReport):
             return
+        report.ai_processed = ai.processed
         report.ai_completed = ai.completed
+        report.ai_failed = ai.failed
+        report.ai_postponed = ai.remaining
         report.errors.extend(ai.errors)
 
     def _apply_classification(self, report: RadarFetchCycleReport, classification) -> None:
         if not isinstance(classification, ClassificationReport):
             return
         report.classification_completed = classification.completed
+        report.classification_postponed = classification.remaining
         report.errors.extend(classification.errors)
 
     def _log_report(self, report: RadarFetchCycleReport) -> None:
@@ -327,14 +360,21 @@ class RadarBOEIngestionScheduler:
             return
         logger.info(
             "Radar BOE cycle metrics: Fetched=%s Skipped duplicate=%s Inserted raw=%s "
-            "Candidate created=%s AI completed=%s Classification completed=%s "
+            "Candidate created=%s AI processed=%s AI completed=%s AI failed=%s "
+            "AI postponed=%s Classification completed=%s Classification postponed=%s "
+            "Remaining AI queue estimate=%s "
             "Queued for review=%s Cycle duration=%.2fs",
             report.fetched,
             report.skipped_duplicate,
             report.inserted_raw,
             report.candidate_created,
+            report.ai_processed,
             report.ai_completed,
+            report.ai_failed,
+            report.ai_postponed,
             report.classification_completed,
+            report.classification_postponed,
+            report.ai_postponed,
             report.queued_for_review,
             report.duration_seconds,
         )

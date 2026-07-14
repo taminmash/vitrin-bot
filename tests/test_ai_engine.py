@@ -1,12 +1,14 @@
+import io
 import json
 import sys
 import types
 import unittest
+from urllib.error import HTTPError
 from contextlib import contextmanager
 from unittest.mock import patch
 
 from radar_engine.ai.client import AIClient, OpenAIClient, provider_info, selected_ai_provider
-from radar_engine.ai.providers import AIConfigurationError
+from radar_engine.ai.providers import AIConfigurationError, AIQuotaError
 from radar_engine.ai.providers.gemini import DEFAULT_GEMINI_MODEL, GeminiProvider
 from radar_engine.ai.engine import RadarAIEngine
 from radar_engine.ai.models import AITaskResult, StoredAICandidate
@@ -89,6 +91,36 @@ class AIClientTests(unittest.TestCase):
             result = client.complete_json([{"role": "user", "content": "x"}], schema={"type": "object"})
         self.assertEqual(result["headline"], "تیتر")
 
+    def test_gemini_rate_limit_retries_once_then_raises_quota(self):
+        client = GeminiProvider(api_key="key", model="gemini-test", max_retries=3, backoff_seconds=0)
+        error = HTTPError(
+            "https://example.test",
+            429,
+            "rate limit",
+            {"Retry-After": "2"},
+            io.BytesIO(b'{"error":{"status":"RESOURCE_EXHAUSTED"}}'),
+        )
+        with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error) as urlopen_mock, patch(
+            "radar_engine.ai.providers.base.time.sleep"
+        ) as sleep_mock:
+            with self.assertRaises(AIQuotaError):
+                client.complete_json([{"role": "user", "content": "x"}])
+        self.assertEqual(urlopen_mock.call_count, 2)
+        self.assertEqual(sleep_mock.call_count, 1)
+
+    def test_gemini_resource_exhausted_body_is_rate_limit(self):
+        client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
+        error = HTTPError(
+            "https://example.test",
+            400,
+            "bad request",
+            {},
+            io.BytesIO(b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"quota exceeded"}}'),
+        )
+        with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+            with self.assertRaises(AIQuotaError):
+                client.complete_json([{"role": "user", "content": "x"}])
+
     def test_default_ai_client_uses_configured_provider(self):
         class Provider:
             model = "m"
@@ -157,6 +189,44 @@ class AIEngineTests(unittest.TestCase):
         report = engine.run()
         self.assertEqual(report.failed, 1)
         self.assertEqual(failed[0][0], "c1")
+
+    def test_rate_limit_stops_batch_without_marking_failed(self):
+        candidates = [
+            StoredAICandidate(candidate_id="c1", candidate=make_candidate()),
+            StoredAICandidate(candidate_id="c2", candidate=make_candidate()),
+        ]
+        failed = []
+        stored = []
+
+        class Summarizer:
+            calls = 0
+
+            def summarize(self, candidate):
+                self.calls += 1
+                raise AIQuotaError("Gemini quota or rate limit exceeded")
+
+        summarizer = Summarizer()
+        engine = RadarAIEngine(
+            summarizer=summarizer,
+            load_candidates=lambda limit, candidate_id=None: candidates,
+            store_result=lambda candidate_id, result: stored.append(candidate_id),
+            mark_failed=lambda candidate_id, error: failed.append((candidate_id, error)),
+        )
+        with self.assertLogs("radar_engine.ai.engine", level="WARNING") as logs:
+            report = engine.run()
+        self.assertEqual(summarizer.calls, 1)
+        self.assertEqual(report.processed, 1)
+        self.assertEqual(report.completed, 0)
+        self.assertEqual(report.failed, 0)
+        self.assertEqual(report.rate_limited, 1)
+        self.assertEqual(report.remaining, 2)
+        self.assertTrue(report.stopped_early)
+        self.assertEqual(stored, [])
+        self.assertEqual(failed, [])
+        self.assertEqual(
+            "\n".join(logs.output).count("Gemini rate limit reached. Remaining AI jobs postponed to next cycle."),
+            1,
+        )
 
 
 class FakeCursor:

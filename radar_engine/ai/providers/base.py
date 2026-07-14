@@ -23,6 +23,10 @@ class AIAuthenticationError(AIProviderError):
 class AIQuotaError(AIProviderError):
     retryable = True
 
+    def __init__(self, message: str, retry_after_seconds: float | None = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
 
 class AITimeoutError(AIProviderError):
     retryable = True
@@ -75,8 +79,18 @@ def parse_json_object(text: str, provider_name: str) -> dict:
     return parsed
 
 
-def sleep_before_retry(base_seconds: float, attempt: int) -> None:
-    delay = max(0.0, base_seconds) * (2**attempt)
+def sleep_before_retry(
+    base_seconds: float,
+    attempt: int,
+    retry_after_seconds: float | None = None,
+    max_delay_seconds: float | None = None,
+) -> None:
+    if retry_after_seconds is not None:
+        delay = max(0.0, retry_after_seconds)
+    else:
+        delay = max(0.0, base_seconds) * (2**attempt)
     if delay:
         delay += random.uniform(0, min(0.25, delay))
+    if max_delay_seconds is not None:
+        delay = min(delay, max(0.0, max_delay_seconds))
     time.sleep(delay)
