@@ -1,11 +1,34 @@
 from pathlib import Path
+from contextlib import redirect_stdout
+from unittest.mock import patch
+import io
 import os
 import subprocess
 import sys
 import unittest
 
+from radar_engine.ai.providers import AIAuthenticationError
+from scripts import run_radar_ai
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeSmokeProvider:
+    provider_name = "gemini"
+    model_name = "gemini-2.5-flash-lite"
+    model = "gemini-2.5-flash-lite"
+
+    def __init__(self, result=None, error=None):
+        self.result = result or {"ok": True, "message": "سلام"}
+        self.error = error
+        self.calls = 0
+
+    def complete_json(self, messages, schema=None):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.result
 
 
 class AIRunnerTests(unittest.TestCase):
@@ -50,3 +73,30 @@ class AIRunnerTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--limit must be between 1 and 200", result.stderr)
+
+    def test_provider_smoke_test_makes_one_safe_provider_call(self):
+        provider = FakeSmokeProvider()
+        buffer = io.StringIO()
+        with patch("radar_engine.ai.client.build_ai_provider", return_value=provider):
+            with redirect_stdout(buffer):
+                code = run_radar_ai.provider_smoke_test()
+
+        self.assertEqual(code, 0)
+        self.assertEqual(provider.calls, 1)
+        output = buffer.getvalue()
+        self.assertIn("AI provider: gemini", output)
+        self.assertIn("AI model: gemini-2.5-flash-lite", output)
+        self.assertIn("Smoke test result: success", output)
+
+    def test_provider_smoke_test_auth_failure_never_prints_key(self):
+        provider = FakeSmokeProvider(error=AIAuthenticationError("bad secret-key"))
+        buffer = io.StringIO()
+        with patch("radar_engine.ai.client.build_ai_provider", return_value=provider):
+            with redirect_stdout(buffer):
+                code = run_radar_ai.provider_smoke_test()
+
+        self.assertEqual(code, 4)
+        self.assertEqual(provider.calls, 1)
+        output = buffer.getvalue()
+        self.assertIn("Smoke test result: authentication failed", output)
+        self.assertNotIn("secret-key", output)

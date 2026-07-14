@@ -50,31 +50,52 @@ def check_provider() -> int:
 
 def provider_smoke_test() -> int:
     from radar_engine.ai.client import build_ai_provider
+    from radar_engine.ai.providers import (
+        AIAuthenticationError,
+        AIInvalidRequestError,
+        AIModelUnavailableError,
+        AIProviderResponseError,
+        AIQuotaError,
+    )
 
     provider = build_ai_provider()
-    result = provider.complete_json(
-        [
-            {
-                "role": "user",
-                "content": (
-                    "Return only this JSON object in Persian-safe UTF-8: "
-                    '{"headline":"تست","short_summary":"موفق","why_it_matters":"بررسی اتصال","confidence":0.9}'
-                ),
-            }
-        ],
-        schema={
-            "type": "object",
-            "properties": {
-                "headline": {"type": "string"},
-                "short_summary": {"type": "string"},
-                "why_it_matters": {"type": "string"},
-                "confidence": {"type": "number"},
-            },
-            "required": ["headline", "short_summary", "why_it_matters", "confidence"],
-        },
-    )
     print(f"AI provider: {getattr(provider, 'provider_name', '-')}")
     print(f"AI model: {provider.model}")
+    try:
+        result = provider.complete_json(
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "Return only this JSON object in Persian-safe UTF-8: "
+                        '{"headline":"تست","short_summary":"موفق","why_it_matters":"بررسی اتصال","confidence":0.9}'
+                    ),
+                }
+            ],
+            schema={
+                "type": "object",
+                "properties": {
+                    "headline": {"type": "string"},
+                    "short_summary": {"type": "string"},
+                    "why_it_matters": {"type": "string"},
+                    "confidence": {"type": "number"},
+                },
+                "required": ["headline", "short_summary", "why_it_matters", "confidence"],
+            },
+        )
+    except AIQuotaError:
+        print("Smoke test result: quota/rate limited")
+        return 2
+    except AIModelUnavailableError:
+        print("Smoke test result: invalid model or endpoint")
+        return 3
+    except AIAuthenticationError:
+        print("Smoke test result: authentication failed")
+        return 4
+    except (AIInvalidRequestError, AIProviderResponseError):
+        print("Smoke test result: provider response failed")
+        return 5
+    print("Smoke test result: success")
     print(f"Smoke test keys: {', '.join(sorted(result.keys()))}")
     return 0
 
