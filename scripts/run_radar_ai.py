@@ -37,12 +37,46 @@ def run(limit: int, candidate_id: str | None, dry_run: bool) -> int:
 
 def check_provider() -> int:
     from radar_engine.ai.client import provider_info
+    from radar_engine.scheduler import ai_batch_limit_from_env, ai_request_delay_seconds_from_env
 
     info = provider_info()
     print(f"AI provider: {info.provider}")
     print(f"AI model: {info.model}")
+    print(f"Automatic batch limit: {ai_batch_limit_from_env(provider=info.provider)}")
+    print(f"Request delay seconds: {ai_request_delay_seconds_from_env(provider=info.provider)}")
     print(f"API key configured: {'yes' if info.configured else 'no'}")
     return 0 if info.configured else 1
+
+
+def provider_smoke_test() -> int:
+    from radar_engine.ai.client import build_ai_provider
+
+    provider = build_ai_provider()
+    result = provider.complete_json(
+        [
+            {
+                "role": "user",
+                "content": (
+                    "Return only this JSON object in Persian-safe UTF-8: "
+                    '{"headline":"تست","short_summary":"موفق","why_it_matters":"بررسی اتصال","confidence":0.9}'
+                ),
+            }
+        ],
+        schema={
+            "type": "object",
+            "properties": {
+                "headline": {"type": "string"},
+                "short_summary": {"type": "string"},
+                "why_it_matters": {"type": "string"},
+                "confidence": {"type": "number"},
+            },
+            "required": ["headline", "short_summary", "why_it_matters", "confidence"],
+        },
+    )
+    print(f"AI provider: {getattr(provider, 'provider_name', '-')}")
+    print(f"AI model: {provider.model}")
+    print(f"Smoke test keys: {', '.join(sorted(result.keys()))}")
+    return 0
 
 
 def main() -> int:
@@ -51,9 +85,12 @@ def main() -> int:
     parser.add_argument("--candidate-id", help="Process a single candidate UUID.")
     parser.add_argument("--dry-run", action="store_true", help="Call AI and validate output without writing results.")
     parser.add_argument("--check-provider", action="store_true", help="Validate AI provider configuration without using the database.")
+    parser.add_argument("--provider-smoke-test", action="store_true", help="Call the configured provider once without database writes.")
     args = parser.parse_args()
     if args.check_provider:
         return check_provider()
+    if args.provider_smoke_test:
+        return provider_smoke_test()
     if args.limit < 1 or args.limit > 200:
         parser.error("--limit must be between 1 and 200")
     return run(args.limit, args.candidate_id, args.dry_run)

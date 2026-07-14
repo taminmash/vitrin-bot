@@ -20,7 +20,8 @@ from radar_engine.ai.providers.base import (
 
 
 GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_RATE_LIMIT_RETRY_CAP_SECONDS = 20.0
 
 
 class GeminiProvider:
@@ -31,7 +32,7 @@ class GeminiProvider:
         api_key: str | None = None,
         model: str | None = None,
         timeout_seconds: int = 30,
-        max_retries: int = 2,
+        max_retries: int = 1,
         backoff_seconds: float = 0.5,
     ):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -59,7 +60,17 @@ class GeminiProvider:
             try:
                 response_payload = self._post(body)
                 return parse_json_object(self._extract_output_text(response_payload), "Gemini")
-            except (AIQuotaError, AITimeoutError, AINetworkError) as error:
+            except AIQuotaError as error:
+                last_error = error
+                if attempt >= min(self.max_retries, 1):
+                    raise
+                sleep_before_retry(
+                    self.backoff_seconds,
+                    attempt,
+                    retry_after_seconds=error.retry_after_seconds,
+                    max_delay_seconds=GEMINI_RATE_LIMIT_RETRY_CAP_SECONDS,
+                )
+            except (AITimeoutError, AINetworkError) as error:
                 last_error = error
                 if attempt >= self.max_retries:
                     break
@@ -81,14 +92,23 @@ class GeminiProvider:
             with urlopen(request, timeout=self.timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
+            error_body = self._read_error_body(error)
             if error.code in {401, 403}:
                 raise AIAuthenticationError("Gemini authentication failed") from error
             if error.code == 429:
-                raise AIQuotaError("Gemini quota or rate limit exceeded") from error
+                raise AIQuotaError(
+                    "Gemini quota or rate limit exceeded",
+                    retry_after_seconds=self._retry_after_seconds(error),
+                ) from error
             if error.code == 404:
                 raise AIModelUnavailableError(f"Gemini model is unavailable: {self.model}") from error
             if 500 <= error.code < 600:
                 raise AINetworkError(f"Gemini server error HTTP {error.code}") from error
+            if self._looks_like_rate_limit(error_body):
+                raise AIQuotaError(
+                    "Gemini quota or rate limit exceeded",
+                    retry_after_seconds=self._retry_after_seconds(error),
+                ) from error
             raise AIInvalidRequestError(f"Gemini request failed HTTP {error.code}") from error
         except TimeoutError as error:
             raise AITimeoutError("Gemini request timed out") from error
@@ -120,4 +140,23 @@ class GeminiProvider:
             if texts:
                 return "".join(texts)
         raise AIProviderResponseError("Gemini response did not include output text")
+
+    def _read_error_body(self, error: HTTPError) -> str:
+        try:
+            return error.read().decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    def _retry_after_seconds(self, error: HTTPError) -> float | None:
+        value = error.headers.get("Retry-After") if error.headers else None
+        if not value:
+            return None
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            return None
+
+    def _looks_like_rate_limit(self, text: str) -> bool:
+        lowered = (text or "").casefold()
+        return any(marker in lowered for marker in ("quota", "rate limit", "resource exhausted", "resource_exhausted"))
 

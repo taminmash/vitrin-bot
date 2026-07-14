@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import logging
 import time
 
+from radar_engine.ai.providers import AIQuotaError
 from radar_engine.ai.summarizer import RadarAISummarizer
 
 
@@ -16,6 +17,9 @@ class AIReport:
     processed: int = 0
     completed: int = 0
     failed: int = 0
+    remaining: int = 0
+    rate_limited: int = 0
+    stopped_early: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -42,13 +46,20 @@ class RadarAIEngine:
         report = AIReport(loaded=len(candidates))
         for index, item in enumerate(candidates):
             try:
-                result = self.summarizer.summarize(item.candidate)
                 report.processed += 1
+                result = self.summarizer.summarize(item.candidate)
                 if dry_run:
                     report.completed += 1
                     continue
                 self.store_result(item.candidate_id, result)
                 report.completed += 1
+            except AIQuotaError as error:
+                logger.warning("Gemini rate limit reached. Remaining AI jobs postponed to next cycle.")
+                report.rate_limited += 1
+                report.stopped_early = True
+                report.remaining = len(candidates) - index
+                report.errors.append(str(error))
+                break
             except Exception as error:
                 logger.exception("Radar AI processing failed for candidate %s", getattr(item, "candidate_id", "-"))
                 report.failed += 1
@@ -60,4 +71,6 @@ class RadarAIEngine:
                         logger.exception("Could not mark candidate %s as failed", getattr(item, "candidate_id", "-"))
             if self.request_delay_seconds and index < len(candidates) - 1:
                 time.sleep(self.request_delay_seconds)
+        if not report.stopped_early:
+            report.remaining = 0
         return report

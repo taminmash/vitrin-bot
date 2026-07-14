@@ -26,13 +26,15 @@ Set these in Railway or your local shell:
 - `AI_PROVIDER` optional; `gemini` by default. Allowed values: `gemini`,
   `openai`.
 - `GEMINI_API_KEY` required when `AI_PROVIDER=gemini`.
-- `GEMINI_MODEL` optional; defaults to `gemini-3.5-flash`.
+- `GEMINI_MODEL` optional; defaults to `gemini-2.5-flash-lite`.
 - `OPENAI_API_KEY` required only when `AI_PROVIDER=openai`.
 - `OPENAI_MODEL` optional; defaults to `gpt-4o-mini`.
-- `RADAR_AI_BATCH_LIMIT` optional for automatic ingestion; defaults to `10`
-  and is clamped to `1` through `50`.
+- `RADAR_AI_BATCH_LIMIT` optional for automatic ingestion; defaults to `1`
+  when `AI_PROVIDER=gemini` and `10` when `AI_PROVIDER=openai`. It is clamped
+  to `1` through `10`.
 - `RADAR_AI_REQUEST_DELAY_SECONDS` optional for automatic ingestion; defaults
-  to `1` and is clamped to `0` through `30`.
+  to `15` when `AI_PROVIDER=gemini` and `1` when `AI_PROVIDER=openai`. It is
+  clamped to `0` through `60`.
 
 The bot checks membership through the public channel usernames configured in
 `config_v2.py`: `@vitrinspain` and `@hayatkhalvatspain`.
@@ -207,6 +209,12 @@ classification processing. The `Queued for review` metric means newly
 classification-completed items in that cycle, not the total historical review
 queue size.
 
+For Gemini free-tier safety, automatic AI processing is intentionally gradual:
+by default one summarization job and one classification job are attempted per
+cycle with a 15-second provider-call delay. If Gemini returns a quota/rate-limit
+response, the current AI or classification batch stops immediately and the
+remaining work stays retryable for the next scheduled cycle.
+
 Manual one-off ingestion:
 
 ```bash
@@ -278,8 +286,11 @@ A successful row in
 constraint prevents duplicate AI results.
 
 Gemini is the default provider because it supports API-key authentication and
-structured JSON output. Set `AI_PROVIDER=openai` to use the OpenAI-compatible
-provider explicitly; there is no silent fallback between providers.
+structured JSON output. The default model is Google's stable Flash-Lite model
+`gemini-2.5-flash-lite`, suitable for high-frequency lightweight
+classification/extraction work. Set `AI_PROVIDER=openai` to use the
+OpenAI-compatible provider explicitly; there is no silent fallback between
+providers.
 
 Manual one-off processing:
 
@@ -289,6 +300,7 @@ python scripts/run_radar_ai.py --limit 25
 python scripts/run_radar_ai.py --candidate-id <candidate_uuid>
 python scripts/run_radar_ai.py --dry-run
 python scripts/run_radar_ai.py --check-provider
+python scripts/run_radar_ai.py --provider-smoke-test
 ```
 
 Required environment variable for actual processing:
@@ -299,7 +311,7 @@ Required environment variable for actual processing:
 Optional:
 
 - `AI_PROVIDER` defaults to `gemini`
-- `GEMINI_MODEL` defaults to `gemini-3.5-flash`
+- `GEMINI_MODEL` defaults to `gemini-2.5-flash-lite`
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 
 The prompt version is `radar-summary-v1`. The AI output is limited to:
@@ -472,7 +484,7 @@ Required environment variable for actual processing:
 Optional:
 
 - `AI_PROVIDER` defaults to `gemini`
-- `GEMINI_MODEL` defaults to `gemini-3.5-flash`
+- `GEMINI_MODEL` defaults to `gemini-2.5-flash-lite`
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 
 ## Validation
