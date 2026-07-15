@@ -11,11 +11,13 @@ from radar_engine.scheduler import (
     DEFAULT_FETCH_INTERVAL_MINUTES,
     PostgresAdvisoryLock,
     RadarBOEIngestionScheduler,
+    RadarReviewNotifier,
     advisory_lock_key,
     ai_batch_limit_from_env,
     ai_request_delay_seconds_from_env,
     auto_ingestion_enabled,
     fetch_interval_minutes_from_env,
+    radar_review_notification_text,
     start_radar_scheduler,
     stop_radar_scheduler,
 )
@@ -32,6 +34,15 @@ async def immediate_report(report):
 class FakeApplication:
     def __init__(self):
         self.bot_data = {}
+        self.bot = FakeBot()
+
+
+class FakeBot:
+    def __init__(self):
+        self.messages = []
+
+    async def send_message(self, *, chat_id, text):
+        self.messages.append({"chat_id": chat_id, "text": text})
 
 
 class FakeLock:
@@ -113,6 +124,12 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_scheduler_starts_and_stores_instance(self):
         class FakeScheduler:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                self.started = False
+                self.stopped = False
+
             started = False
             stopped = False
 
@@ -143,7 +160,7 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         class FakeScheduler:
             created = 0
 
-            def __init__(self):
+            def __init__(self, *args, **kwargs):
                 type(self).created += 1
                 self.started = False
 
@@ -192,6 +209,42 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.ai_completed, 2)
         self.assertEqual(report.classification_completed, 2)
         self.assertEqual(report.queued_for_review, 2)
+
+    async def test_scheduler_notifies_review_stage_after_classification(self):
+        calls = []
+
+        async def notify(new_items_hint):
+            calls.append(new_items_hint)
+
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=1, inserted_count=1)),
+            pipeline_stage=lambda: immediate_report(PipelineReport(created_count=1)),
+            ai_stage=lambda: immediate_report(AIReport(completed=1)),
+            classification_stage=lambda: immediate_report(ClassificationReport(completed=3)),
+            review_notification_stage=notify,
+            lock_factory=lambda: FakeLock(True),
+        )
+        report = await scheduler.run_once()
+        self.assertEqual(report.queued_for_review, 3)
+        self.assertEqual(calls, [3])
+
+    async def test_review_notification_error_does_not_fail_cycle(self):
+        async def broken_notify(_new_items_hint):
+            raise RuntimeError("telegram unavailable")
+
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=1, inserted_count=1)),
+            pipeline_stage=lambda: immediate_report(PipelineReport(created_count=1)),
+            ai_stage=lambda: immediate_report(AIReport(completed=1)),
+            classification_stage=lambda: immediate_report(ClassificationReport(completed=1)),
+            review_notification_stage=broken_notify,
+            lock_factory=lambda: FakeLock(True),
+        )
+        report = await scheduler.run_once()
+        self.assertFalse(report.failed)
+        self.assertIn("telegram unavailable", report.errors)
 
     async def test_db_lock_acquired_runs_cycle_and_releases_after_success(self):
         events = []
@@ -426,6 +479,186 @@ class PostgresAdvisoryLockTests(unittest.TestCase):
         self.assertIn("pg_try_advisory_lock", sql_text)
         self.assertIn("pg_advisory_unlock", sql_text)
         self.assertTrue(conn.closed)
+
+
+class RadarReviewNotifierTests(unittest.IsolatedAsyncioTestCase):
+    def test_notification_text_matches_admin_message_format(self):
+        self.assertEqual(
+            radar_review_notification_text(2, 5),
+            "🔔 Radar\n\n"
+            "There are 2 new items ready for review.\n\n"
+            "Pending review: 5\n\n"
+            "Use:\n"
+            "/radar_review",
+        )
+
+    async def test_all_admins_receive_one_notification_when_delivery_succeeds(self):
+        totals = iter([5, 7])
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual(sent, [])
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=9), 2)
+        self.assertEqual([chat_id for chat_id, _ in sent], [101, 202])
+        self.assertIn("There are 2 new items ready for review.", sent[0][1])
+        self.assertIn("Pending review: 7", sent[0][1])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 7)
+
+    async def test_no_duplicate_notification_when_count_is_unchanged(self):
+        totals = iter([5, 7, 7])
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        await notifier.notify_if_pending_increased(new_items_hint=0)
+        await notifier.notify_if_pending_increased(new_items_hint=9)
+        sent.clear()
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 0)
+        self.assertEqual(sent, [])
+
+    async def test_all_failed_deliveries_are_retried_next_cycle(self):
+        totals = iter([3, 3])
+        attempts = []
+
+        async def send_message(*, chat_id, text):
+            attempts.append((chat_id, text))
+            raise RuntimeError("temporary telegram failure")
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 0)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202, 101, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+    async def test_partial_failure_retries_only_failed_admin_without_duplicates(self):
+        totals = iter([3, 3])
+        attempts = []
+        failures = {202}
+
+        async def send_message(*, chat_id, text):
+            attempts.append((chat_id, text))
+            if chat_id in failures:
+                failures.remove(chat_id)
+                raise RuntimeError("temporary telegram failure")
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 1)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 1)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 3)
+
+    async def test_acknowledged_count_advances_only_after_all_admins_receive_notification(self):
+        totals = iter([4, 4])
+        failures = {202}
+
+        async def send_message(*, chat_id, text):
+            if chat_id in failures:
+                failures.remove(chat_id)
+                raise RuntimeError("temporary telegram failure")
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        await notifier.notify_if_pending_increased(new_items_hint=4)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+        await notifier.notify_if_pending_increased(new_items_hint=0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 4)
+
+    async def test_initial_cycle_uses_new_items_hint_without_spamming_existing_backlog(self):
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        backlog_only = RadarReviewNotifier(
+            admin_ids=[101],
+            send_message=send_message,
+            pending_review_count=lambda: 4,
+        )
+        self.assertEqual(await backlog_only.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual(sent, [])
+        self.assertEqual(backlog_only.acknowledged_pending_review_count, 4)
+
+        created_now = RadarReviewNotifier(
+            admin_ids=[101],
+            send_message=send_message,
+            pending_review_count=lambda: 4,
+        )
+        self.assertEqual(await created_now.notify_if_pending_increased(new_items_hint=2), 1)
+        self.assertIn("There are 2 new items ready for review.", sent[0][1])
+        self.assertEqual(created_now.acknowledged_pending_review_count, 4)
+
+    async def test_pending_count_decrease_resets_baseline_for_later_new_items(self):
+        totals = iter([5, 3, 6])
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 5)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 3)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 1)
+        self.assertIn("There are 3 new items ready for review.", sent[0][1])
+        self.assertIn("Pending review: 6", sent[0][1])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 6)
+
+    async def test_empty_admin_ids_produces_no_exception_and_advances_acknowledgement(self):
+        notifier = RadarReviewNotifier(
+            admin_ids=[],
+            send_message=lambda **_kwargs: None,
+            pending_review_count=lambda: 2,
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=2), 0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 2)
+
 
 
 if __name__ == "__main__":
