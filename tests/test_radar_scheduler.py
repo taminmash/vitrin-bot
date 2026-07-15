@@ -492,8 +492,8 @@ class RadarReviewNotifierTests(unittest.IsolatedAsyncioTestCase):
             "/radar_review",
         )
 
-    async def test_notifies_admins_only_when_pending_count_increases(self):
-        totals = iter([5, 7, 7, 4, 6])
+    async def test_all_admins_receive_one_notification_when_delivery_succeeds(self):
+        totals = iter([5, 7])
         sent = []
 
         async def send_message(*, chat_id, text):
@@ -512,17 +512,94 @@ class RadarReviewNotifierTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([chat_id for chat_id, _ in sent], [101, 202])
         self.assertIn("There are 2 new items ready for review.", sent[0][1])
         self.assertIn("Pending review: 7", sent[0][1])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 7)
 
+    async def test_no_duplicate_notification_when_count_is_unchanged(self):
+        totals = iter([5, 7, 7])
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        await notifier.notify_if_pending_increased(new_items_hint=0)
+        await notifier.notify_if_pending_increased(new_items_hint=9)
         sent.clear()
         self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 0)
         self.assertEqual(sent, [])
 
-        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
-        self.assertEqual(sent, [])
+    async def test_all_failed_deliveries_are_retried_next_cycle(self):
+        totals = iter([3, 3])
+        attempts = []
 
-        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 2)
-        self.assertEqual([chat_id for chat_id, _ in sent], [101, 202])
-        self.assertIn("There are 2 new items ready for review.", sent[0][1])
+        async def send_message(*, chat_id, text):
+            attempts.append((chat_id, text))
+            raise RuntimeError("temporary telegram failure")
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 0)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202, 101, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+    async def test_partial_failure_retries_only_failed_admin_without_duplicates(self):
+        totals = iter([3, 3])
+        attempts = []
+        failures = {202}
+
+        async def send_message(*, chat_id, text):
+            attempts.append((chat_id, text))
+            if chat_id in failures:
+                failures.remove(chat_id)
+                raise RuntimeError("temporary telegram failure")
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 1)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 1)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 3)
+
+    async def test_acknowledged_count_advances_only_after_all_admins_receive_notification(self):
+        totals = iter([4, 4])
+        failures = {202}
+
+        async def send_message(*, chat_id, text):
+            if chat_id in failures:
+                failures.remove(chat_id)
+                raise RuntimeError("temporary telegram failure")
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        await notifier.notify_if_pending_increased(new_items_hint=4)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 0)
+
+        await notifier.notify_if_pending_increased(new_items_hint=0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 4)
 
     async def test_initial_cycle_uses_new_items_hint_without_spamming_existing_backlog(self):
         sent = []
@@ -537,6 +614,7 @@ class RadarReviewNotifierTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await backlog_only.notify_if_pending_increased(new_items_hint=0), 0)
         self.assertEqual(sent, [])
+        self.assertEqual(backlog_only.acknowledged_pending_review_count, 4)
 
         created_now = RadarReviewNotifier(
             admin_ids=[101],
@@ -545,6 +623,41 @@ class RadarReviewNotifierTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await created_now.notify_if_pending_increased(new_items_hint=2), 1)
         self.assertIn("There are 2 new items ready for review.", sent[0][1])
+        self.assertEqual(created_now.acknowledged_pending_review_count, 4)
+
+    async def test_pending_count_decrease_resets_baseline_for_later_new_items(self):
+        totals = iter([5, 3, 6])
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        notifier = RadarReviewNotifier(
+            admin_ids=[101],
+            send_message=send_message,
+            pending_review_count=lambda: next(totals),
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 5)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 3)
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=0), 1)
+        self.assertIn("There are 3 new items ready for review.", sent[0][1])
+        self.assertIn("Pending review: 6", sent[0][1])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 6)
+
+    async def test_empty_admin_ids_produces_no_exception_and_advances_acknowledgement(self):
+        notifier = RadarReviewNotifier(
+            admin_ids=[],
+            send_message=lambda **_kwargs: None,
+            pending_review_count=lambda: 2,
+        )
+
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=2), 0)
+        self.assertEqual(notifier.acknowledged_pending_review_count, 2)
 
 
 

@@ -226,31 +226,74 @@ class RadarReviewNotifier:
         self.admin_ids = tuple(int(admin_id) for admin_id in admin_ids)
         self.send_message = send_message
         self.pending_review_count = pending_review_count
-        self._last_pending_review_count: int | None = None
+        self._acknowledged_pending_review_count: int | None = None
+        self._pending_notification: dict[str, object] | None = None
+
+    @property
+    def acknowledged_pending_review_count(self) -> int | None:
+        return self._acknowledged_pending_review_count
 
     async def notify_if_pending_increased(self, new_items_hint: int = 0) -> int:
         pending_total = max(0, int(self.pending_review_count()))
-        previous_total = self._last_pending_review_count
-        self._last_pending_review_count = pending_total
+        if self._pending_notification:
+            target_count = int(self._pending_notification["target_count"])
+            if pending_total < target_count:
+                self._pending_notification = None
+                self._acknowledged_pending_review_count = pending_total
+            else:
+                return await self._deliver_pending_notification()
 
-        if previous_total is None:
+        acknowledged_total = self._acknowledged_pending_review_count
+        if acknowledged_total is None:
             new_count = min(max(int(new_items_hint or 0), 0), pending_total)
-        elif pending_total > previous_total:
-            new_count = pending_total - previous_total
+            self._acknowledged_pending_review_count = pending_total - new_count
+        elif pending_total < acknowledged_total:
+            self._acknowledged_pending_review_count = pending_total
+            return 0
+        elif pending_total > acknowledged_total:
+            new_count = pending_total - acknowledged_total
         else:
             return 0
 
-        if new_count <= 0 or not self.admin_ids:
+        if new_count <= 0:
+            self._acknowledged_pending_review_count = pending_total
             return 0
 
-        text = radar_review_notification_text(new_count, pending_total)
+        self._pending_notification = {
+            "new_count": new_count,
+            "target_count": pending_total,
+            "delivered_admin_ids": set(),
+        }
+        return await self._deliver_pending_notification()
+
+    async def _deliver_pending_notification(self) -> int:
+        if not self._pending_notification:
+            return 0
+
+        target_count = int(self._pending_notification["target_count"])
+        new_count = int(self._pending_notification["new_count"])
+        delivered_admin_ids = self._pending_notification["delivered_admin_ids"]
+
+        if not self.admin_ids:
+            self._acknowledged_pending_review_count = target_count
+            self._pending_notification = None
+            return 0
+
+        text = radar_review_notification_text(new_count, target_count)
         sent = 0
         for admin_id in self.admin_ids:
+            if admin_id in delivered_admin_ids:
+                continue
             try:
                 await self.send_message(chat_id=admin_id, text=text)
+                delivered_admin_ids.add(admin_id)
                 sent += 1
             except Exception:
                 logger.exception("Could not send Radar review notification to admin_id=%s", admin_id)
+
+        if all(admin_id in delivered_admin_ids for admin_id in self.admin_ids):
+            self._acknowledged_pending_review_count = target_count
+            self._pending_notification = None
         return sent
 
 
