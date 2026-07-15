@@ -1897,6 +1897,22 @@ async def radar_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(collect_runtime_status(context.application, metrics=metrics))
 
 
+async def radar_review_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or not update.message:
+        return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("دسترسی ادمین ندارید.")
+        return
+
+    items = load_review_queue(limit=20)
+    queue_text, visible_items = radar_review_queue_payload(items)
+    await update.message.reply_text(
+        queue_text,
+        reply_markup=radar_review_queue_keyboard(visible_items),
+        disable_web_page_preview=True,
+    )
+
+
 async def show_pending_admin_items(update: Update):
     pending = list_pending_content()
     if not pending:

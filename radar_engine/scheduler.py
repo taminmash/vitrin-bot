@@ -55,6 +55,7 @@ class RadarFetchCycleReport:
 
 AsyncStage = Callable[[], Awaitable[object]]
 LockFactory = Callable[[], AbstractContextManager[bool]]
+ReviewNotificationStage = Callable[[int], Awaitable[object]]
 
 
 def advisory_lock_key(name: str = ADVISORY_LOCK_NAME) -> int:
@@ -204,6 +205,61 @@ def _default_classification_stage(limit: int, request_delay_seconds: float = 0.0
     return run_classification
 
 
+def radar_review_notification_text(new_count: int, pending_total: int) -> str:
+    return (
+        "🔔 Radar\n\n"
+        f"There are {new_count} new items ready for review.\n\n"
+        f"Pending review: {pending_total}\n\n"
+        "Use:\n"
+        "/radar_review"
+    )
+
+
+class RadarReviewNotifier:
+    def __init__(
+        self,
+        *,
+        admin_ids: list[int] | tuple[int, ...],
+        send_message,
+        pending_review_count: Callable[[], int],
+    ):
+        self.admin_ids = tuple(int(admin_id) for admin_id in admin_ids)
+        self.send_message = send_message
+        self.pending_review_count = pending_review_count
+        self._last_pending_review_count: int | None = None
+
+    async def notify_if_pending_increased(self, new_items_hint: int = 0) -> int:
+        pending_total = max(0, int(self.pending_review_count()))
+        previous_total = self._last_pending_review_count
+        self._last_pending_review_count = pending_total
+
+        if previous_total is None:
+            new_count = min(max(int(new_items_hint or 0), 0), pending_total)
+        elif pending_total > previous_total:
+            new_count = pending_total - previous_total
+        else:
+            return 0
+
+        if new_count <= 0 or not self.admin_ids:
+            return 0
+
+        text = radar_review_notification_text(new_count, pending_total)
+        sent = 0
+        for admin_id in self.admin_ids:
+            try:
+                await self.send_message(chat_id=admin_id, text=text)
+                sent += 1
+            except Exception:
+                logger.exception("Could not send Radar review notification to admin_id=%s", admin_id)
+        return sent
+
+
+def pending_review_count() -> int:
+    from radar_engine.review.storage import review_status_report
+
+    return review_status_report().pending
+
+
 class RadarBOEIngestionScheduler:
     def __init__(
         self,
@@ -217,6 +273,7 @@ class RadarBOEIngestionScheduler:
         pipeline_stage: AsyncStage | None = None,
         ai_stage: AsyncStage | None = None,
         classification_stage: AsyncStage | None = None,
+        review_notification_stage: ReviewNotificationStage | None = None,
         lock_factory: LockFactory | None = None,
         sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ):
@@ -243,6 +300,7 @@ class RadarBOEIngestionScheduler:
             self.ai_batch_limit,
             self.ai_request_delay_seconds,
         )
+        self.review_notification_stage = review_notification_stage
         self.lock_factory = lock_factory or (lambda: PostgresAdvisoryLock(ADVISORY_LOCK_NAME))
         self.sleep_func = sleep_func
         self._running = False
@@ -318,6 +376,7 @@ class RadarBOEIngestionScheduler:
                 classification = await self.classification_stage()
                 self._apply_classification(report, classification)
                 report.queued_for_review = report.classification_completed
+                await self._notify_review_queue(report)
         except Exception as error:
             report.failed = True
             report.errors.append(str(error))
@@ -363,6 +422,15 @@ class RadarBOEIngestionScheduler:
         report.classification_postponed = classification.remaining
         report.errors.extend(classification.errors)
 
+    async def _notify_review_queue(self, report: RadarFetchCycleReport) -> None:
+        if not self.review_notification_stage:
+            return
+        try:
+            await self.review_notification_stage(report.queued_for_review)
+        except Exception as error:
+            report.errors.append(str(error))
+            logger.exception("Radar review notification failed")
+
     def _log_report(self, report: RadarFetchCycleReport) -> None:
         if report.skipped:
             return
@@ -395,8 +463,16 @@ async def start_radar_scheduler(application) -> None:
     existing = application.bot_data.get("radar_boe_scheduler")
     if existing:
         return
-    scheduler = RadarBOEIngestionScheduler()
+    from config_v2 import ADMIN_IDS
+
+    notifier = RadarReviewNotifier(
+        admin_ids=ADMIN_IDS,
+        send_message=application.bot.send_message,
+        pending_review_count=pending_review_count,
+    )
+    scheduler = RadarBOEIngestionScheduler(review_notification_stage=notifier.notify_if_pending_increased)
     application.bot_data["radar_boe_scheduler"] = scheduler
+    application.bot_data["radar_review_notifier"] = notifier
     scheduler.start()
 
 

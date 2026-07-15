@@ -122,6 +122,17 @@ class RadarStatusIntegrationSourceTests(unittest.TestCase):
         bot_text = (PROJECT_ROOT / "bot.py").read_text(encoding="utf-8")
         self.assertIn('CommandHandler("radar_status", radar_status_command)', bot_text)
 
+    def test_bot_registers_radar_review_command(self):
+        bot_text = (PROJECT_ROOT / "bot.py").read_text(encoding="utf-8")
+        self.assertIn('CommandHandler("radar_review", radar_review_command)', bot_text)
+
+    def test_radar_review_command_checks_admin_before_loading_queue(self):
+        admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
+        helper = admin_text.split("async def radar_review_command", 1)[1].split(
+            "\n\nasync def show_pending_admin_items", 1
+        )[0]
+        self.assertLess(helper.index("is_admin"), helper.index("load_review_queue"))
+
     def test_admin_command_checks_admin_before_loading_metrics(self):
         admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
         helper = admin_text.split("async def radar_status_command", 1)[1].split(
