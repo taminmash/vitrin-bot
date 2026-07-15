@@ -12,6 +12,7 @@ from handlers.admin import (
     admin_panel,
     admin_radar_callback,
     comment_admin_callback,
+    radar_status_command,
     whoami,
 )
 from handlers.home import home_callback
@@ -57,6 +58,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("radar_status", radar_status_command))
     app.add_handler(CommandHandler("whoami", whoami))
     app.add_handler(CallbackQueryHandler(admin_radar_callback, pattern=r"^admin_radar:"))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
