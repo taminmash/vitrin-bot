@@ -245,13 +245,7 @@ class RadarReviewNotifier:
     async def notify_if_pending_increased(self, new_items_hint: int = 0) -> int:
         pending_total = max(0, int(self.pending_review_count()))
         if self._pending_notification:
-            target_count = int(self._pending_notification["target_count"])
-            if pending_total < target_count:
-                self._pending_notification = None
-                self._acknowledged_pending_review_count = pending_total
-                self._unnotified_since = None
-            else:
-                return await self._deliver_pending_notification()
+            return await self.retry_pending_delivery(pending_total=pending_total)
 
         acknowledged_total = self._acknowledged_pending_review_count
         if acknowledged_total is None:
@@ -280,6 +274,19 @@ class RadarReviewNotifier:
             "target_count": pending_total,
             "delivered_admin_ids": set(),
         }
+        return await self._deliver_pending_notification()
+
+    async def retry_pending_delivery(self, pending_total: int | None = None) -> int:
+        if not self._pending_notification:
+            return 0
+        if pending_total is None:
+            pending_total = max(0, int(self.pending_review_count()))
+        target_count = int(self._pending_notification["target_count"])
+        if pending_total < target_count:
+            self._pending_notification = None
+            self._acknowledged_pending_review_count = pending_total
+            self._unnotified_since = None
+            return 0
         return await self._deliver_pending_notification()
 
     def _should_notify(self, new_count: int) -> bool:
@@ -437,6 +444,7 @@ class RadarBOEIngestionScheduler:
                 if self._fatal_ingestion_failure(ingestion):
                     report.failed = True
                     logger.error("Radar BOE ingestion failed before fetching any items; skipping downstream stages.")
+                    await self._notify_review_queue(report, retry_pending_only=True)
                     return report
 
                 pipeline = await self.pipeline_stage()
@@ -445,6 +453,7 @@ class RadarBOEIngestionScheduler:
                 ai = await self.ai_stage()
                 self._apply_ai(report, ai)
                 if isinstance(ai, AIReport) and ai.stopped_early:
+                    await self._notify_review_queue(report)
                     return report
 
                 classification = await self.classification_stage()
@@ -496,10 +505,16 @@ class RadarBOEIngestionScheduler:
         report.classification_postponed = classification.remaining
         report.errors.extend(classification.errors)
 
-    async def _notify_review_queue(self, report: RadarFetchCycleReport) -> None:
+    async def _notify_review_queue(self, report: RadarFetchCycleReport, *, retry_pending_only: bool = False) -> None:
         if not self.review_notification_stage:
             return
         try:
+            if retry_pending_only:
+                notifier = getattr(self.review_notification_stage, "__self__", None)
+                retry_pending_delivery = getattr(notifier, "retry_pending_delivery", None)
+                if retry_pending_delivery:
+                    await retry_pending_delivery()
+                return
             await self.review_notification_stage(report.queued_for_review)
         except Exception as error:
             report.errors.append(str(error))

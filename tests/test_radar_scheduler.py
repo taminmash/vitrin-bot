@@ -229,6 +229,114 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.queued_for_review, 3)
         self.assertEqual(calls, [3])
 
+    async def test_ai_stopped_early_cycle_evaluates_review_notification_timer_once(self):
+        now = {"value": 0}
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        pending_totals = iter([1, 1])
+        notifier = RadarReviewNotifier(
+            admin_ids=[101],
+            send_message=send_message,
+            pending_review_count=lambda: next(pending_totals),
+            time_func=lambda: now["value"],
+        )
+        classification_calls = []
+
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=1, inserted_count=1)),
+            pipeline_stage=lambda: immediate_report(PipelineReport(created_count=1)),
+            ai_stage=lambda: immediate_report(AIReport(completed=1)),
+            classification_stage=lambda: immediate_report(ClassificationReport(completed=1)),
+            review_notification_stage=notifier.notify_if_pending_increased,
+            lock_factory=lambda: FakeLock(True),
+        )
+        first = await scheduler.run_once()
+        self.assertEqual(first.queued_for_review, 1)
+        self.assertEqual(sent, [])
+
+        now["value"] = 30 * 60
+        scheduler.ai_stage = lambda: immediate_report(AIReport(remaining=1, stopped_early=True))
+
+        async def classification_should_not_run():
+            classification_calls.append("classification")
+            return ClassificationReport(completed=0)
+
+        scheduler.classification_stage = classification_should_not_run
+        second = await scheduler.run_once()
+        self.assertEqual(second.classification_completed, 0)
+        self.assertEqual(classification_calls, [])
+        self.assertEqual([chat_id for chat_id, _ in sent], [101])
+        self.assertIn("1 new items are ready for review.", sent[0][1])
+
+    async def test_duplicate_only_cycle_can_trigger_elapsed_review_notification(self):
+        now = {"value": 0}
+        sent = []
+
+        async def send_message(*, chat_id, text):
+            sent.append((chat_id, text))
+
+        pending_totals = iter([1, 1])
+        notifier = RadarReviewNotifier(
+            admin_ids=[101],
+            send_message=send_message,
+            pending_review_count=lambda: next(pending_totals),
+            time_func=lambda: now["value"],
+        )
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=1, inserted_count=1)),
+            pipeline_stage=lambda: immediate_report(PipelineReport(created_count=1)),
+            ai_stage=lambda: immediate_report(AIReport(completed=1)),
+            classification_stage=lambda: immediate_report(ClassificationReport(completed=1)),
+            review_notification_stage=notifier.notify_if_pending_increased,
+            lock_factory=lambda: FakeLock(True),
+        )
+        await scheduler.run_once()
+        self.assertEqual(sent, [])
+
+        now["value"] = 30 * 60
+        scheduler.ingest_stage = lambda: immediate_report(IngestionReport("boe", fetched_count=1, duplicate_count=1))
+        scheduler.pipeline_stage = lambda: immediate_report(PipelineReport(created_count=0))
+        scheduler.ai_stage = lambda: immediate_report(AIReport(completed=0))
+        scheduler.classification_stage = lambda: immediate_report(ClassificationReport(completed=0))
+        second = await scheduler.run_once()
+        self.assertEqual(second.queued_for_review, 0)
+        self.assertEqual([chat_id for chat_id, _ in sent], [101])
+        self.assertIn("Pending review: 1", sent[0][1])
+
+    async def test_review_notification_evaluates_once_per_completed_cycle(self):
+        calls = []
+
+        async def notify(new_items_hint):
+            calls.append(new_items_hint)
+
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=1, inserted_count=1)),
+            pipeline_stage=lambda: immediate_report(PipelineReport(created_count=1)),
+            ai_stage=lambda: immediate_report(AIReport(completed=1)),
+            classification_stage=lambda: immediate_report(ClassificationReport(completed=3)),
+            review_notification_stage=notify,
+            lock_factory=lambda: FakeLock(True),
+        )
+        await scheduler.run_once()
+        self.assertEqual(calls, [3])
+
+        calls.clear()
+        scheduler.ai_stage = lambda: immediate_report(AIReport(remaining=1, stopped_early=True))
+        await scheduler.run_once()
+        self.assertEqual(calls, [0])
+
+        calls.clear()
+        scheduler.ai_stage = lambda: immediate_report(AIReport(completed=0))
+        scheduler.classification_stage = lambda: immediate_report(ClassificationReport(completed=0))
+        await scheduler.run_once()
+        self.assertEqual(calls, [0])
+
     async def test_review_notification_error_does_not_fail_cycle(self):
         async def broken_notify(_new_items_hint):
             raise RuntimeError("telegram unavailable")
@@ -375,11 +483,45 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
             pipeline_stage=lambda: calls.append("pipeline") or immediate_report(PipelineReport()),
             ai_stage=lambda: calls.append("ai") or immediate_report(AIReport()),
             classification_stage=lambda: calls.append("classification") or immediate_report(ClassificationReport()),
+            review_notification_stage=lambda _new_items_hint: calls.append("notify") or immediate_report(None),
             lock_factory=lambda: FakeLock(True),
         )
         report = await scheduler.run_once()
         self.assertTrue(report.failed)
         self.assertEqual(calls, [])
+
+    async def test_fatal_ingestion_retries_existing_pending_delivery_only(self):
+        attempts = []
+        failures = {202}
+
+        async def send_message(*, chat_id, text):
+            attempts.append((chat_id, text))
+            if chat_id in failures:
+                failures.remove(chat_id)
+                raise RuntimeError("temporary telegram failure")
+
+        pending_totals = iter([3, 3])
+        notifier = RadarReviewNotifier(
+            admin_ids=[101, 202],
+            send_message=send_message,
+            pending_review_count=lambda: next(pending_totals),
+        )
+        self.assertEqual(await notifier.notify_if_pending_increased(new_items_hint=3), 1)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202])
+
+        scheduler = RadarBOEIngestionScheduler(
+            interval_minutes=15,
+            ingest_stage=lambda: immediate_report(IngestionReport("boe", fetched_count=0, failed_count=1)),
+            pipeline_stage=lambda: immediate_report(PipelineReport()),
+            ai_stage=lambda: immediate_report(AIReport()),
+            classification_stage=lambda: immediate_report(ClassificationReport()),
+            review_notification_stage=notifier.notify_if_pending_increased,
+            lock_factory=lambda: FakeLock(True),
+        )
+        report = await scheduler.run_once()
+        self.assertTrue(report.failed)
+        self.assertEqual([chat_id for chat_id, _ in attempts], [101, 202, 202])
+        self.assertEqual(notifier.acknowledged_pending_review_count, 3)
 
     async def test_review_metric_is_newly_classification_completed_not_historical_total(self):
         scheduler = RadarBOEIngestionScheduler(
