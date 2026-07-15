@@ -298,7 +298,12 @@ class AIClientTests(unittest.TestCase):
 
     def test_gemini_http_404_logs_provider_response_body(self):
         client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
-        body_text = '{"error":{"status":"NOT_FOUND","message":"models/gemini-test is not found"}}'
+        body_text = """{
+          "error": {
+            "status": "NOT_FOUND",
+            "message": "models/gemini-test is not found"
+          }
+        }"""
         error = HTTPError("https://example.test", 404, "not found", {}, io.BytesIO(body_text.encode("utf-8")))
         with self.assertLogs("radar_engine.ai.providers.gemini", level="WARNING") as logs:
             with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
@@ -308,6 +313,43 @@ class AIClientTests(unittest.TestCase):
         self.assertIn("status=404", text)
         self.assertIn("NOT_FOUND", text)
         self.assertIn("models/gemini-test is not found", text)
+        self.assertIn('response_body={"error":{"status":"NOT_FOUND","message":"models/gemini-test is not found"}}', text)
+        self.assertNotIn("\n          ", text)
+
+    def test_gemini_multiline_json_error_log_is_one_line_and_redacted(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        body_text = """{
+          "error": {
+            "status": "INVALID_ARGUMENT",
+            "message": "bad secret-key request"
+          }
+        }"""
+        error = HTTPError("https://example.test", 400, "bad request", {}, io.BytesIO(body_text.encode("utf-8")))
+        with self.assertLogs("radar_engine.ai.providers.gemini", level="WARNING") as logs:
+            with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+                with self.assertRaises(AIInvalidRequestError):
+                    client.complete_json([{"role": "user", "content": "x"}])
+        text = "\n".join(logs.output)
+        self.assertIn(
+            'response_body={"error":{"status":"INVALID_ARGUMENT","message":"bad [REDACTED_API_KEY] request"}}',
+            text,
+        )
+        self.assertNotIn("secret-key", text)
+        self.assertNotIn("\n          ", text)
+
+    def test_gemini_non_json_error_log_collapses_whitespace(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        body_text = "first line\r\n   second\t\tline\nthird secret-key"
+        error = HTTPError("https://example.test", 400, "bad request", {}, io.BytesIO(body_text.encode("utf-8")))
+        with self.assertLogs("radar_engine.ai.providers.gemini", level="WARNING") as logs:
+            with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+                with self.assertRaises(AIInvalidRequestError):
+                    client.complete_json([{"role": "user", "content": "x"}])
+        text = "\n".join(logs.output)
+        self.assertIn("response_body=first line second line third [REDACTED_API_KEY]", text)
+        self.assertNotIn("secret-key", text)
+        self.assertNotIn("\r", text)
+        self.assertNotIn("\nthird", text)
 
     def test_gemini_http_error_log_body_is_bounded(self):
         client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
