@@ -10,12 +10,31 @@ from radar_engine.status import build_radar_status_text, collect_runtime_status,
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+class FakeScheduler:
+    def __init__(self, *, running=False, stopped=False, broken=False):
+        self.running = running
+        self.stopped = stopped
+        self.broken = broken
+
+    @property
+    def is_running(self):
+        if self.broken:
+            raise RuntimeError("state unavailable")
+        return self.running
+
+    @property
+    def is_stopped(self):
+        if self.broken:
+            raise RuntimeError("state unavailable")
+        return self.stopped
+
+
 class RadarStatusTextTests(unittest.TestCase):
     def test_build_status_text_includes_all_requested_sections(self):
         text = build_radar_status_text(
             metrics={
-                "boe_last_fetch_time": "2026-07-15 10:30:00",
-                "boe_last_fetch_result": "inserted",
+                "boe_last_item_seen_time": "2026-07-15 10:30:00",
+                "boe_last_item_ingestion_status": "inserted",
                 "pending_ai": 3,
                 "ai_completed": 7,
                 "pending_review": 2,
@@ -39,8 +58,8 @@ class RadarStatusTextTests(unittest.TestCase):
             "- Provider: gemini",
             "- Model: gemini-2.5-flash-lite",
             "BOE:",
-            "- Last fetch time: 2026-07-15 10:30:00",
-            "- Last fetch result: inserted",
+            "- Last item seen time: 2026-07-15 10:30:00",
+            "- Last item ingestion status: inserted",
             "Candidates:",
             "- Pending AI: 3",
             "- AI completed: 7",
@@ -63,13 +82,27 @@ class RadarStatusTextTests(unittest.TestCase):
         self.assertIn("- Provider: Unknown", text)
         self.assertIn("- Current queue size: Unknown", text)
 
-    def test_scheduler_running_and_unknown(self):
-        running_task = types.SimpleNamespace(done=lambda: False)
+    def test_scheduler_reports_running_from_scheduler_object(self):
+        app = types.SimpleNamespace(bot_data={"radar_boe_scheduler": FakeScheduler(running=True)})
+        self.assertEqual(scheduler_status(app), "Running")
+
+    def test_scheduler_reports_stopped_when_task_done_or_stop_requested(self):
+        done_app = types.SimpleNamespace(bot_data={"radar_boe_scheduler": FakeScheduler(stopped=True)})
+        self.assertEqual(scheduler_status(done_app), "Stopped")
+
+    def test_scheduler_reports_unknown_without_scheduler_or_unknown_state(self):
+        self.assertEqual(scheduler_status(types.SimpleNamespace(bot_data={})), "Unknown")
+        broken_app = types.SimpleNamespace(bot_data={"radar_boe_scheduler": FakeScheduler(broken=True)})
+        self.assertEqual(scheduler_status(broken_app), "Unknown")
+
+    def test_scheduler_status_does_not_require_bot_data_task_key(self):
         app = types.SimpleNamespace(
-            bot_data={"radar_boe_scheduler": object(), "radar_boe_scheduler_task": running_task}
+            bot_data={
+                "radar_boe_scheduler": FakeScheduler(running=True),
+                "radar_boe_scheduler_task": types.SimpleNamespace(done=lambda: True),
+            }
         )
         self.assertEqual(scheduler_status(app), "Running")
-        self.assertEqual(scheduler_status(types.SimpleNamespace(bot_data={})), "Unknown")
 
     def test_collect_runtime_status_uses_runtime_inputs_without_database(self):
         metrics = {"pending_ai": 5, "ai_queue_size": 5}
@@ -102,6 +135,16 @@ class RadarStatusIntegrationSourceTests(unittest.TestCase):
         upper = helper.upper()
         self.assertIn("SELECT", upper)
         self.assertIsNone(re.search(r"\b(INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE)\b", upper))
+
+    def test_status_metrics_helper_uses_raw_item_labels(self):
+        db_text = (PROJECT_ROOT / "database" / "db.py").read_text(encoding="utf-8")
+        status_text = (PROJECT_ROOT / "radar_engine" / "status.py").read_text(encoding="utf-8")
+        self.assertIn("boe_last_item_seen_time", db_text)
+        self.assertIn("boe_last_item_ingestion_status", db_text)
+        self.assertIn("Last item seen time", status_text)
+        self.assertIn("Last item ingestion status", status_text)
+        self.assertNotIn("Last fetch time", status_text)
+        self.assertNotIn("Last fetch result", status_text)
 
 
 if __name__ == "__main__":

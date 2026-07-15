@@ -253,6 +253,14 @@ class RadarBOEIngestionScheduler:
     def is_running_cycle(self) -> bool:
         return self._running
 
+    @property
+    def is_running(self) -> bool:
+        return self._task is not None and not self._task.done() and not self._stop_event.is_set()
+
+    @property
+    def is_stopped(self) -> bool:
+        return self._stop_event.is_set() or (self._task is not None and self._task.done())
+
     def start(self) -> None:
         if self._task and not self._task.done():
             return

@@ -68,9 +68,15 @@ def ai_queue_status(provider: str | None = None) -> dict[str, str]:
 def scheduler_status(application=None) -> str:
     bot_data = getattr(application, "bot_data", None) or {}
     scheduler = bot_data.get("radar_boe_scheduler")
-    task = bot_data.get("radar_boe_scheduler_task")
-    if scheduler and task and not getattr(task, "done", lambda: True)():
-        return "Running"
+    if not scheduler:
+        return UNKNOWN
+    try:
+        if scheduler.is_running:
+            return "Running"
+        if getattr(scheduler, "is_stopped", False):
+            return "Stopped"
+    except Exception:
+        return UNKNOWN
     return UNKNOWN
 
 
@@ -100,8 +106,8 @@ def build_radar_status_text(
             f"- Model: {_display(provider.get('model'))}",
             "",
             "BOE:",
-            f"- Last fetch time: {_display(metrics.get('boe_last_fetch_time'))}",
-            f"- Last fetch result: {_display(metrics.get('boe_last_fetch_result'))}",
+            f"- Last item seen time: {_display(metrics.get('boe_last_item_seen_time'))}",
+            f"- Last item ingestion status: {_display(metrics.get('boe_last_item_ingestion_status'))}",
             "",
             "Candidates:",
             f"- Pending AI: {_display(metrics.get('pending_ai'))}",

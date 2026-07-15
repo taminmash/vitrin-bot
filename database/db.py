@@ -1547,14 +1547,14 @@ def get_radar_status_metrics():
                     SELECT COALESCE(MAX(last_seen_at), MAX(created_at))
                     FROM radar_raw_items
                     WHERE source_key = 'boe'
-                ) AS boe_last_fetch_time,
+                ) AS boe_last_item_seen_time,
                 (
                     SELECT ingestion_status
                     FROM radar_raw_items
                     WHERE source_key = 'boe'
                     ORDER BY COALESCE(last_seen_at, created_at) DESC
                     LIMIT 1
-                ) AS boe_last_fetch_result
+                ) AS boe_last_item_ingestion_status
             """
         )
         row = cur.fetchone()
