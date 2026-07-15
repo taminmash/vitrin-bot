@@ -29,6 +29,8 @@ DEFAULT_AI_REQUEST_DELAY_SECONDS = 1.0
 DEFAULT_GEMINI_AI_REQUEST_DELAY_SECONDS = 15.0
 MIN_AI_REQUEST_DELAY_SECONDS = 0.0
 MAX_AI_REQUEST_DELAY_SECONDS = 60.0
+REVIEW_NOTIFICATION_BATCH_SIZE = 3
+REVIEW_NOTIFICATION_WINDOW_SECONDS = 30 * 60
 ADVISORY_LOCK_NAME = "radar_scheduler:boe"
 FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
@@ -208,9 +210,8 @@ def _default_classification_stage(limit: int, request_delay_seconds: float = 0.0
 def radar_review_notification_text(new_count: int, pending_total: int) -> str:
     return (
         "🔔 Radar\n\n"
-        f"There are {new_count} new items ready for review.\n\n"
+        f"{new_count} new items are ready for review.\n\n"
         f"Pending review: {pending_total}\n\n"
-        "Use:\n"
         "/radar_review"
     )
 
@@ -222,12 +223,20 @@ class RadarReviewNotifier:
         admin_ids: list[int] | tuple[int, ...],
         send_message,
         pending_review_count: Callable[[], int],
+        batch_size: int = REVIEW_NOTIFICATION_BATCH_SIZE,
+        notification_window_seconds: int = REVIEW_NOTIFICATION_WINDOW_SECONDS,
+        time_func: Callable[[], float] = monotonic,
     ):
         self.admin_ids = tuple(int(admin_id) for admin_id in admin_ids)
         self.send_message = send_message
         self.pending_review_count = pending_review_count
+        self.batch_size = max(1, int(batch_size))
+        self.notification_window_seconds = max(1, int(notification_window_seconds))
+        self.time_func = time_func
         self._acknowledged_pending_review_count: int | None = None
         self._pending_notification: dict[str, object] | None = None
+        self._unnotified_since: float | None = None
+        self._last_completed_notification_at: float | None = None
 
     @property
     def acknowledged_pending_review_count(self) -> int | None:
@@ -240,6 +249,7 @@ class RadarReviewNotifier:
             if pending_total < target_count:
                 self._pending_notification = None
                 self._acknowledged_pending_review_count = pending_total
+                self._unnotified_since = None
             else:
                 return await self._deliver_pending_notification()
 
@@ -249,14 +259,20 @@ class RadarReviewNotifier:
             self._acknowledged_pending_review_count = pending_total - new_count
         elif pending_total < acknowledged_total:
             self._acknowledged_pending_review_count = pending_total
+            self._unnotified_since = None
             return 0
         elif pending_total > acknowledged_total:
             new_count = pending_total - acknowledged_total
         else:
+            self._unnotified_since = None
             return 0
 
         if new_count <= 0:
             self._acknowledged_pending_review_count = pending_total
+            self._unnotified_since = None
+            return 0
+
+        if not self._should_notify(new_count):
             return 0
 
         self._pending_notification = {
@@ -265,6 +281,17 @@ class RadarReviewNotifier:
             "delivered_admin_ids": set(),
         }
         return await self._deliver_pending_notification()
+
+    def _should_notify(self, new_count: int) -> bool:
+        now = self.time_func()
+        if new_count >= self.batch_size:
+            return True
+        if self._unnotified_since is None:
+            self._unnotified_since = now
+        reference_time = self._last_completed_notification_at
+        if reference_time is None:
+            reference_time = self._unnotified_since
+        return now - reference_time >= self.notification_window_seconds
 
     async def _deliver_pending_notification(self) -> int:
         if not self._pending_notification:
@@ -277,6 +304,8 @@ class RadarReviewNotifier:
         if not self.admin_ids:
             self._acknowledged_pending_review_count = target_count
             self._pending_notification = None
+            self._unnotified_since = None
+            self._last_completed_notification_at = self.time_func()
             return 0
 
         text = radar_review_notification_text(new_count, target_count)
@@ -294,6 +323,8 @@ class RadarReviewNotifier:
         if all(admin_id in delivered_admin_ids for admin_id in self.admin_ids):
             self._acknowledged_pending_review_count = target_count
             self._pending_notification = None
+            self._unnotified_since = None
+            self._last_completed_notification_at = self.time_func()
         return sent
 
 
