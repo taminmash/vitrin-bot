@@ -24,6 +24,7 @@ from database.db import (
     list_pending_comments,
     list_source_registry,
     list_pending_content,
+    get_radar_status_metrics,
     resolve_comment,
     resolve_review,
     save_publication,
@@ -59,6 +60,7 @@ from radar_engine.review.storage import (
 )
 from radar_engine.review.presentation import build_review_item_text, build_review_queue_display
 from radar_engine.promotion.storage import get_approved_promotion_source, promote_candidate
+from radar_engine.status import collect_runtime_status
 
 
 logger = logging.getLogger(__name__)
@@ -1879,6 +1881,20 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👨‍💼 پنل ادمین ویترین",
         reply_markup=admin_panel_inline_keyboard(),
     )
+
+
+async def radar_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or not update.message:
+        return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("دسترسی ادمین ندارید.")
+        return
+    try:
+        metrics = get_radar_status_metrics()
+    except Exception:
+        logger.exception("Could not load Radar status metrics")
+        metrics = None
+    await update.message.reply_text(collect_runtime_status(context.application, metrics=metrics))
 
 
 async def show_pending_admin_items(update: Update):

@@ -1501,6 +1501,68 @@ def list_admin_radar_items(limit_per_status=10):
         return grouped
 
 
+def get_radar_status_metrics():
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)
+                    FROM radar_candidates candidates
+                    WHERE candidates.candidate_status = 'pending_ai'
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM radar_ai_results ai
+                          WHERE ai.candidate_id = candidates.id
+                      )
+                ) AS pending_ai,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_ai_results
+                ) AS ai_completed,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_candidates candidates
+                    JOIN radar_ai_results ai ON ai.candidate_id = candidates.id
+                    JOIN radar_ai_classifications cls ON cls.candidate_id = candidates.id
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM radar_reviews reviews
+                        WHERE reviews.candidate_id = candidates.id
+                    )
+                ) AS pending_review,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_reviews
+                    WHERE review_status = 'approved'
+                ) AS approved,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_items
+                    WHERE COALESCE(channel_status, '') = 'published'
+                       OR COALESCE(content_status, '') = 'published'
+                       OR COALESCE(is_published, FALSE) = TRUE
+                ) AS published,
+                (
+                    SELECT COALESCE(MAX(last_seen_at), MAX(created_at))
+                    FROM radar_raw_items
+                    WHERE source_key = 'boe'
+                ) AS boe_last_item_seen_time,
+                (
+                    SELECT ingestion_status
+                    FROM radar_raw_items
+                    WHERE source_key = 'boe'
+                    ORDER BY COALESCE(last_seen_at, created_at) DESC
+                    LIMIT 1
+                ) AS boe_last_item_ingestion_status
+            """
+        )
+        row = cur.fetchone()
+    result = row_to_dict(row) or {}
+    result["ai_queue_size"] = result.get("pending_ai")
+    return result
+
+
 def radar_content_status(item):
     if item.get("expires_at") and item["expires_at"] <= datetime_now_sql_safe():
         return "expired"

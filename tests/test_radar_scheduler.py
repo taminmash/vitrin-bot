@@ -80,6 +80,37 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(advisory_lock_key(), advisory_lock_key())
         self.assertNotEqual(advisory_lock_key(), advisory_lock_key("other"))
 
+    async def test_scheduler_running_property_reflects_active_task(self):
+        scheduler = RadarBOEIngestionScheduler(sleep_func=asyncio.sleep)
+        scheduler._task = asyncio.create_task(asyncio.sleep(60))
+        try:
+            self.assertTrue(scheduler.is_running)
+            self.assertFalse(scheduler.is_stopped)
+        finally:
+            scheduler._task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await scheduler._task
+
+    async def test_scheduler_stopped_property_reflects_done_task(self):
+        scheduler = RadarBOEIngestionScheduler(sleep_func=asyncio.sleep)
+        task = asyncio.create_task(asyncio.sleep(0))
+        await task
+        scheduler._task = task
+        self.assertFalse(scheduler.is_running)
+        self.assertTrue(scheduler.is_stopped)
+
+    async def test_scheduler_stopped_property_reflects_stop_event(self):
+        scheduler = RadarBOEIngestionScheduler(sleep_func=asyncio.sleep)
+        scheduler._task = asyncio.create_task(asyncio.sleep(60))
+        scheduler._stop_event.set()
+        try:
+            self.assertFalse(scheduler.is_running)
+            self.assertTrue(scheduler.is_stopped)
+        finally:
+            scheduler._task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await scheduler._task
+
     async def test_scheduler_starts_and_stores_instance(self):
         class FakeScheduler:
             started = False
