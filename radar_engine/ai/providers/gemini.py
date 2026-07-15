@@ -180,7 +180,12 @@ class GeminiProvider:
                 value = error.get(key)
                 if isinstance(value, str) and value.strip():
                     pieces.append(value.strip())
-            return " | ".join(pieces)[:240]
+            return self._redact_api_key(" | ".join(pieces))[:240]
         except Exception:
-            return (text or "").strip()[:120]
+            return self._redact_api_key((text or "").strip())[:120]
+
+    def _redact_api_key(self, text: str) -> str:
+        if self.api_key:
+            return text.replace(self.api_key, "[REDACTED_API_KEY]")
+        return text
 

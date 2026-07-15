@@ -4,7 +4,7 @@ import sys
 import types
 import unittest
 from contextlib import contextmanager
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
 from radar_engine.ai.client import AIClient, OpenAIClient, provider_info, selected_ai_provider
@@ -169,6 +169,32 @@ class AIClientTests(unittest.TestCase):
         self.assertEqual(urlopen_mock.call_count, 2)
         self.assertEqual(sleep_mock.call_count, 1)
 
+    def test_gemini_zero_retries_attempts_once_on_quota_timeout_and_network(self):
+        cases = [
+            (
+                HTTPError(
+                    "https://example.test",
+                    429,
+                    "rate limit",
+                    {"Retry-After": "2"},
+                    io.BytesIO(b'{"error":{"status":"RESOURCE_EXHAUSTED"}}'),
+                ),
+                AIQuotaError,
+            ),
+            (TimeoutError("slow"), AITimeoutError),
+            (URLError("network down"), AINetworkError),
+        ]
+        for error, expected in cases:
+            with self.subTest(error=type(error).__name__):
+                client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0, backoff_seconds=0)
+                with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error) as urlopen_mock, patch(
+                    "radar_engine.ai.providers.base.time.sleep"
+                ) as sleep_mock:
+                    with self.assertRaises(expected):
+                        client.complete_json([{"role": "user", "content": "x"}])
+                self.assertEqual(urlopen_mock.call_count, 1)
+                self.assertEqual(sleep_mock.call_count, 0)
+
     def test_gemini_resource_exhausted_body_is_rate_limit(self):
         client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
         error = HTTPError(
@@ -218,6 +244,23 @@ class AIClientTests(unittest.TestCase):
                     with self.assertRaises(expected) as raised:
                         client.complete_json([{"role": "user", "content": "x"}])
                 self.assertNotIn("secret-key", str(raised.exception))
+
+    def test_gemini_http_400_provider_body_redacts_exact_api_key(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        error_body = json.dumps(
+            {
+                "error": {
+                    "status": "INVALID_ARGUMENT",
+                    "message": "request rejected for secret-key",
+                }
+            }
+        ).encode("utf-8")
+        error = HTTPError("https://example.test", 400, "bad request", {}, io.BytesIO(error_body))
+        with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+            with self.assertRaises(AIInvalidRequestError) as raised:
+                client.complete_json([{"role": "user", "content": "x"}])
+        self.assertNotIn("secret-key", str(raised.exception))
+        self.assertIn("[REDACTED_API_KEY]", str(raised.exception))
 
     def test_gemini_timeout_is_classified(self):
         client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
