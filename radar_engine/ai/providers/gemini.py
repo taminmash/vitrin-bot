@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -23,6 +24,7 @@ from radar_engine.ai.providers.base import (
 GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 GEMINI_RATE_LIMIT_RETRY_CAP_SECONDS = 20.0
+logger = logging.getLogger(__name__)
 
 
 class GeminiProvider:
@@ -100,6 +102,7 @@ class GeminiProvider:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
             error_body = self._read_error_body(error)
+            self._log_http_error(error.code, error_body)
             if error.code in {401, 403}:
                 raise AIAuthenticationError("Gemini authentication failed") from error
             if error.code == 429:
@@ -188,4 +191,16 @@ class GeminiProvider:
         if self.api_key:
             return text.replace(self.api_key, "[REDACTED_API_KEY]")
         return text
+
+    def _safe_error_body_for_log(self, text: str) -> str:
+        return self._redact_api_key((text or "").strip())[:500]
+
+    def _log_http_error(self, status: int, response_body: str) -> None:
+        logger.warning(
+            "Gemini generateContent HTTP error status=%s url=%s model=%s response_body=%s",
+            status,
+            self._generate_content_url(),
+            self.model,
+            self._safe_error_body_for_log(response_body),
+        )
 

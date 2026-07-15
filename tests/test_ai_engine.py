@@ -262,6 +262,65 @@ class AIClientTests(unittest.TestCase):
         self.assertNotIn("secret-key", str(raised.exception))
         self.assertIn("[REDACTED_API_KEY]", str(raised.exception))
 
+    def test_gemini_http_error_logs_sanitized_diagnostics_without_changing_exception_types(self):
+        cases = [
+            (400, AIInvalidRequestError),
+            (401, AIAuthenticationError),
+            (403, AIAuthenticationError),
+            (404, AIModelUnavailableError),
+            (429, AIQuotaError),
+            (500, AINetworkError),
+        ]
+        for status, expected in cases:
+            with self.subTest(status=status):
+                client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+                error_body = json.dumps(
+                    {
+                        "error": {
+                            "status": "PROVIDER_STATUS",
+                            "message": f"provider body mentions secret-key for status {status}",
+                        }
+                    }
+                ).encode("utf-8")
+                error = HTTPError("https://example.test", status, "provider error", {}, io.BytesIO(error_body))
+                with self.assertLogs("radar_engine.ai.providers.gemini", level="WARNING") as logs:
+                    with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+                        with self.assertRaises(expected):
+                            client.complete_json([{"role": "user", "content": "full prompt must not be logged"}])
+
+                text = "\n".join(logs.output)
+                self.assertIn(f"status={status}", text)
+                self.assertIn("https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent", text)
+                self.assertIn("model=gemini-test", text)
+                self.assertIn("[REDACTED_API_KEY]", text)
+                self.assertNotIn("secret-key", text)
+                self.assertNotIn("full prompt must not be logged", text)
+
+    def test_gemini_http_404_logs_provider_response_body(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        body_text = '{"error":{"status":"NOT_FOUND","message":"models/gemini-test is not found"}}'
+        error = HTTPError("https://example.test", 404, "not found", {}, io.BytesIO(body_text.encode("utf-8")))
+        with self.assertLogs("radar_engine.ai.providers.gemini", level="WARNING") as logs:
+            with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+                with self.assertRaises(AIModelUnavailableError):
+                    client.complete_json([{"role": "user", "content": "x"}])
+        text = "\n".join(logs.output)
+        self.assertIn("status=404", text)
+        self.assertIn("NOT_FOUND", text)
+        self.assertIn("models/gemini-test is not found", text)
+
+    def test_gemini_http_error_log_body_is_bounded(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        long_body = "x" * 700
+        error = HTTPError("https://example.test", 400, "bad request", {}, io.BytesIO(long_body.encode("utf-8")))
+        with self.assertLogs("radar_engine.ai.providers.gemini", level="WARNING") as logs:
+            with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+                with self.assertRaises(AIInvalidRequestError):
+                    client.complete_json([{"role": "user", "content": "x"}])
+        text = "\n".join(logs.output)
+        self.assertIn("response_body=" + ("x" * 500), text)
+        self.assertNotIn("x" * 501, text)
+
     def test_gemini_timeout_is_classified(self):
         client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
         with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=TimeoutError("slow")):
