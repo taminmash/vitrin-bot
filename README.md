@@ -291,6 +291,9 @@ structured JSON output. The default model is Google's stable Flash-Lite model
 classification/extraction work. Set `AI_PROVIDER=openai` to use the
 OpenAI-compatible provider explicitly; there is no silent fallback between
 providers.
+Gemini requests use the official `generateContent` REST endpoint with
+`generationConfig.responseMimeType=application/json` and
+`generationConfig.responseJsonSchema` when a schema is supplied.
 
 Manual one-off processing:
 

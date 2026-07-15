@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -7,6 +8,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from radar_engine.ai.providers import (  # noqa: E402
+    AIAuthenticationError,
+    AIConfigurationError,
+    AIInvalidRequestError,
+    AIModelUnavailableError,
+    AINetworkError,
+    AIProviderResponseError,
+    AIQuotaError,
+    AITimeoutError,
+)
+from radar_engine.ai.providers.gemini import DEFAULT_GEMINI_MODEL, GeminiProvider  # noqa: E402
 
 
 def print_report(report) -> None:
@@ -49,32 +62,57 @@ def check_provider() -> int:
 
 
 def provider_smoke_test() -> int:
-    from radar_engine.ai.client import build_ai_provider
-
-    provider = build_ai_provider()
-    result = provider.complete_json(
-        [
-            {
-                "role": "user",
-                "content": (
-                    "Return only this JSON object in Persian-safe UTF-8: "
-                    '{"headline":"تست","short_summary":"موفق","why_it_matters":"بررسی اتصال","confidence":0.9}'
-                ),
-            }
-        ],
-        schema={
-            "type": "object",
-            "properties": {
-                "headline": {"type": "string"},
-                "short_summary": {"type": "string"},
-                "why_it_matters": {"type": "string"},
-                "confidence": {"type": "number"},
-            },
-            "required": ["headline", "short_summary", "why_it_matters", "confidence"],
-        },
+    provider = GeminiProvider(
+        api_key=os.getenv("GEMINI_API_KEY"),
+        model=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+        max_retries=0,
     )
-    print(f"AI provider: {getattr(provider, 'provider_name', '-')}")
+    print("AI provider: gemini")
     print(f"AI model: {provider.model}")
+    try:
+        result = provider.complete_json(
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "Return only this JSON object in Persian-safe UTF-8: "
+                        '{"headline":"تست","short_summary":"موفق","why_it_matters":"بررسی اتصال","confidence":0.9}'
+                    ),
+                }
+            ],
+            schema={
+                "type": "object",
+                "properties": {
+                    "headline": {"type": "string"},
+                    "short_summary": {"type": "string"},
+                    "why_it_matters": {"type": "string"},
+                    "confidence": {"type": "number"},
+                },
+                "required": ["headline", "short_summary", "why_it_matters", "confidence"],
+            },
+        )
+    except AIConfigurationError:
+        print("Smoke test result: missing configuration")
+        return 6
+    except AIAuthenticationError:
+        print("Smoke test result: authentication failed")
+        return 4
+    except AIModelUnavailableError:
+        print("Smoke test result: invalid model or endpoint")
+        return 3
+    except AIQuotaError:
+        print("Smoke test result: quota/rate limited")
+        return 2
+    except (AIInvalidRequestError, AIProviderResponseError):
+        print("Smoke test result: provider response failed")
+        return 5
+    except AITimeoutError:
+        print("Smoke test result: timeout")
+        return 7
+    except AINetworkError:
+        print("Smoke test result: network or provider server failure")
+        return 8
+    print("Smoke test result: success")
     print(f"Smoke test keys: {', '.join(sorted(result.keys()))}")
     return 0
 
@@ -85,7 +123,7 @@ def main() -> int:
     parser.add_argument("--candidate-id", help="Process a single candidate UUID.")
     parser.add_argument("--dry-run", action="store_true", help="Call AI and validate output without writing results.")
     parser.add_argument("--check-provider", action="store_true", help="Validate AI provider configuration without using the database.")
-    parser.add_argument("--provider-smoke-test", action="store_true", help="Call the configured provider once without database writes.")
+    parser.add_argument("--provider-smoke-test", action="store_true", help="Call Gemini once without database writes.")
     args = parser.parse_args()
     if args.check_provider:
         return check_provider()

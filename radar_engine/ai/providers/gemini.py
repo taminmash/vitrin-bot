@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from radar_engine.ai.providers.base import (
@@ -19,7 +20,7 @@ from radar_engine.ai.providers.base import (
 )
 
 
-GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 GEMINI_RATE_LIMIT_RETRY_CAP_SECONDS = 20.0
 
@@ -45,15 +46,19 @@ class GeminiProvider:
         if not self.api_key:
             raise AIConfigurationError("GEMINI_API_KEY is not configured")
         payload = {
-            "model": self.model,
-            "input": self._messages_to_prompt(messages),
-            "response_format": {
-                "type": "text",
-                "mime_type": "application/json",
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": self._messages_to_prompt(messages)}],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
             },
         }
         if schema:
-            payload["response_format"]["schema"] = schema
+            payload["generationConfig"]["responseJsonSchema"] = schema
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         last_error = None
         for attempt in range(self.max_retries + 1):
@@ -75,11 +80,13 @@ class GeminiProvider:
                 if attempt >= self.max_retries:
                     break
                 sleep_before_retry(self.backoff_seconds, attempt)
+        if isinstance(last_error, AITimeoutError):
+            raise last_error
         raise AINetworkError(f"Gemini request failed after retries: {last_error}")
 
     def _post(self, body: bytes) -> dict:
         request = Request(
-            GEMINI_INTERACTIONS_URL,
+            self._generate_content_url(),
             data=body,
             headers={
                 "x-goog-api-key": self.api_key,
@@ -101,7 +108,9 @@ class GeminiProvider:
                     retry_after_seconds=self._retry_after_seconds(error),
                 ) from error
             if error.code == 404:
-                raise AIModelUnavailableError(f"Gemini model is unavailable: {self.model}") from error
+                raise AIModelUnavailableError(
+                    f"Gemini model or generateContent endpoint is unavailable: {self.model}"
+                ) from error
             if 500 <= error.code < 600:
                 raise AINetworkError(f"Gemini server error HTTP {error.code}") from error
             if self._looks_like_rate_limit(error_body):
@@ -109,7 +118,9 @@ class GeminiProvider:
                     "Gemini quota or rate limit exceeded",
                     retry_after_seconds=self._retry_after_seconds(error),
                 ) from error
-            raise AIInvalidRequestError(f"Gemini request failed HTTP {error.code}") from error
+            summary = self._safe_error_summary(error_body)
+            suffix = f": {summary}" if summary else ""
+            raise AIInvalidRequestError(f"Gemini request failed HTTP {error.code}{suffix}") from error
         except TimeoutError as error:
             raise AITimeoutError("Gemini request timed out") from error
         except URLError as error:
@@ -126,19 +137,19 @@ class GeminiProvider:
                 parts.append(f"{role.upper()}:\n{content}")
         return "\n\n".join(parts)
 
+    def _generate_content_url(self) -> str:
+        safe_model = quote(self.model, safe="")
+        return GEMINI_GENERATE_CONTENT_URL.format(model=safe_model)
+
     def _extract_output_text(self, payload: dict) -> str:
-        output_text = payload.get("output_text")
-        if isinstance(output_text, str):
-            return output_text
-        text = payload.get("text")
-        if isinstance(text, str):
-            return text
         candidates = payload.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            texts = [part.get("text", "") for part in parts if isinstance(part, dict)]
-            if texts:
-                return "".join(texts)
+        if not isinstance(candidates, list) or not candidates:
+            raise AIProviderResponseError("Gemini response did not include candidates")
+        parts = candidates[0].get("content", {}).get("parts", [])
+        texts = [part.get("text", "") for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)]
+        output = "".join(texts).strip()
+        if output:
+            return output
         raise AIProviderResponseError("Gemini response did not include output text")
 
     def _read_error_body(self, error: HTTPError) -> str:
@@ -159,4 +170,22 @@ class GeminiProvider:
     def _looks_like_rate_limit(self, text: str) -> bool:
         lowered = (text or "").casefold()
         return any(marker in lowered for marker in ("quota", "rate limit", "resource exhausted", "resource_exhausted"))
+
+    def _safe_error_summary(self, text: str) -> str:
+        try:
+            payload = json.loads(text or "{}")
+            error = payload.get("error", {}) if isinstance(payload, dict) else {}
+            pieces = []
+            for key in ("status", "message"):
+                value = error.get(key)
+                if isinstance(value, str) and value.strip():
+                    pieces.append(value.strip())
+            return self._redact_api_key(" | ".join(pieces))[:240]
+        except Exception:
+            return self._redact_api_key((text or "").strip())[:120]
+
+    def _redact_api_key(self, text: str) -> str:
+        if self.api_key:
+            return text.replace(self.api_key, "[REDACTED_API_KEY]")
+        return text
 

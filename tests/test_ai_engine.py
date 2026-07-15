@@ -3,15 +3,24 @@ import json
 import sys
 import types
 import unittest
-from urllib.error import HTTPError
 from contextlib import contextmanager
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
 from radar_engine.ai.client import AIClient, OpenAIClient, provider_info, selected_ai_provider
-from radar_engine.ai.providers import AIConfigurationError, AIQuotaError
-from radar_engine.ai.providers.gemini import DEFAULT_GEMINI_MODEL, GeminiProvider
 from radar_engine.ai.engine import RadarAIEngine
 from radar_engine.ai.models import AITaskResult, StoredAICandidate
+from radar_engine.ai.providers import (
+    AIAuthenticationError,
+    AIConfigurationError,
+    AIInvalidRequestError,
+    AIModelUnavailableError,
+    AINetworkError,
+    AIProviderResponseError,
+    AIQuotaError,
+    AITimeoutError,
+)
+from radar_engine.ai.providers.gemini import DEFAULT_GEMINI_MODEL, GeminiProvider
 from radar_engine.ai.summarizer import RadarAISummarizer
 from radar_engine.ai.storage import load_pending_ai_candidates, store_ai_result
 from tests.test_radar_candidate import make_candidate
@@ -28,7 +37,11 @@ class FakeResponse:
         return False
 
     def read(self):
-        return json.dumps(self.payload).encode("utf-8")
+        return json.dumps(self.payload, ensure_ascii=False).encode("utf-8")
+
+
+def gemini_response(text: str) -> dict:
+    return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
 
 
 class AIClientTests(unittest.TestCase):
@@ -46,7 +59,17 @@ class AIClientTests(unittest.TestCase):
         self.assertTrue(info.configured)
 
     def test_successful_structured_response(self):
-        payload = {"choices": [{"message": {"content": json.dumps({"headline": "h", "short_summary": "s", "why_it_matters": "w", "confidence": 0.8})}}]}
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"headline": "h", "short_summary": "s", "why_it_matters": "w", "confidence": 0.8}
+                        )
+                    }
+                }
+            ]
+        }
         client = OpenAIClient(api_key="key", model="model", max_retries=0)
         with patch("radar_engine.ai.providers.openai.urlopen", return_value=FakeResponse(payload)):
             result = client.complete_json([{"role": "user", "content": "x"}])
@@ -65,7 +88,7 @@ class AIClientTests(unittest.TestCase):
 
     def test_retry_logic_for_timeout(self):
         client = OpenAIClient(api_key="key", model="model", max_retries=1, backoff_seconds=0)
-        payload = {"choices": [{"message": {"content": json.dumps({"headline": "h", "short_summary": "s", "why_it_matters": "w", "confidence": 0.8})}}]}
+        payload = {"choices": [{"message": {"content": json.dumps({"headline": "h"})}}]}
         calls = [TimeoutError("timeout"), FakeResponse(payload)]
 
         def fake_urlopen(request, timeout):
@@ -74,22 +97,60 @@ class AIClientTests(unittest.TestCase):
                 raise item
             return item
 
-        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=fake_urlopen), patch("radar_engine.ai.providers.base.time.sleep"):
+        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=fake_urlopen), patch(
+            "radar_engine.ai.providers.base.time.sleep"
+        ):
             result = client.complete_json([{"role": "user", "content": "x"}])
         self.assertEqual(result["headline"], "h")
 
     def test_timeout_failure_after_retries(self):
         client = OpenAIClient(api_key="key", model="model", max_retries=1, backoff_seconds=0)
-        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=TimeoutError("timeout")), patch("radar_engine.ai.providers.base.time.sleep"):
+        with patch("radar_engine.ai.providers.openai.urlopen", side_effect=TimeoutError("timeout")), patch(
+            "radar_engine.ai.providers.base.time.sleep"
+        ):
             with self.assertRaises(RuntimeError):
                 client.complete_json([{"role": "user", "content": "x"}])
 
     def test_gemini_structured_response_and_json_fence(self):
-        response = {"output_text": "```json\n{\"headline\":\"تیتر\",\"short_summary\":\"خلاصه\",\"why_it_matters\":\"دلیل\",\"confidence\":0.9}\n```"}
+        response = gemini_response(
+            '```json\n{"headline":"تیتر","short_summary":"خلاصه","why_it_matters":"دلیل","confidence":0.9}\n```'
+        )
         client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
         with patch("radar_engine.ai.providers.gemini.urlopen", return_value=FakeResponse(response)):
             result = client.complete_json([{"role": "user", "content": "x"}], schema={"type": "object"})
         self.assertEqual(result["headline"], "تیتر")
+
+    def test_gemini_generate_content_request_shape_and_headers(self):
+        response = gemini_response('{"ok":true}')
+        client = GeminiProvider(api_key="secret-key", model="gemini-2.5-flash-lite", max_retries=0)
+        seen = {}
+
+        def fake_urlopen(request, timeout):
+            seen["url"] = request.full_url
+            seen["timeout"] = timeout
+            seen["key"] = request.get_header("X-goog-api-key")
+            seen["content_type"] = request.get_header("Content-type")
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse(response)
+
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+        with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=fake_urlopen):
+            result = client.complete_json(
+                [{"role": "system", "content": "Rules"}, {"role": "user", "content": "سلام"}],
+                schema=schema,
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertIn("/v1beta/models/gemini-2.5-flash-lite:generateContent", seen["url"])
+        self.assertEqual(seen["key"], "secret-key")
+        self.assertEqual(seen["content_type"], "application/json")
+        self.assertEqual(seen["timeout"], client.timeout_seconds)
+        self.assertEqual(seen["body"]["contents"][0]["role"], "user")
+        self.assertIn("SYSTEM:\nRules", seen["body"]["contents"][0]["parts"][0]["text"])
+        self.assertIn("USER:\nسلام", seen["body"]["contents"][0]["parts"][0]["text"])
+        generation_config = seen["body"]["generationConfig"]
+        self.assertEqual(generation_config["responseMimeType"], "application/json")
+        self.assertEqual(generation_config["responseJsonSchema"], schema)
 
     def test_gemini_rate_limit_retries_once_then_raises_quota(self):
         client = GeminiProvider(api_key="key", model="gemini-test", max_retries=3, backoff_seconds=0)
@@ -108,6 +169,32 @@ class AIClientTests(unittest.TestCase):
         self.assertEqual(urlopen_mock.call_count, 2)
         self.assertEqual(sleep_mock.call_count, 1)
 
+    def test_gemini_zero_retries_attempts_once_on_quota_timeout_and_network(self):
+        cases = [
+            (
+                HTTPError(
+                    "https://example.test",
+                    429,
+                    "rate limit",
+                    {"Retry-After": "2"},
+                    io.BytesIO(b'{"error":{"status":"RESOURCE_EXHAUSTED"}}'),
+                ),
+                AIQuotaError,
+            ),
+            (TimeoutError("slow"), AITimeoutError),
+            (URLError("network down"), AINetworkError),
+        ]
+        for error, expected in cases:
+            with self.subTest(error=type(error).__name__):
+                client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0, backoff_seconds=0)
+                with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error) as urlopen_mock, patch(
+                    "radar_engine.ai.providers.base.time.sleep"
+                ) as sleep_mock:
+                    with self.assertRaises(expected):
+                        client.complete_json([{"role": "user", "content": "x"}])
+                self.assertEqual(urlopen_mock.call_count, 1)
+                self.assertEqual(sleep_mock.call_count, 0)
+
     def test_gemini_resource_exhausted_body_is_rate_limit(self):
         client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
         error = HTTPError(
@@ -119,6 +206,66 @@ class AIClientTests(unittest.TestCase):
         )
         with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
             with self.assertRaises(AIQuotaError):
+                client.complete_json([{"role": "user", "content": "x"}])
+
+    def test_gemini_empty_candidates_empty_text_and_malformed_json_are_rejected(self):
+        client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
+        cases = [
+            {"candidates": []},
+            {"candidates": [{"content": {"parts": [{"text": ""}]}}]},
+            {"candidates": [{"content": {"parts": [{"text": "not-json"}]}}]},
+        ]
+        for response in cases:
+            with self.subTest(response=response):
+                with patch("radar_engine.ai.providers.gemini.urlopen", return_value=FakeResponse(response)):
+                    with self.assertRaises((AIProviderResponseError, ValueError)):
+                        client.complete_json([{"role": "user", "content": "x"}])
+
+    def test_gemini_http_errors_are_classified_without_exposing_key(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        cases = [
+            (400, AIInvalidRequestError),
+            (401, AIAuthenticationError),
+            (403, AIAuthenticationError),
+            (404, AIModelUnavailableError),
+            (429, AIQuotaError),
+            (500, AINetworkError),
+        ]
+        for status, expected in cases:
+            with self.subTest(status=status):
+                error = HTTPError(
+                    "https://example.test",
+                    status,
+                    "provider error",
+                    {},
+                    io.BytesIO(b'{"error":{"status":"BAD","message":"safe provider detail"}}'),
+                )
+                with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+                    with self.assertRaises(expected) as raised:
+                        client.complete_json([{"role": "user", "content": "x"}])
+                self.assertNotIn("secret-key", str(raised.exception))
+
+    def test_gemini_http_400_provider_body_redacts_exact_api_key(self):
+        client = GeminiProvider(api_key="secret-key", model="gemini-test", max_retries=0)
+        error_body = json.dumps(
+            {
+                "error": {
+                    "status": "INVALID_ARGUMENT",
+                    "message": "request rejected for secret-key",
+                }
+            }
+        ).encode("utf-8")
+        error = HTTPError("https://example.test", 400, "bad request", {}, io.BytesIO(error_body))
+        with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=error):
+            with self.assertRaises(AIInvalidRequestError) as raised:
+                client.complete_json([{"role": "user", "content": "x"}])
+        self.assertNotIn("secret-key", str(raised.exception))
+        self.assertIn("[REDACTED_API_KEY]", str(raised.exception))
+
+    def test_gemini_timeout_is_classified(self):
+        client = GeminiProvider(api_key="key", model="gemini-test", max_retries=0)
+        with patch("radar_engine.ai.providers.gemini.urlopen", side_effect=TimeoutError("slow")):
+            with self.assertRaises(AITimeoutError):
                 client.complete_json([{"role": "user", "content": "x"}])
 
     def test_default_ai_client_uses_configured_provider(self):
