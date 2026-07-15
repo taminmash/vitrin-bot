@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -193,7 +194,16 @@ class GeminiProvider:
         return text
 
     def _safe_error_body_for_log(self, text: str) -> str:
-        return self._redact_api_key((text or "").strip())[:500]
+        return self._redact_api_key(self._one_line_error_body(text))[:500]
+
+    def _one_line_error_body(self, text: str) -> str:
+        raw = (text or "").strip()
+        if not raw:
+            return ""
+        try:
+            return json.dumps(json.loads(raw), ensure_ascii=False, separators=(",", ":"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return re.sub(r"\s+", " ", raw.replace("\r", " ").replace("\n", " ")).strip()
 
     def _log_http_error(self, status: int, response_body: str) -> None:
         logger.warning(
