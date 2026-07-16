@@ -39,6 +39,7 @@ def load_pending_ai_candidates(limit: int = 50, candidate_id: str | None = None)
                 SELECT *
                 FROM radar_candidates
                 WHERE id = %s AND candidate_status = %s
+                  AND metadata -> 'actionability_gate' ->> 'passed' = 'true'
                   AND NOT EXISTS (
                     SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
                   )
@@ -52,6 +53,7 @@ def load_pending_ai_candidates(limit: int = 50, candidate_id: str | None = None)
                 SELECT *
                 FROM radar_candidates
                 WHERE candidate_status = %s
+                  AND metadata -> 'actionability_gate' ->> 'passed' = 'true'
                   AND NOT EXISTS (
                     SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
                   )

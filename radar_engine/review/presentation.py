@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from radar_engine.pipeline.actionability import ACTIONABILITY_METADATA_KEY
+
 
 SAFE_TELEGRAM_TEXT_LIMIT = 3800
 TRUNCATION_MARKER = "… [متن اصلی کوتاه شده است]"
@@ -45,6 +47,19 @@ def _format_list(values, labeler=None) -> str:
     return "، ".join(labels) or "-"
 
 
+def _actionability_scores(candidate) -> tuple[str, str]:
+    metadata = candidate.metadata if isinstance(candidate.metadata, dict) else {}
+    gate = metadata.get(ACTIONABILITY_METADATA_KEY)
+    if not isinstance(gate, dict):
+        gate = metadata
+    importance = gate.get("importance_score")
+    actionability = gate.get("actionability_score")
+    return (
+        str(importance) if importance is not None else "Unknown",
+        str(actionability) if actionability is not None else "Unknown",
+    )
+
+
 def _review_item_text_from_fields(fields: dict[str, str], classification) -> str:
     return (
         "🧭 بازبینی رادار\n\n"
@@ -56,6 +71,9 @@ def _review_item_text_from_fields(fields: dict[str, str], classification) -> str
         f"{fields['summary']}\n"
         f"چرا مهم است: {fields['why_it_matters']}\n"
         f"اعتماد خلاصه: {fields['summary_confidence']}\n\n"
+        "Radar V2:\n"
+        f"Importance: {fields['importance_score']}\n"
+        f"Actionability: {fields['actionability_score']}\n\n"
         "طبقه‌بندی هوش مصنوعی:\n"
         f"دسته اصلی: {fields['categories']}\n"
         f"تگ‌های دسته: {fields['category_tags']}\n"
@@ -143,6 +161,7 @@ def build_review_item_text(
     audience = _format_list(classification.audience_tags, audience_labeler)
     cities = _format_list(classification.cities)
     urgency = urgency_labeler(classification.urgency) if urgency_labeler else classification.urgency
+    importance_score, actionability_score = _actionability_scores(candidate)
     fields = {
         "title": candidate.title or "-",
         "body": candidate.body or "-",
@@ -150,6 +169,8 @@ def build_review_item_text(
         "summary": summary.summary,
         "why_it_matters": summary.why_it_matters,
         "summary_confidence": str(summary.confidence),
+        "importance_score": importance_score,
+        "actionability_score": actionability_score,
         "categories": categories,
         "category_tags": category_tags,
         "audience": audience,

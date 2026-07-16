@@ -522,3 +522,4 @@ class AIStorageTests(unittest.TestCase):
         sql = "\n".join(statement for statement, _ in cursor.executed)
         self.assertIn("NOT EXISTS", sql)
         self.assertIn("radar_ai_results", sql)
+        self.assertIn("actionability_gate", sql)

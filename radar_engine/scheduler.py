@@ -14,6 +14,7 @@ from radar_engine.ai.client import selected_ai_provider
 from radar_engine.ai.providers import AIConfigurationError
 from radar_engine.classification.engine import ClassificationReport, RadarClassificationEngine
 from radar_engine.pipeline.engine import PipelineReport, RadarCandidatePipeline
+from radar_engine.pipeline.actionability_backfill import ActionabilityBackfillReport, backfill_actionability
 from radar_engine.source_manager import IngestionReport, build_default_source_manager
 
 
@@ -42,6 +43,10 @@ class RadarFetchCycleReport:
     skipped_duplicate: int = 0
     inserted_raw: int = 0
     candidate_created: int = 0
+    actionability_backfill_evaluated: int = 0
+    actionability_backfill_passed: int = 0
+    actionability_backfill_rejected: int = 0
+    actionability_backfill_remaining: int = 0
     ai_completed: int = 0
     ai_processed: int = 0
     ai_failed: int = 0
@@ -195,6 +200,17 @@ def _default_ai_stage(limit: int, request_delay_seconds: float = 0.0):
         return await asyncio.to_thread(RadarAIEngine(request_delay_seconds=request_delay_seconds).run, limit=limit)
 
     return run_ai
+
+
+def _default_actionability_backfill_stage(limit: int):
+    async def run_backfill():
+        return await asyncio.to_thread(backfill_actionability, limit=limit)
+
+    return run_backfill
+
+
+async def _empty_actionability_backfill_stage():
+    return ActionabilityBackfillReport()
 
 
 def _default_classification_stage(limit: int, request_delay_seconds: float = 0.0):
@@ -352,6 +368,7 @@ class RadarBOEIngestionScheduler:
         ai_request_delay_seconds: float | None = None,
         ingest_stage: AsyncStage | None = None,
         pipeline_stage: AsyncStage | None = None,
+        actionability_backfill_stage: AsyncStage | None = None,
         ai_stage: AsyncStage | None = None,
         classification_stage: AsyncStage | None = None,
         review_notification_stage: ReviewNotificationStage | None = None,
@@ -376,6 +393,13 @@ class RadarBOEIngestionScheduler:
         )
         self.ingest_stage = ingest_stage or _default_ingest_stage(source_key)
         self.pipeline_stage = pipeline_stage or _default_pipeline_stage(self.stage_limit)
+        if actionability_backfill_stage is not None:
+            self.actionability_backfill_stage = actionability_backfill_stage
+        elif pipeline_stage is not None:
+            # Explicitly injected stages are isolated by default (primarily tests/tools).
+            self.actionability_backfill_stage = _empty_actionability_backfill_stage
+        else:
+            self.actionability_backfill_stage = _default_actionability_backfill_stage(self.stage_limit)
         self.ai_stage = ai_stage or _default_ai_stage(self.ai_batch_limit, self.ai_request_delay_seconds)
         self.classification_stage = classification_stage or _default_classification_stage(
             self.ai_batch_limit,
@@ -450,6 +474,9 @@ class RadarBOEIngestionScheduler:
                 pipeline = await self.pipeline_stage()
                 self._apply_pipeline(report, pipeline)
 
+                backfill = await self.actionability_backfill_stage()
+                self._apply_actionability_backfill(report, backfill)
+
                 ai = await self.ai_stage()
                 self._apply_ai(report, ai)
                 if isinstance(ai, AIReport) and ai.stopped_early:
@@ -498,6 +525,15 @@ class RadarBOEIngestionScheduler:
         report.ai_postponed = ai.remaining
         report.errors.extend(ai.errors)
 
+    def _apply_actionability_backfill(self, report: RadarFetchCycleReport, backfill) -> None:
+        if not isinstance(backfill, ActionabilityBackfillReport):
+            return
+        report.actionability_backfill_evaluated = backfill.evaluated
+        report.actionability_backfill_passed = backfill.passed
+        report.actionability_backfill_rejected = backfill.rejected
+        report.actionability_backfill_remaining = backfill.remaining
+        report.errors.extend(backfill.errors)
+
     def _apply_classification(self, report: RadarFetchCycleReport, classification) -> None:
         if not isinstance(classification, ClassificationReport):
             return
@@ -525,7 +561,8 @@ class RadarBOEIngestionScheduler:
             return
         logger.info(
             "Radar BOE cycle metrics: Fetched=%s Skipped duplicate=%s Inserted raw=%s "
-            "Candidate created=%s AI processed=%s AI completed=%s AI failed=%s "
+            "Candidate created=%s Actionability backfill evaluated=%s passed=%s rejected=%s remaining=%s "
+            "AI processed=%s AI completed=%s AI failed=%s "
             "AI postponed=%s Classification completed=%s Classification postponed=%s "
             "Remaining AI queue estimate=%s "
             "Queued for review=%s Cycle duration=%.2fs",
@@ -533,6 +570,10 @@ class RadarBOEIngestionScheduler:
             report.skipped_duplicate,
             report.inserted_raw,
             report.candidate_created,
+            report.actionability_backfill_evaluated,
+            report.actionability_backfill_passed,
+            report.actionability_backfill_rejected,
+            report.actionability_backfill_remaining,
             report.ai_processed,
             report.ai_completed,
             report.ai_failed,

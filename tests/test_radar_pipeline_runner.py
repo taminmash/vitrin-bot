@@ -18,6 +18,7 @@ class PipelineRunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Run the deterministic Radar raw-to-candidate pipeline", result.stdout)
+        self.assertIn("--backfill-actionability", result.stdout)
 
     def test_invalid_limit_rejected(self):
         result = subprocess.run(

@@ -81,6 +81,7 @@ def load_pending_classification_candidates(
                 JOIN radar_ai_results ai ON ai.candidate_id = c.id
                 WHERE c.id = %s
                   AND c.candidate_status = %s
+                  AND c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
                   AND NOT EXISTS (
                     SELECT 1
                     FROM radar_ai_classifications cls
@@ -121,6 +122,7 @@ def load_pending_classification_candidates(
                 FROM radar_candidates c
                 JOIN radar_ai_results ai ON ai.candidate_id = c.id
                 WHERE c.candidate_status = %s
+                  AND c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
                   AND NOT EXISTS (
                     SELECT 1
                     FROM radar_ai_classifications cls

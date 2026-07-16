@@ -96,6 +96,7 @@ class ReviewStorageTests(unittest.TestCase):
         self.assertIn("JOIN radar_ai_classifications", sql)
         self.assertIn("NOT EXISTS", sql)
         self.assertIn("radar_reviews", sql)
+        self.assertIn("actionability_gate", sql)
         self.assertEqual(params, (5,))
 
     def test_candidate_specific_loading_is_parameterized(self):
@@ -104,6 +105,7 @@ class ReviewStorageTests(unittest.TestCase):
             self.assertEqual(load_review_queue(candidate_id="candidate-1"), [])
         sql, params = cursor.executed[0]
         self.assertIn("c.id = %s", sql)
+        self.assertIn("actionability_gate", sql)
         self.assertEqual(params, ("candidate-1",))
 
     def test_approve_reject_and_needs_edit_insert_review_only(self):
@@ -144,6 +146,8 @@ class ReviewStorageTests(unittest.TestCase):
         self.assertEqual(report.approved, 2)
         self.assertEqual(report.rejected, 1)
         self.assertEqual(report.needs_edit, 3)
+        sql_text = "\n".join(sql for sql, _ in cursor.executed)
+        self.assertIn("actionability_gate", sql_text)
 
 
 if __name__ == "__main__":
