@@ -77,6 +77,13 @@ class ActionabilityGateTests(unittest.TestCase):
             "appointment",
         )
 
+    def test_real_decreto_does_not_override_routine_appointment_rejection(self):
+        self.assert_rejects(
+            "Real Decreto de nombramiento rutinario",
+            "Real Decreto por el que se publica el nombramiento de un cargo publico.",
+            "appointment",
+        )
+
     def test_internal_staffing_rejection(self):
         self.assert_rejects(
             "Cese de personal directivo",

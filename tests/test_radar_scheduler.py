@@ -210,6 +210,34 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.classification_completed, 2)
         self.assertEqual(report.queued_for_review, 2)
 
+    async def test_bounded_actionability_backfill_runs_before_ai(self):
+        calls = []
+
+        async def backfill():
+            calls.append("backfill")
+            from radar_engine.pipeline.actionability_backfill import ActionabilityBackfillReport
+
+            return ActionabilityBackfillReport(evaluated=2, passed=1, rejected=1, remaining=3)
+
+        async def ai():
+            calls.append("ai")
+            return AIReport(completed=0)
+
+        scheduler = RadarBOEIngestionScheduler(
+            ingest_stage=lambda: immediate_report(IngestionReport("boe")),
+            pipeline_stage=lambda: immediate_report(PipelineReport()),
+            actionability_backfill_stage=backfill,
+            ai_stage=ai,
+            classification_stage=lambda: immediate_report(ClassificationReport()),
+            lock_factory=lambda: FakeLock(True),
+        )
+        report = await scheduler.run_once()
+        self.assertEqual(calls, ["backfill", "ai"])
+        self.assertEqual(report.actionability_backfill_evaluated, 2)
+        self.assertEqual(report.actionability_backfill_passed, 1)
+        self.assertEqual(report.actionability_backfill_rejected, 1)
+        self.assertEqual(report.actionability_backfill_remaining, 3)
+
     async def test_scheduler_notifies_review_stage_after_classification(self):
         calls = []
 

@@ -257,7 +257,17 @@ Manual one-off processing:
 ```bash
 python scripts/run_radar_pipeline.py
 python scripts/run_radar_pipeline.py --limit 50
+python scripts/run_radar_pipeline.py --backfill-actionability --limit 200
 ```
+
+Each normal scheduler cycle performs a bounded FIFO actionability backfill after
+new candidate ingestion and before AI loading. It evaluates at most the scheduler
+stage limit (50 by default), only for legacy `pending_ai` candidates that do not
+already contain `metadata.actionability_gate`. Passed candidates remain eligible
+for AI; rejected candidates remain stored with their gate decision and validation
+outcome. The explicit command above performs the same safe, idempotent backfill
+without AI, review, promotion, publication, or candidate deletion and reports the
+evaluated, passed, rejected, and remaining counts.
 
 The default limit is 100 and the maximum accepted limit is 500. Processing reads
 raw rows with `ingestion_status = raw`, creates idempotent candidate rows in
