@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import logging
 
+from radar_engine.pipeline.actionability import apply_actionability_metadata, evaluate_actionability
 from radar_engine.pipeline.enricher import PIPELINE_VERSION, enrich_candidate
 from radar_engine.pipeline.normalizer import normalize_raw_item
 from radar_engine.pipeline.storage import (
@@ -12,7 +13,7 @@ from radar_engine.pipeline.storage import (
     mark_raw_rejected,
     store_candidate,
 )
-from radar_engine.pipeline.validator import validate_candidate
+from radar_engine.pipeline.validator import ValidationIssue, validate_candidate
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,18 @@ class RadarCandidatePipeline:
                 if not source_info:
                     raise ValueError(f"Missing source registry entry for {raw_item.source_key}")
                 candidate = enrich_candidate(normalize_raw_item(raw_item, source_info))
+                actionability = evaluate_actionability(candidate)
+                apply_actionability_metadata(candidate, actionability)
                 validation = validate_candidate(candidate)
+                if validation.is_valid and not actionability.passed:
+                    validation.is_valid = False
+                    validation.issues.append(
+                        ValidationIssue(
+                            "actionability",
+                            actionability.rejection_reason or "low_practical_impact",
+                            "Candidate does not meet Radar actionability requirements.",
+                        )
+                    )
                 if validation.is_valid:
                     result = self.store_valid(candidate, validation, PIPELINE_VERSION)
                 else:

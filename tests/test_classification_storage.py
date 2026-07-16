@@ -76,6 +76,7 @@ class ClassificationStorageTests(unittest.TestCase):
         self.assertIn("JOIN radar_ai_results", sql)
         self.assertIn("NOT EXISTS", sql)
         self.assertIn("radar_ai_classifications", sql)
+        self.assertIn("actionability_gate", sql)
         self.assertEqual(params, ("pending_ai", 5))
 
     def test_candidate_specific_loading_uses_candidate_id(self):
@@ -85,6 +86,7 @@ class ClassificationStorageTests(unittest.TestCase):
         self.assertEqual(rows, [])
         sql, params = cursor.executed[0]
         self.assertIn("c.id = %s", sql)
+        self.assertIn("actionability_gate", sql)
         self.assertEqual(params, ("candidate-1", "pending_ai"))
 
     def test_store_uses_conflict_skip_and_json_arrays(self):

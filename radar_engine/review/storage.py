@@ -111,6 +111,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
                 JOIN radar_ai_results ai ON ai.candidate_id = c.id
                 JOIN radar_ai_classifications cls ON cls.candidate_id = c.id
                 WHERE c.id = %s
+                  AND c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
                   AND NOT EXISTS (
                     SELECT 1 FROM radar_reviews reviews WHERE reviews.candidate_id = c.id
                   )
@@ -161,7 +162,8 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
                 FROM radar_candidates c
                 JOIN radar_ai_results ai ON ai.candidate_id = c.id
                 JOIN radar_ai_classifications cls ON cls.candidate_id = c.id
-                WHERE NOT EXISTS (
+                WHERE c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
+                  AND NOT EXISTS (
                     SELECT 1 FROM radar_reviews reviews WHERE reviews.candidate_id = c.id
                 )
                 ORDER BY cls.created_at ASC
@@ -228,7 +230,8 @@ def review_status_report() -> ReviewQueueReport:
             FROM radar_candidates c
             JOIN radar_ai_results ai ON ai.candidate_id = c.id
             JOIN radar_ai_classifications cls ON cls.candidate_id = c.id
-            WHERE NOT EXISTS (
+            WHERE c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
+              AND NOT EXISTS (
                 SELECT 1 FROM radar_reviews reviews WHERE reviews.candidate_id = c.id
             )
             """

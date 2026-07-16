@@ -35,7 +35,14 @@ def make_candidate(**overrides):
         "trust_level": 5,
         "country": "Spain",
         "candidate_status": "pending_ai",
-        "metadata": {},
+        "metadata": {
+            "actionability_gate": {
+                "importance_score": 85,
+                "actionability_score": 90,
+                "rejection_reason": None,
+                "passed": True,
+            }
+        },
     }
     data.update(overrides)
     return RadarCandidate(**data)
@@ -117,6 +124,14 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertNotIn(TRUNCATION_MARKER, text)
         self.assertIn(body, text)
         self.assertIn("Málaga", text)
+
+    def test_review_item_shows_actionability_scores(self):
+        item = make_item()
+
+        text = build_review_item_text(item)
+
+        self.assertIn("Importance: 85", text)
+        self.assertIn("Actionability: 90", text)
 
     def test_queue_truncates_long_titles_and_keeps_message_safe(self):
         items = [

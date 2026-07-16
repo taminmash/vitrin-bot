@@ -5,7 +5,7 @@ from radar_engine.pipeline.engine import RadarCandidatePipeline
 from radar_engine.pipeline.storage import CandidateStoreResult
 
 
-def raw(raw_id, title="Valid title", body="Valid body text"):
+def raw(raw_id, title="Nuevo plazo de residencia", body="Cambio de extranjeria con plazo de solicitud para residencia."):
     return StoredRawRadarItem(
         id=raw_id,
         source_key="boe",
@@ -115,3 +115,29 @@ class PipelineEngineTests(unittest.TestCase):
         issue_codes = {(issue["field"], issue["code"]) for issue in captured}
         self.assertIn(("title", "too_short"), issue_codes)
         self.assertIn(("body", "too_short"), issue_codes)
+
+    def test_low_actionability_candidate_is_rejected_not_sent_to_ai(self):
+        captured = []
+        pipeline = RadarCandidatePipeline(
+            load_raw_items=lambda limit: [raw("ceremony", title="Acto institucional", body="Ceremonia y entrega de premios del ministerio.")],
+            load_source=lambda source_key: SourceInfo("boe", "BOE", "Government", "official", 5),
+            store_valid=lambda candidate, validation, version: CandidateStoreResult("created", "c", candidate.raw_item_id),
+            store_rejected=lambda candidate, validation, version: captured.append((candidate, validation.as_dicts()))
+            or CandidateStoreResult("rejected", "c-ceremony", candidate.raw_item_id),
+            mark_failed=lambda raw_id, error: CandidateStoreResult("failed", None, raw_id),
+        )
+        report = pipeline.run()
+        self.assertEqual(report.created_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.failed_count, 0)
+        candidate, issues = captured[0]
+        self.assertEqual(candidate.metadata["rejection_reason"], "ceremonial_event")
+        self.assertFalse(candidate.metadata["actionability_gate"]["passed"])
+        self.assertIn(
+            {
+                "field": "actionability",
+                "code": "ceremonial_event",
+                "message": "Candidate does not meet Radar actionability requirements.",
+            },
+            issues,
+        )

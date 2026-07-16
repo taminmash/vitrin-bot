@@ -23,6 +23,8 @@ Set these in Railway or your local shell:
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
 - `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled. Use `0`,
   `false`, `no`, or `off` to disable automatic Radar ingestion.
+- `RADAR_ACTIONABILITY_MIN_SCORE` optional; defaults to `60`. Candidates below
+  this actionability score are stored as rejected before AI processing.
 - `AI_PROVIDER` optional; `gemini` by default. Allowed values: `gemini`,
   `openai`.
 - `GEMINI_API_KEY` required when `AI_PROVIDER=gemini`.
