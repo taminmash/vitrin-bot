@@ -58,6 +58,7 @@ from radar_engine.review.storage import (
     reject_candidate,
     review_status_report,
 )
+from radar_engine.review.callbacks import review_callback_data, resolve_review_candidate_token
 from radar_engine.review.presentation import build_review_item_text, build_review_queue_display
 from radar_engine.promotion.storage import get_approved_promotion_source, promote_candidate
 from radar_engine.status import collect_runtime_status
@@ -748,7 +749,7 @@ def radar_review_queue_keyboard(items):
         [
             InlineKeyboardButton(
                 short_radar_title({"title": item.candidate.title}),
-                callback_data=f"admin_radar:review:item:{item.candidate_id}",
+                callback_data=review_callback_data("i", item.candidate_id),
             )
         ]
         for item in items
@@ -770,9 +771,9 @@ def radar_review_item_text(item):
 def radar_review_item_keyboard(candidate_id):
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("✅ تأیید", callback_data=f"admin_radar:review:approve:{candidate_id}")],
-            [InlineKeyboardButton("❌ رد", callback_data=f"admin_radar:review:reject:{candidate_id}")],
-            [InlineKeyboardButton("✏️ نیازمند ویرایش", callback_data=f"admin_radar:review:needs_edit:{candidate_id}")],
+            [InlineKeyboardButton("✅ تأیید", callback_data=review_callback_data("a", candidate_id))],
+            [InlineKeyboardButton("❌ رد", callback_data=review_callback_data("x", candidate_id))],
+            [InlineKeyboardButton("✏️ نیازمند ویرایش", callback_data=review_callback_data("e", candidate_id))],
             [InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")],
         ]
     )
@@ -782,7 +783,7 @@ def radar_promotion_keyboard(candidate_id=None):
     rows = []
     if candidate_id:
         rows.append(
-            [InlineKeyboardButton("آماده‌سازی برای انتشار", callback_data=f"admin_radar:promote:{candidate_id}")]
+            [InlineKeyboardButton("آماده‌سازی برای انتشار", callback_data=review_callback_data("p", candidate_id))]
         )
     rows.append([InlineKeyboardButton("✅ آماده انتشارها", callback_data="admin_radar:menu:ready")])
     rows.append([InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")])
@@ -1051,6 +1052,32 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     action = parts[1] if len(parts) > 1 else "list"
     state = context.user_data.get("radar_create")
     logger.info("Admin Radar callback action=%s parts=%s state_step=%s", action, parts, state.get("step") if state else None)
+
+    if action == "r":
+        compact_operation = parts[2] if len(parts) > 2 else ""
+        token = parts[3] if len(parts) > 3 else ""
+        operation = {
+            "i": "item",
+            "a": "approve",
+            "x": "reject",
+            "e": "needs_edit",
+            "p": "promote",
+        }.get(compact_operation)
+        candidate_id = resolve_review_candidate_token(token)
+        if not operation or not candidate_id:
+            await query.edit_message_text(
+                "درخواست بازبینی معتبر نیست. لطفاً فهرست بازبینی را دوباره باز کنید.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                ),
+            )
+            return
+        if operation == "promote":
+            parts = ["admin_radar", "promote", candidate_id]
+            action = "promote"
+        else:
+            parts = ["admin_radar", "review", operation, candidate_id]
+            action = "review"
 
     if action == "menu":
         operation = parts[2] if len(parts) > 2 else ""
