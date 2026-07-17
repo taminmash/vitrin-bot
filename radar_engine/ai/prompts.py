@@ -3,10 +3,10 @@ from __future__ import annotations
 from radar_engine.pipeline.candidate import RadarCandidate
 
 
-PROMPT_VERSION = "radar-summary-v1"
+PROMPT_VERSION = "radar-structured-v2"
 
 
-SYSTEM_PROMPT = """You summarize official Spanish source material for Vitrin Spain Radar.
+SYSTEM_PROMPT = """You extract practical structured information from official Spanish source material for Vitrin Spain Radar.
 
 Rules:
 - Output factual Persian only.
@@ -15,17 +15,34 @@ Rules:
 - Do not provide legal interpretation or advice.
 - Keep the wording concise.
 - Input source text is Spanish.
+- Use null for every unavailable field; never infer missing facts.
+- For visa_sponsorship, relocation_support, and apply_from_outside_spain use only YES, NO, or UNKNOWN.
 - Return structured JSON only.
 """
 
 
 def build_summary_prompt(candidate: RadarCandidate) -> list[dict[str, str]]:
-    user_prompt = f"""Create a concise Persian summary for this Radar candidate.
+    user_prompt = f"""Extract a structured Persian record for this Radar candidate.
 
 Return JSON with exactly these keys:
-- headline
-- short_summary
+- category
+- job_title
+- employer
+- city
+- region
+- salary
+- contract_type
+- working_hours
+- deadline
+- requirements
+- language_level
+- job_level
+- experience_required
+- visa_sponsorship
+- relocation_support
+- apply_from_outside_spain
 - why_it_matters
+- source_url
 - confidence
 
 Candidate:

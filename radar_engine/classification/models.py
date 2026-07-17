@@ -52,7 +52,7 @@ class ClassificationSource:
         self.ai_result_id = _required_text(self.ai_result_id, "ai_result_id")
         self.ai_headline = _required_text(self.ai_headline, "ai_headline")
         self.ai_summary = _required_text(self.ai_summary, "ai_summary")
-        self.ai_why_it_matters = _required_text(self.ai_why_it_matters, "ai_why_it_matters")
+        self.ai_why_it_matters = (self.ai_why_it_matters or "").strip()
 
 
 @dataclass

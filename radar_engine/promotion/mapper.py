@@ -53,16 +53,17 @@ def map_approved_source_to_radar_item(source: ApprovedPromotionSource) -> Mapped
     cities = _dedupe(classification.cities)
     city = cities[0] if cities else None
     metadata = candidate.metadata or {}
+    structured = summary.structured_data if isinstance(summary.structured_data, dict) else {}
     expires_at = candidate.valid_until
     fields = {
-        "title": _clean(summary.headline),
+        "title": _clean(structured.get("job_title")) or _clean(summary.headline),
         "summary": _clean(summary.summary),
         "body": _clean(candidate.body),
         "type": classification.primary_category,
         "category": classification.primary_category,
         "category_tags": category_tags,
-        "city": city,
-        "province": city,
+        "city": _clean(structured.get("city")) or city,
+        "province": _clean(structured.get("region")) or city,
         "country": candidate.country or "Spain",
         "start_date": candidate.valid_from or candidate.published_at,
         "end_date": candidate.valid_until,
@@ -77,10 +78,11 @@ def map_approved_source_to_radar_item(source: ApprovedPromotionSource) -> Mapped
         "ai_reason": _clean(summary.why_it_matters),
         "ai_tags": audience_tags,
         "ai_priority": int(classification.priority_score),
+        "structured_data": structured,
         "original_text": _clean(candidate.body),
         "original_language": candidate.language,
     }
-    if classification.geographic_scope == "national":
+    if classification.geographic_scope == "national" and not (structured.get("city") or structured.get("region")):
         fields["city"] = None
         fields["province"] = None
     if metadata:

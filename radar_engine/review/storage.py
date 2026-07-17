@@ -44,6 +44,7 @@ def _row_to_queue_item(row) -> RadarReviewQueueItem:
             summary=row["ai_summary"],
             why_it_matters=row["ai_why_it_matters"],
             confidence=row["ai_confidence"],
+            structured_data=row.get("ai_structured_data") or {},
         ),
         classification=RadarClassificationResult(
             candidate_id=str(row["candidate_id"]),
@@ -96,6 +97,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
                     ai.summary AS ai_summary,
                     ai.why_it_matters AS ai_why_it_matters,
                     ai.confidence AS ai_confidence,
+                    ai.structured_data AS ai_structured_data,
                     cls.primary_category,
                     cls.category_tags,
                     cls.audience_tags,
@@ -148,6 +150,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
                     ai.summary AS ai_summary,
                     ai.why_it_matters AS ai_why_it_matters,
                     ai.confidence AS ai_confidence,
+                    ai.structured_data AS ai_structured_data,
                     cls.primary_category,
                     cls.category_tags,
                     cls.audience_tags,

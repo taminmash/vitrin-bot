@@ -393,7 +393,41 @@ class AISummarizerTests(unittest.TestCase):
 
         result = RadarAISummarizer(Client()).summarize(make_candidate())
         self.assertEqual(result.model_name, "test-model")
-        self.assertEqual(result.prompt_version, "radar-summary-v1")
+        self.assertEqual(result.prompt_version, "radar-structured-v2")
+
+    def test_summarizer_extracts_job_fields_and_normalizes_support_values(self):
+        class Client:
+            model = "test-model"
+
+            def complete_json(self, messages, schema=None):
+                return {
+                    "category": "JOB",
+                    "job_title": "مهندس",
+                    "employer": "شرکت",
+                    "city": "Madrid",
+                    "region": None,
+                    "salary": None,
+                    "contract_type": "Full-time",
+                    "working_hours": None,
+                    "deadline": None,
+                    "requirements": ["Python"],
+                    "language_level": None,
+                    "job_level": "Senior",
+                    "experience_required": "5 years",
+                    "visa_sponsorship": "yes",
+                    "relocation_support": "not stated",
+                    "apply_from_outside_spain": "NO",
+                    "why_it_matters": "فرصت تخصصی",
+                    "source_url": None,
+                    "confidence": 0.9,
+                }
+
+        result = RadarAISummarizer(Client()).summarize(make_candidate())
+        self.assertEqual(result.structured_data["category"], "job")
+        self.assertEqual(result.structured_data["visa_sponsorship"], "YES")
+        self.assertEqual(result.structured_data["relocation_support"], "UNKNOWN")
+        self.assertEqual(result.structured_data["apply_from_outside_spain"], "NO")
+        self.assertEqual(result.structured_data["source_url"], "https://www.boe.es/test")
 
 
 class AIEngineTests(unittest.TestCase):
@@ -504,6 +538,8 @@ class AIStorageTests(unittest.TestCase):
             store_ai_result("candidate-1", result)
         sql = "\n".join(statement for statement, _ in cursor.executed)
         self.assertIn("radar_ai_results", sql)
+        self.assertIn("structured_data", sql)
+        self.assertIn("%s::jsonb", sql)
         self.assertIn("ON CONFLICT (candidate_id) DO NOTHING", sql)
         self.assertNotIn("UPDATE radar_candidates", sql)
         self.assertNotIn("ai_completed", sql)

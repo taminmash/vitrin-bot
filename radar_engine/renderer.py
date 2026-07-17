@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from radar_engine.job_presentation import JOB_HELP_TEXT, is_job, job_card
+
 
 RADAR_HEADER = "🛰️ رادار اسپانیا"
 SEPARATOR = "━━━━━━━━━━━━━━━━━━"
@@ -250,6 +252,17 @@ def _join_blocks(blocks: Iterable[Iterable[str] | str]) -> str:
 
 
 def render_channel_post(item: dict) -> str:
+    if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+        return job_card(
+            item.get("structured_data"),
+            fallback={
+                "job_title": item.get("title"),
+                "city": item.get("city"),
+                "region": item.get("province"),
+                "why_it_matters": item.get("ai_reason") or item.get("summary"),
+            },
+            compact=True,
+        )
     return _join_blocks(
         [
             RADAR_HEADER,
@@ -265,6 +278,18 @@ def render_channel_post(item: dict) -> str:
 
 
 def render_details_page(item: dict) -> str:
+    if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+        card = job_card(
+            item.get("structured_data"),
+            fallback={
+                "job_title": item.get("title"),
+                "city": item.get("city"),
+                "region": item.get("province"),
+                "why_it_matters": item.get("ai_reason") or item.get("summary"),
+                "source_url": item.get("source_url"),
+            },
+        )
+        return _join_blocks([card, SEPARATOR, JOB_HELP_TEXT])
     return _join_blocks(
         [
             RADAR_HEADER,
@@ -292,6 +317,18 @@ def render_admin_preview(item: dict) -> str:
         preview["audience_tags"] = item.get("admin_audience")
     if item.get("admin_urgency"):
         preview["urgency"] = item.get("admin_urgency")
+
+    if is_job(preview.get("type") or preview.get("category"), preview.get("structured_data")):
+        return job_card(
+            preview.get("structured_data"),
+            fallback={
+                "job_title": preview.get("title"),
+                "city": preview.get("city"),
+                "region": preview.get("province"),
+                "why_it_matters": preview.get("ai_reason") or preview.get("summary"),
+                "source_url": preview.get("source_url"),
+            },
+        )
 
     return _join_blocks(
         [

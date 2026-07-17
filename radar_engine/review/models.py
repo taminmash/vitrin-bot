@@ -30,15 +30,18 @@ class RadarSummaryForReview:
     summary: str
     why_it_matters: str
     confidence: float
+    structured_data: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.ai_result_id = _required_text(self.ai_result_id, "ai_result_id")
         self.headline = _required_text(self.headline, "headline")
         self.summary = _required_text(self.summary, "summary")
-        self.why_it_matters = _required_text(self.why_it_matters, "why_it_matters")
+        self.why_it_matters = (self.why_it_matters or "").strip()
         self.confidence = float(self.confidence)
         if not 0 <= self.confidence <= 1:
             raise ValueError("summary confidence must be between 0 and 1")
+        if not isinstance(self.structured_data, dict):
+            self.structured_data = {}
 
 
 @dataclass

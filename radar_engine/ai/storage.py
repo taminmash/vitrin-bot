@@ -67,6 +67,8 @@ def load_pending_ai_candidates(limit: int = 50, candidate_id: str | None = None)
 
 
 def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
+    import json
+
     from database.db import db_cursor
 
     with db_cursor() as (_, cur):
@@ -74,9 +76,9 @@ def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
             """
             INSERT INTO radar_ai_results (
                 candidate_id, headline, summary, why_it_matters,
-                confidence, model, prompt_version, latency
+                confidence, model, prompt_version, latency, structured_data
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             ON CONFLICT (candidate_id) DO NOTHING
             """,
             (
@@ -88,5 +90,6 @@ def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
                 result.model_name,
                 result.prompt_version,
                 result.processing_time_ms,
+                json.dumps(result.structured_data, ensure_ascii=False),
             ),
         )
