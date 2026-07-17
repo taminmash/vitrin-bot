@@ -1228,6 +1228,20 @@ def get_or_create_user(tg_user):
         return row_to_dict(cur.fetchone())
 
 
+def user_exists(telegram_id):
+    """Return whether Telegram user data already exists without mutating it."""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        id_type = column_data_type(cur, "users", "id")
+        if id_type in ("bigint", "integer"):
+            cur.execute(
+                "SELECT 1 FROM users WHERE telegram_id = %s OR id = %s LIMIT 1",
+                (telegram_id, telegram_id),
+            )
+        else:
+            cur.execute("SELECT 1 FROM users WHERE telegram_id = %s LIMIT 1", (telegram_id,))
+        return cur.fetchone() is not None
+
+
 def get_user_profile(user_id):
     with db_cursor() as (_, cur):
         cur.execute("SELECT display_name, city FROM users WHERE telegram_id = %s", (user_id,))
