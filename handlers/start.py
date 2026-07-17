@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
-from database.db import count_today_dashboard_items, get_or_create_user
+from database.db import count_today_dashboard_items, get_or_create_user, user_exists
 
 
 logger = logging.getLogger(__name__)
@@ -23,24 +23,19 @@ MENU_RADAR = "📡 رادار اسپانیا"
 MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
 MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس حیاط خلوت"
 
-DEMO_DASHBOARD_COUNTS = {
-    "jobs": 3,
-    "discounts": 5,
-    "events": 2,
-    "radar": 4,
-    "alerts": 1,
-}
-
 MAIN_MENU = InlineKeyboardMarkup(
     [
         [
-            InlineKeyboardButton(MENU_CREATE_VITRIN_DASHBOARD, callback_data="home:create_vitrin"),
-            InlineKeyboardButton(MENU_CREATE_HAYAT_DASHBOARD, callback_data="home:create_hayat"),
+            InlineKeyboardButton("💬 پیام ناشناس", callback_data="home:create_hayat"),
+            InlineKeyboardButton("➕ ثبت آگهی", callback_data="home:create_vitrin"),
         ],
-        [InlineKeyboardButton(MENU_RADAR, callback_data="radar:open")],
         [
-            InlineKeyboardButton(MENU_HELP, callback_data="home:help"),
-            InlineKeyboardButton(MENU_PROFILE, callback_data="home:profile"),
+            InlineKeyboardButton("📡 رادار", callback_data="radar:open"),
+            InlineKeyboardButton("👤 پروفایل من", callback_data="home:profile"),
+        ],
+        [
+            InlineKeyboardButton("ℹ️ راهنما", callback_data="home:help"),
+            InlineKeyboardButton("🛟 پشتیبانی", callback_data="home:support"),
         ],
     ]
 )
@@ -62,20 +57,64 @@ def dashboard_counts():
     except Exception:
         logger.exception("Failed to load dashboard counts")
         counts = {}
-    return {**DEMO_DASHBOARD_COUNTS, **{key: value for key, value in counts.items() if value}}
+    return {
+        "jobs": int(counts.get("jobs") or 0),
+        "discounts": int(counts.get("discounts") or 0),
+        "events": int(counts.get("events") or 0),
+        "radar": int(counts.get("radar") or 0),
+        "alerts": int(counts.get("alerts") or 0),
+    }
+
+
+def gregorian_to_jalali(year, month, day):
+    """Convert a Gregorian date to Jalali without adding a runtime dependency."""
+    days_in_gregorian = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    year_offset = year - 1600
+    month_offset = month - 1
+    day_offset = day - 1
+    day_number = 365 * year_offset + (year_offset + 3) // 4 - (year_offset + 99) // 100 + (year_offset + 399) // 400
+    day_number += sum(days_in_gregorian[:month_offset]) + day_offset
+    if month_offset > 1 and (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)):
+        day_number += 1
+    jalali_days = day_number - 79
+    cycles, jalali_days = divmod(jalali_days, 12053)
+    jalali_year = 979 + 33 * cycles + 4 * (jalali_days // 1461)
+    jalali_days %= 1461
+    if jalali_days >= 366:
+        jalali_year += (jalali_days - 1) // 365
+        jalali_days = (jalali_days - 1) % 365
+    if jalali_days < 186:
+        jalali_month = 1 + jalali_days // 31
+        jalali_day = 1 + jalali_days % 31
+    else:
+        jalali_month = 7 + (jalali_days - 186) // 30
+        jalali_day = 1 + (jalali_days - 186) % 30
+    return jalali_year, jalali_month, jalali_day
 
 
 def build_welcome_text(now, first_name=None):
     counts = dashboard_counts()
     updated_at = now.strftime("%H:%M")
+    iran_now = now.astimezone(ZoneInfo("Asia/Tehran"))
+    jalali = gregorian_to_jalali(now.year, now.month, now.day)
+    display_name = (first_name or "کاربر").strip()
 
     return (
-        "✨ امروز ویترین برای شما فرصت‌های جدید پیدا کرده است.\n\n"
+        f"سلام، {display_name} 👋\n\n"
+        f"📅 تاریخ میلادی: {now:%Y-%m-%d}\n"
+        f"🗓 تاریخ شمسی: {jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}\n\n"
+        f"🇪🇸 ساعت اسپانیا: {now:%H:%M}\n"
+        f"🇮🇷 ساعت ایران: {iran_now:%H:%M}\n\n"
+        "💶 قیمت یورو: در دسترس نیست\n"
+        "💵 قیمت دلار: در دسترس نیست\n\n"
+        "──────────────\n\n"
+        "✨ امروز ویترین برای شما محتواهای جدید پیدا کرده است.\n\n"
         f"💼 {counts['jobs']} آگهی شغلی جدید\n"
         f"🛍 {counts['discounts']} تخفیف و آفر\n"
         f"🎉 {counts['events']} رویداد نزدیک شما\n"
         f"📡 {counts['radar']} خبر مهم رادار اسپانیا\n"
         f"🚨 {counts['alerts']} هشدار فوری\n\n"
+        "برای دسترسی به این محتواها روی «رادار» کلیک کنید.\n\n"
         f"آخرین بروزرسانی: {updated_at}"
     )
 
@@ -86,11 +125,11 @@ def update_target(update: Update):
     return update.message
 
 
-async def send_home_dashboard(update: Update):
+async def send_home_dashboard(update: Update, show_banner=False):
     now = datetime.now(ZoneInfo("Europe/Madrid"))
     season = season_for_month(now.month)
     welcome_text = build_welcome_text(now, update.effective_user.first_name)
-    if not await send_start_banner(update, season, welcome_text):
+    if not show_banner or not await send_start_banner(update, season, welcome_text):
         await update_target(update).reply_text(
             welcome_text,
             reply_markup=MAIN_MENU,
@@ -100,7 +139,9 @@ async def send_home_dashboard(update: Update):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    first_start = None
     try:
+        first_start = not user_exists(update.effective_user.id)
         get_or_create_user(update.effective_user)
     except Exception:
         logger.exception("Failed to create or update user on /start")
@@ -112,7 +153,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await open_radar_deep_link(update, payload.removeprefix("radar_"))
         return
 
-    await send_home_dashboard(update)
+    await send_home_dashboard(update, show_banner=first_start is not False)
 
 
 async def send_start_banner(update: Update, season: str, caption: str):

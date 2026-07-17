@@ -68,6 +68,9 @@ logger = logging.getLogger(__name__)
 
 
 ADMIN_RADAR_MANAGE = "📡 مدیریت رادار"
+ADMIN_VITRIN_MANAGE = "🛍 مدیریت ویترین"
+ADMIN_HAYAT_MANAGE = "🏡 مدیریت حیات خلوت"
+ADMIN_USERS_MANAGE = "👥 مدیریت کاربران"
 ADMIN_PENDING = "📝 مدیریت محتواهای در انتظار"
 ADMIN_COMMENTS = "💬 مدیریت کامنت‌ها"
 ADMIN_REPORTS = "🚨 گزارش‌ها"
@@ -249,11 +252,19 @@ def stop_admin_update(reason):
 def admin_panel_inline_keyboard():
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(ADMIN_RADAR_MANAGE, callback_data="admin:panel:radar")],
-            [InlineKeyboardButton(ADMIN_PENDING, callback_data="admin:panel:pending")],
-            [InlineKeyboardButton(ADMIN_COMMENTS, callback_data="admin:panel:comments")],
-            [InlineKeyboardButton(ADMIN_REPORTS, callback_data="admin:panel:reports")],
-            [InlineKeyboardButton(ADMIN_HOME, callback_data="admin:panel:home")],
+            [
+                InlineKeyboardButton(ADMIN_RADAR_MANAGE, callback_data="admin:panel:radar"),
+                InlineKeyboardButton(ADMIN_VITRIN_MANAGE, callback_data="admin:panel:vitrin"),
+            ],
+            [
+                InlineKeyboardButton(ADMIN_HAYAT_MANAGE, callback_data="admin:panel:hayat"),
+                InlineKeyboardButton(ADMIN_USERS_MANAGE, callback_data="admin:panel:users"),
+            ],
+            [
+                InlineKeyboardButton(ADMIN_COMMENTS, callback_data="admin:panel:comments"),
+                InlineKeyboardButton("🚨 مدیریت گزارشات", callback_data="admin:panel:reports"),
+            ],
+            [InlineKeyboardButton("🏠 بازگشت به پنل اصلی", callback_data="admin:panel:home")],
         ]
     )
 
@@ -1649,9 +1660,17 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=admin_radar_menu_keyboard(),
             )
             return
-        if object_id == "pending":
+        if object_id in ("pending", "vitrin", "hayat"):
             pending = list_pending_content()
-            await query.edit_message_text("📝 مدیریت محتواهای در انتظار")
+            if object_id == "vitrin":
+                pending = [content for content in pending if not is_hayat_content(content)]
+                section_title = "🛍 مدیریت ویترین"
+            elif object_id == "hayat":
+                pending = [content for content in pending if is_hayat_content(content)]
+                section_title = "🏡 مدیریت حیات خلوت"
+            else:
+                section_title = "📝 مدیریت محتواهای در انتظار"
+            await query.edit_message_text(section_title)
             if not pending:
                 await query.message.reply_text("موردی در انتظار بررسی وجود ندارد.", reply_markup=admin_panel_inline_keyboard())
                 return
@@ -1660,6 +1679,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     admin_content_text(content),
                     reply_markup=admin_review_keyboard(content["human_id"]),
                 )
+            return
+        if object_id == "users":
+            await query.edit_message_text(
+                "👥 مدیریت کاربران\n\nمدیریت مستقل کاربران در نسخه فعلی backend فعال نیست.",
+                reply_markup=admin_panel_inline_keyboard(),
+            )
             return
         if object_id == "comments":
             await query.edit_message_text("💬 مدیریت کامنت‌ها")
@@ -1678,10 +1703,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if object_id == "home":
             context.user_data.clear()
-            from handlers.start import MAIN_MENU
+            from handlers.start import send_home_dashboard
 
-            await query.message.reply_text("به منوی اصلی برگشتید.", reply_markup=MAIN_MENU)
             await query.edit_message_reply_markup(reply_markup=None)
+            await send_home_dashboard(update)
             return
         await query.edit_message_text("درخواست پنل ادمین معتبر نیست.", reply_markup=admin_panel_inline_keyboard())
         return
@@ -1926,9 +1951,13 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Opening admin panel user_id=%s", update.effective_user.id)
     context.user_data.clear()
     context.user_data["admin_panel"] = True
-    await update.message.reply_text("پنل ادمین باز شد.", reply_markup=ReplyKeyboardRemove())
+    removal_message = await update.message.reply_text("⁣", reply_markup=ReplyKeyboardRemove())
+    try:
+        await removal_message.delete()
+    except BadRequest:
+        logger.debug("Could not remove transient ReplyKeyboard cleanup message")
     await update.message.reply_text(
-        "👨‍💼 پنل ادمین ویترین",
+        "👨‍💼 پنل مدیریت ویترین اسپانیا\n\nبخش موردنظر را انتخاب کنید:",
         reply_markup=admin_panel_inline_keyboard(),
     )
 

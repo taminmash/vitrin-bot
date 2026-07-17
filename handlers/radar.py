@@ -130,32 +130,16 @@ def radar_overview_text():
 def radar_keyboard():
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🔥 فوری", callback_data="radar:type:alert")],
             [
-                InlineKeyboardButton("💶 تخفیف‌ها", callback_data="radar:type:discount"),
-                InlineKeyboardButton("🎉 ایونت‌ها", callback_data="radar:type:event"),
+                InlineKeyboardButton("💼 آگهی‌های شغلی", callback_data="radar:type:job"),
+                InlineKeyboardButton("🛍 تخفیف‌ها و آفرها", callback_data="radar:type:discount"),
             ],
             [
-                InlineKeyboardButton("💼 کار", callback_data="radar:type:job"),
-                InlineKeyboardButton("🏛 قوانین", callback_data="radar:type:legal"),
+                InlineKeyboardButton("🎉 رویدادهای نزدیک", callback_data="radar:type:event"),
+                InlineKeyboardButton("📡 اخبار مهم اسپانیا", callback_data="radar:type:all"),
             ],
-            [
-                InlineKeyboardButton("✈️ سفر", callback_data="radar:type:travel"),
-                InlineKeyboardButton("👨‍👩‍👧 خانواده", callback_data="radar:type:family"),
-            ],
-            [
-                InlineKeyboardButton("🌦 هوا", callback_data="radar:type:weather"),
-                InlineKeyboardButton("🚇 حمل‌ونقل", callback_data="radar:type:transport"),
-            ],
-            [
-                InlineKeyboardButton("💰 اقتصاد", callback_data="radar:type:economy"),
-                InlineKeyboardButton("📚 آموزش", callback_data="radar:type:education"),
-            ],
-            [
-                InlineKeyboardButton("📍 شهر من", callback_data="radar:type:city"),
-                InlineKeyboardButton("⭐ همه", callback_data="radar:type:all"),
-            ],
-            [InlineKeyboardButton("🏠 بازگشت به خانه", callback_data="radar:home")],
+            [InlineKeyboardButton("🚨 هشدارهای فوری", callback_data="radar:type:alert")],
+            [InlineKeyboardButton("⬅️ بازگشت به پنل اصلی", callback_data="radar:home")],
         ]
     )
 
@@ -294,9 +278,7 @@ def first_radar_item(radar_type):
         items = []
     if items:
         return items[0]
-    if radar_type in ("all", "city"):
-        radar_type = "alert"
-    return demo_item(radar_type)
+    return None
 
 
 async def show_radar_overview(query):
@@ -448,4 +430,11 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("radar:type:"):
         radar_type = data.removeprefix("radar:type:")
-        await send_radar_item_message(query.message, first_radar_item(radar_type))
+        item = first_radar_item(radar_type)
+        if not item:
+            await query.message.reply_text(
+                "در حال حاضر محتوایی در این بخش موجود نیست.",
+                reply_markup=radar_keyboard(),
+            )
+            return
+        await send_radar_item_message(query.message, item)
