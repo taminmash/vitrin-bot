@@ -91,11 +91,17 @@ class RadarRendererTests(unittest.TestCase):
         self.assertNotIn("وضعیت: ready", text)
 
     def test_channel_buttons_match_requested_layout(self):
-        rows = channel_button_specs(sample_item(), "https://t.me/VitrinSpainBot?start=radar_radar-1", {"like": 2})
-        self.assertEqual([button.text for button in rows[0]], ["📄 مشاهده جزئیات رویداد"])
+        rows = channel_button_specs(
+            sample_item(),
+            "https://t.me/VitrinSpainBot?start=radar_radar-1",
+            {"like": 2},
+            "https://t.me/share/url?url=example&text=full",
+        )
+        self.assertEqual([button.text for button in rows[0]], ["📄 مشاهده جزئیات"])
         self.assertEqual([button.text for button in rows[1]], ["📤 اشتراک‌گذاری"])
         self.assertEqual([button.text for button in rows[2]], ["👍 پسندیدم · 2", "👎 نپسندیدم"])
         self.assertEqual(rows[0][0].url, "https://t.me/VitrinSpainBot?start=radar_radar-1")
+        self.assertIn("text=full", rows[1][0].url)
 
     def test_details_buttons_remove_official_source_button(self):
         rows = details_button_specs(
@@ -104,9 +110,9 @@ class RadarRendererTests(unittest.TestCase):
             "https://t.me/vitrinspain/42",
         )
         labels = [button.text for row in rows for button in row]
-        self.assertEqual(labels, ["📺 بازگشت به کانال", "📤 اشتراک‌گذاری", "🏠 خانه"])
+        self.assertEqual(labels, ["📤 اشتراک‌گذاری", "⬅️ صفحه قبل", "🏠 صفحه اصلی"])
         self.assertNotIn("🔗 منبع رسمی", labels)
-        self.assertEqual(rows[0][0].url, "https://t.me/vitrinspain/42")
+        self.assertEqual(rows[1][0].callback_data, "radar:type:event")
 
     def test_handlers_delegate_to_shared_renderer(self):
         text = (PROJECT_ROOT / "handlers" / "radar.py").read_text(encoding="utf-8")
@@ -114,7 +120,7 @@ class RadarRendererTests(unittest.TestCase):
         self.assertIn("return render_details_page(item)", text)
         self.assertIn("return render_admin_preview(item)", text)
         self.assertIn("channel_button_specs(item", text)
-        self.assertIn("details_button_specs(item", text)
+        self.assertIn("details_button_specs(", text)
 
 
 if __name__ == "__main__":

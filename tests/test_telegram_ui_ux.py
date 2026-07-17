@@ -22,10 +22,10 @@ class TelegramUIUXTests(unittest.TestCase):
 
     def test_radar_categories_use_registered_radar_callbacks(self):
         text = (ROOT / "handlers" / "radar.py").read_text(encoding="utf-8")
-        for callback in ("job", "discount", "event", "all", "alert"):
+        for callback in ("job", "discount", "event", "legal", "alert"):
             self.assertIn(f'callback_data="radar:type:{callback}"', text)
         self.assertIn('callback_data="radar:home"', text)
-        self.assertIn("در حال حاضر محتوایی در این بخش موجود نیست.", text)
+        self.assertIn("محتوایی موجود نیست.", text)
 
     def test_admin_panel_uses_inline_callbacks_and_keeps_auth_check(self):
         text = (ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
@@ -57,6 +57,21 @@ class TelegramUIUXTests(unittest.TestCase):
         self.assertIn('pattern=r"^home:"', text)
         self.assertIn('pattern=r"^radar:"', text)
         self.assertIn('pattern=r"^admin:"', text)
+
+    def test_membership_gate_runs_before_feature_handlers(self):
+        bot_text = (ROOT / "bot.py").read_text(encoding="utf-8")
+        gate_text = (ROOT / "handlers" / "membership.py").read_text(encoding="utf-8")
+        self.assertIn("TypeHandler(Update, membership_gate), group=-2", bot_text)
+        self.assertIn("get_chat_member(CHANNEL_VITRIN", gate_text)
+        self.assertIn("get_chat_member(CHANNEL_HAYAT", gate_text)
+        self.assertIn('callback_data="membership:check"', gate_text)
+        self.assertIn("ApplicationHandlerStop", gate_text)
+
+    def test_share_payload_contains_formatted_content_and_deep_link(self):
+        text = (ROOT / "handlers" / "radar.py").read_text(encoding="utf-8")
+        self.assertIn("content = format_radar_details(item).strip()", text)
+        self.assertIn('urlencode({"url": deep_link, "text": content})', text)
+        self.assertIn('context.user_data["radar_category"] = radar_type', text)
 
 
 if __name__ == "__main__":

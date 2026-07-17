@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from urllib.parse import urlencode
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
@@ -107,7 +108,7 @@ def radar_counts():
         counts = count_available_radar_by_type()
     except Exception:
         counts = {}
-    return {key: counts.get(key) or data["demo"] for key, data in RADAR_TYPES.items()}
+    return {key: int(counts.get(key) or 0) for key in RADAR_TYPES}
 
 
 def radar_overview_text():
@@ -116,13 +117,11 @@ def radar_overview_text():
     return (
         "📡 رادار اسپانیا\n\n"
         "تا این لحظه برای شما:\n\n"
-        f"🔥 {counts['alert']} هشدار فوری\n"
-        f"💶 {counts['discount']} تخفیف جدید\n"
+        f"🚨 {counts['alert']} هشدار فوری\n"
+        f"🛍 {counts['discount']} تخفیف\n"
         f"🎉 {counts['event']} رویداد\n"
         f"💼 {counts['job']} فرصت شغلی\n"
-        f"🏛 {counts['legal']} قانون و خدمات اداری\n"
-        f"✈️ {counts['travel']} فرصت سفر\n"
-        f"👨‍👩‍👧 {counts['family']} خبر خانواده\n\n"
+        f"📡 {sum(counts.values())} خبر مهم\n\n"
         f"آخرین بروزرسانی: {updated_at}"
     )
 
@@ -136,7 +135,7 @@ def radar_keyboard():
             ],
             [
                 InlineKeyboardButton("🎉 رویدادهای نزدیک", callback_data="radar:type:event"),
-                InlineKeyboardButton("📡 اخبار مهم اسپانیا", callback_data="radar:type:all"),
+                InlineKeyboardButton("📡 اخبار مهم اسپانیا", callback_data="radar:type:legal"),
             ],
             [InlineKeyboardButton("🚨 هشدارهای فوری", callback_data="radar:type:alert")],
             [InlineKeyboardButton("⬅️ بازگشت به پنل اصلی", callback_data="radar:home")],
@@ -182,15 +181,35 @@ def channel_post_keyboard(item, reaction_counts=None):
             counts = count_radar_reactions(item["id"])
         except Exception:
             counts = {"like": 0, "dislike": 0}
-    return telegram_keyboard(channel_button_specs(item, deep_link_for_item(item), counts))
+    return telegram_keyboard(
+        channel_button_specs(item, deep_link_for_item(item), counts, share_url_for_item(item))
+    )
 
 
-def full_item_keyboard(item):
-    return telegram_keyboard(overview_button_specs(item, deep_link_for_item(item)))
+def share_url_for_item(item):
+    deep_link = deep_link_for_item(item)
+    content = format_radar_details(item).strip()
+    if len(content) > 700:
+        content = content[:699].rstrip() + "…"
+    return "https://t.me/share/url?" + urlencode({"url": deep_link, "text": content})
 
 
-def details_keyboard(item):
-    return telegram_keyboard(details_button_specs(item, deep_link_for_item(item), channel_url_for_item(item)))
+def full_item_keyboard(item, category=None):
+    return telegram_keyboard(
+        overview_button_specs(item, deep_link_for_item(item), share_url_for_item(item), category)
+    )
+
+
+def details_keyboard(item, category=None):
+    return telegram_keyboard(
+        details_button_specs(
+            item,
+            deep_link_for_item(item),
+            channel_url_for_item(item),
+            share_url_for_item(item),
+            category,
+        )
+    )
 
 
 def expired_item_keyboard():
@@ -281,24 +300,63 @@ def first_radar_item(radar_type):
     return None
 
 
+RADAR_CATEGORY_LABELS = {
+    "job": "💼 آگهی‌های شغلی",
+    "discount": "🛍 تخفیف‌ها و آفرها",
+    "event": "🎉 رویدادهای نزدیک",
+    "legal": "📡 اخبار مهم اسپانیا",
+    "alert": "🚨 هشدارهای فوری",
+}
+
+
+def radar_category_items(radar_type, limit=5):
+    try:
+        return list_available_radar_items(radar_type, limit=limit)
+    except Exception:
+        logger.exception("Failed to load Radar category type=%s", radar_type)
+        return []
+
+
+def radar_category_keyboard(radar_type, items):
+    rows = [
+        [InlineKeyboardButton((item.get("title") or "مشاهده محتوا")[:55], callback_data=f"radar:item:{item['id']}")]
+        for item in items
+    ]
+    rows.append([InlineKeyboardButton("⬅️ بازگشت به رادار", callback_data="radar:open")])
+    rows.append([InlineKeyboardButton("🏠 صفحه اصلی", callback_data="radar:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def show_radar_category(query, radar_type):
+    items = radar_category_items(radar_type)
+    if not items:
+        text = f"{RADAR_CATEGORY_LABELS.get(radar_type, '📡 رادار')}\n\nمحتوایی موجود نیست."
+    else:
+        text = (
+            f"{RADAR_CATEGORY_LABELS.get(radar_type, '📡 رادار')}\n\n"
+            "برای مشاهده، یکی از موارد زیر را انتخاب کنید:"
+        )
+    await query.message.reply_text(text, reply_markup=radar_category_keyboard(radar_type, items))
+
+
 async def show_radar_overview(query):
     await query.message.reply_text(radar_overview_text(), reply_markup=radar_keyboard())
 
 
-async def send_radar_item_message(message, item):
+async def send_radar_item_message(message, item, category=None):
     logger.info("Rendering Radar bot overview fields=%s", renderer_field_log(item))
     await message.reply_text(
         format_radar_bot_overview(item),
-        reply_markup=full_item_keyboard(item),
+        reply_markup=full_item_keyboard(item, category),
         disable_web_page_preview=True,
     )
 
 
-async def send_radar_details_message(message, item):
+async def send_radar_details_message(message, item, category=None):
     logger.info("Rendering Radar details fields=%s", renderer_field_log(item))
     await message.reply_text(
         format_radar_details(item),
-        reply_markup=details_keyboard(item),
+        reply_markup=details_keyboard(item, category),
         disable_web_page_preview=True,
     )
 
@@ -413,7 +471,7 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not item:
             await send_missing_radar_item(query.message)
             return
-        await send_radar_item_message(query.message, item)
+        await send_radar_item_message(query.message, item, context.user_data.get("radar_category"))
         return
 
     if data.startswith("radar:details:"):
@@ -425,16 +483,10 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not item:
             await send_missing_radar_item(query.message)
             return
-        await send_radar_details_message(query.message, item)
+        await send_radar_details_message(query.message, item, context.user_data.get("radar_category"))
         return
 
     if data.startswith("radar:type:"):
         radar_type = data.removeprefix("radar:type:")
-        item = first_radar_item(radar_type)
-        if not item:
-            await query.message.reply_text(
-                "در حال حاضر محتوایی در این بخش موجود نیست.",
-                reply_markup=radar_keyboard(),
-            )
-            return
-        await send_radar_item_message(query.message, item)
+        context.user_data["radar_category"] = radar_type
+        await show_radar_category(query, radar_type)

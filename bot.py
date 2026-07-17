@@ -2,7 +2,8 @@
 import logging
 import traceback
 
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters
 
 from config_v2 import BOT_TOKEN
 from database.db import init_db
@@ -17,6 +18,7 @@ from handlers.admin import (
     whoami,
 )
 from handlers.home import home_callback
+from handlers.membership import membership_gate
 from handlers.menu import menu_handler
 from handlers.post_create import draft_callback, post_handler, published_callback, user_post_callback
 from handlers.profile import profile_handler
@@ -57,6 +59,7 @@ def main():
         .build()
     )
 
+    app.add_handler(TypeHandler(Update, membership_gate), group=-2)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("radar_status", radar_status_command))

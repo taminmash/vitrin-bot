@@ -352,12 +352,17 @@ def render_ready_preview(item: dict) -> str:
     return render_admin_preview({**item, "admin_status": item.get("admin_status") or "ready"})
 
 
-def channel_button_specs(item: dict, deep_link: str, reaction_counts: dict | None = None) -> list[list[ButtonSpec]]:
+def channel_button_specs(
+    item: dict,
+    deep_link: str,
+    reaction_counts: dict | None = None,
+    share_url: str | None = None,
+) -> list[list[ButtonSpec]]:
     counts = reaction_counts or {}
     item_id = item["id"]
     return [
-        [ButtonSpec("📄 مشاهده جزئیات رویداد", url=deep_link)],
-        [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
+        [ButtonSpec("📄 مشاهده جزئیات", url=deep_link)],
+        [ButtonSpec("📤 اشتراک‌گذاری", url=share_url or deep_link)],
         [
             ButtonSpec(reaction_label("👍 پسندیدم", counts.get("like", 0)), callback_data=f"radar_feedback:like:{item_id}"),
             ButtonSpec(reaction_label("👎 نپسندیدم", counts.get("dislike", 0)), callback_data=f"radar_feedback:dislike:{item_id}"),
@@ -365,20 +370,37 @@ def channel_button_specs(item: dict, deep_link: str, reaction_counts: dict | Non
     ]
 
 
-def details_button_specs(item: dict, deep_link: str, channel_url: str | None = None) -> list[list[ButtonSpec]]:
-    back_target = channel_url or deep_link
+def details_button_specs(
+    item: dict,
+    deep_link: str,
+    channel_url: str | None = None,
+    share_url: str | None = None,
+    category: str | None = None,
+) -> list[list[ButtonSpec]]:
+    category = category or item.get("type") or "all"
     return [
-        [ButtonSpec("📺 بازگشت به کانال", url=back_target)],
-        [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
-        [ButtonSpec("🏠 خانه", callback_data="radar:home")],
+        [ButtonSpec("📤 اشتراک‌گذاری", url=share_url or deep_link)],
+        [
+            ButtonSpec("⬅️ صفحه قبل", callback_data=f"radar:type:{category}"),
+            ButtonSpec("🏠 صفحه اصلی", callback_data="radar:home"),
+        ],
     ]
 
 
-def overview_button_specs(item: dict, deep_link: str) -> list[list[ButtonSpec]]:
+def overview_button_specs(
+    item: dict,
+    deep_link: str,
+    share_url: str | None = None,
+    category: str | None = None,
+) -> list[list[ButtonSpec]]:
+    category = category or item.get("type") or "all"
     return [
-        [ButtonSpec("📄 مشاهده جزئیات رویداد", callback_data=f"radar:details:{item['id']}")],
-        [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
-        [ButtonSpec("🏠 خانه", callback_data="radar:home")],
+        [ButtonSpec("📄 مشاهده جزئیات", callback_data=f"radar:details:{item['id']}")],
+        [ButtonSpec("📤 اشتراک‌گذاری", url=share_url or deep_link)],
+        [
+            ButtonSpec("⬅️ صفحه قبل", callback_data=f"radar:type:{category}"),
+            ButtonSpec("🏠 صفحه اصلی", callback_data="radar:home"),
+        ],
     ]
 
 
