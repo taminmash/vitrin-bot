@@ -251,6 +251,7 @@ def init_db():
                 ai_reason TEXT,
                 ai_tags JSONB DEFAULT '[]'::jsonb,
                 ai_priority INTEGER DEFAULT 0,
+                structured_data JSONB NOT NULL DEFAULT '{}'::jsonb,
                 original_text TEXT,
                 original_language TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -291,6 +292,7 @@ def init_db():
         ensure_column(cur, "radar_items", "ai_reason", "TEXT")
         ensure_column(cur, "radar_items", "ai_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
         ensure_column(cur, "radar_items", "ai_priority", "INTEGER DEFAULT 0", "0")
+        ensure_column(cur, "radar_items", "structured_data", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
         ensure_column(cur, "radar_items", "original_text", "TEXT")
         ensure_column(cur, "radar_items", "original_language", "TEXT")
         ensure_column(cur, "radar_items", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
@@ -527,6 +529,7 @@ def init_db():
                 model TEXT NOT NULL,
                 prompt_version TEXT NOT NULL,
                 latency INTEGER NOT NULL,
+                structured_data JSONB NOT NULL DEFAULT '{}'::jsonb,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
@@ -539,6 +542,7 @@ def init_db():
         ensure_column(cur, "radar_ai_results", "model", "TEXT")
         ensure_column(cur, "radar_ai_results", "prompt_version", "TEXT")
         ensure_column(cur, "radar_ai_results", "latency", "INTEGER")
+        ensure_column(cur, "radar_ai_results", "structured_data", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
         ensure_column(cur, "radar_ai_results", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         cur.execute(
             """

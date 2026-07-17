@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from radar_engine.pipeline.actionability import ACTIONABILITY_METADATA_KEY
+from radar_engine.job_presentation import is_job, job_card
 
 
 SAFE_TELEGRAM_TEXT_LIMIT = 3800
@@ -156,6 +157,18 @@ def build_review_item_text(
     candidate = item.candidate
     summary = item.summary
     classification = item.classification
+    if is_job(classification.primary_category, summary.structured_data):
+        fallback = {
+            "job_title": summary.headline or candidate.title,
+            "city": (classification.cities or [None])[0],
+            "why_it_matters": summary.why_it_matters,
+            "source_url": candidate.source_url,
+        }
+        return truncate_text(
+            job_card(summary.structured_data, fallback=fallback, compact=True),
+            max_length,
+            marker=SHORT_TRUNCATION_MARKER,
+        )
     categories = _format_list([classification.primary_category], category_labeler) or classification.primary_category
     category_tags = _format_list(classification.category_tags, category_labeler)
     audience = _format_list(classification.audience_tags, audience_labeler)

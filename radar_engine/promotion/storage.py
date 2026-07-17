@@ -47,6 +47,7 @@ def _row_to_source(row) -> ApprovedPromotionSource:
             summary=row["ai_summary"],
             why_it_matters=row["ai_why_it_matters"],
             confidence=row["ai_confidence"],
+            structured_data=row.get("ai_structured_data") or {},
         ),
         classification=RadarClassificationResult(
             candidate_id=str(row["candidate_id"]),
@@ -96,6 +97,7 @@ def _approved_source_select(extra_where: str) -> str:
             ai.summary AS ai_summary,
             ai.why_it_matters AS ai_why_it_matters,
             ai.confidence AS ai_confidence,
+            ai.structured_data AS ai_structured_data,
             cls.primary_category,
             cls.category_tags,
             cls.audience_tags,
@@ -173,6 +175,7 @@ def _insert_radar_item(cur, fields: dict) -> dict:
         "ai_reason",
         "ai_tags",
         "ai_priority",
+        "structured_data",
         "original_text",
         "original_language",
     }
@@ -184,12 +187,16 @@ def _insert_radar_item(cur, fields: dict) -> dict:
     payload["channel_published_at"] = None
     columns = list(payload.keys())
     values = [
-        json.dumps(payload[column], ensure_ascii=False) if column in ("audience_tags", "ai_tags", "category_tags") else payload[column]
+        json.dumps(payload[column], ensure_ascii=False)
+        if column in ("audience_tags", "ai_tags", "category_tags", "structured_data")
+        else payload[column]
         for column in columns
     ]
     placeholders = []
     for column in columns:
-        placeholders.append("%s::jsonb" if column in ("audience_tags", "ai_tags", "category_tags") else "%s")
+        placeholders.append(
+            "%s::jsonb" if column in ("audience_tags", "ai_tags", "category_tags", "structured_data") else "%s"
+        )
     cur.execute(
         f"""
         INSERT INTO radar_items ({", ".join(columns)})

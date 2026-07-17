@@ -287,7 +287,7 @@ Raw processing statuses used by the pipeline:
 - `candidate_rejected`
 - `candidate_failed`
 
-## Radar AI Summarization
+## Radar AI Structured Extraction
 
 The AI summarization stage is the first optional AI layer after candidate
 creation. It reads validated `radar_candidates` with `candidate_status =
@@ -329,17 +329,25 @@ Optional:
 - `GEMINI_MODEL` defaults to `gemini-2.5-flash-lite`
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 
-The prompt version is `radar-summary-v1`. The AI output is limited to:
+The prompt version is `radar-structured-v2`. AI extracts the job category,
+title, employer, city/region, salary, contract and hours, deadline,
+requirements, language and experience levels, visa sponsorship, relocation,
+outside-Spain application support, why the item matters, and source URL.
+Unavailable fields are stored as `null`; the three mobility fields use only
+`YES`, `NO`, or `UNKNOWN`. The structured payload is stored in
+`radar_ai_results.structured_data` while the existing headline/summary fields
+remain populated for backward compatibility with classification and legacy
+review flows.
 
-- `headline`
-- `short_summary`
-- `why_it_matters`
-- `confidence`
-- model/prompt/latency metadata
+Job review and admin preview use a compact structured card and omit unavailable
+fields. Legacy pending items without structured data remain reviewable through
+a fallback based on their existing AI result, classification, and source. On
+promotion, structured data is copied into `radar_items.structured_data`. The
+job detail page includes the Vitrin application-help notice; channel posts
+explicitly do not include that notice.
 
-This stage does not publish, translate, classify final categories, detect
-audiences or cities, calculate urgency/priority, add tags, run on cron, run
-during bot startup, modify Telegram handlers, or write to `radar_items`.
+This stage does not publish, classify final categories, calculate
+urgency/priority, add sources, or write to `radar_items`.
 
 ## Radar Admin Review
 
