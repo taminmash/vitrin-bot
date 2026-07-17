@@ -32,6 +32,41 @@ def store_raw_item(item: RawRadarItem) -> StoreResult:
     canonical_url = normalize_url(item.canonical_url or item.source_url)
 
     with db_cursor(dict_cursor=True) as (_, cur):
+        fingerprint = item.metadata.get("job_fingerprint") if isinstance(item.metadata, dict) else None
+        if fingerprint:
+            cur.execute(
+                """
+                SELECT id, deduplication_key
+                FROM radar_raw_items
+                WHERE source_key <> %s
+                  AND metadata ->> 'job_fingerprint' = %s
+                ORDER BY first_seen_at ASC
+                LIMIT 1
+                """,
+                (item.source_key, fingerprint),
+            )
+            cross_source = cur.fetchone()
+            if cross_source:
+                provenance = item.metadata.get("provenance") or []
+                cur.execute(
+                    """
+                    UPDATE radar_raw_items
+                    SET last_seen_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP,
+                        metadata = CASE
+                            WHEN COALESCE(metadata -> 'provenance', '[]'::jsonb) @> %s::jsonb THEN metadata
+                            ELSE jsonb_set(
+                                metadata,
+                                '{provenance}',
+                                COALESCE(metadata -> 'provenance', '[]'::jsonb) || %s::jsonb,
+                                true
+                            )
+                        END
+                    WHERE id = %s
+                    """,
+                    (Json(provenance), Json(provenance), cross_source["id"]),
+                )
+                return StoreResult("duplicate", cross_source["id"], cross_source["deduplication_key"])
         cur.execute(
             """
             INSERT INTO radar_raw_items (
