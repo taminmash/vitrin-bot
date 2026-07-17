@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from config_v2 import BACK_BUTTON, HOME_BUTTON
 from radar_engine.job_presentation import JOB_HELP_TEXT, is_job, job_card
 
 
@@ -381,8 +382,8 @@ def details_button_specs(
     return [
         [ButtonSpec("📤 اشتراک‌گذاری", url=share_url or deep_link)],
         [
-            ButtonSpec("⬅️ صفحه قبل", callback_data=f"radar:type:{category}"),
-            ButtonSpec("🏠 صفحه اصلی", callback_data="radar:home"),
+            ButtonSpec(BACK_BUTTON, callback_data=f"radar:type:{category}"),
+            ButtonSpec(HOME_BUTTON, callback_data="radar:home"),
         ],
     ]
 
@@ -398,8 +399,8 @@ def overview_button_specs(
         [ButtonSpec("📄 مشاهده جزئیات", callback_data=f"radar:details:{item['id']}")],
         [ButtonSpec("📤 اشتراک‌گذاری", url=share_url or deep_link)],
         [
-            ButtonSpec("⬅️ صفحه قبل", callback_data=f"radar:type:{category}"),
-            ButtonSpec("🏠 صفحه اصلی", callback_data="radar:home"),
+            ButtonSpec(BACK_BUTTON, callback_data=f"radar:type:{category}"),
+            ButtonSpec(HOME_BUTTON, callback_data="radar:home"),
         ],
     ]
 

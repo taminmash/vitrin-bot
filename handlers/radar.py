@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from config_v2 import BOT_USERNAME, CHANNEL_VITRIN, CHANNEL_VITRIN_LINK
+from config_v2 import BACK_BUTTON, BOT_USERNAME, CHANNEL_VITRIN, CHANNEL_VITRIN_LINK, HOME_BUTTON
 from database.db import (
     count_available_radar_by_type,
     count_radar_reactions,
@@ -138,7 +138,7 @@ def radar_keyboard():
                 InlineKeyboardButton("📡 اخبار مهم اسپانیا", callback_data="radar:type:legal"),
             ],
             [InlineKeyboardButton("🚨 هشدارهای فوری", callback_data="radar:type:alert")],
-            [InlineKeyboardButton("⬅️ بازگشت به پنل اصلی", callback_data="radar:home")],
+            [InlineKeyboardButton(HOME_BUTTON, callback_data="radar:home")],
         ]
     )
 
@@ -213,7 +213,7 @@ def details_keyboard(item, category=None):
 
 
 def expired_item_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🏠 خانه", callback_data="radar:home")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton(HOME_BUTTON, callback_data="radar:home")]])
 
 
 def format_date(value):
@@ -322,8 +322,8 @@ def radar_category_keyboard(radar_type, items):
         [InlineKeyboardButton((item.get("title") or "مشاهده محتوا")[:55], callback_data=f"radar:item:{item['id']}")]
         for item in items
     ]
-    rows.append([InlineKeyboardButton("⬅️ بازگشت به رادار", callback_data="radar:open")])
-    rows.append([InlineKeyboardButton("🏠 صفحه اصلی", callback_data="radar:home")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="radar:open")])
+    rows.append([InlineKeyboardButton(HOME_BUTTON, callback_data="radar:home")])
     return InlineKeyboardMarkup(rows)
 
 

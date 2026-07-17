@@ -7,6 +7,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TelegramUIUXTests(unittest.TestCase):
+    def test_navigation_uses_only_standard_labels(self):
+        config_text = (ROOT / "config_v2.py").read_text(encoding="utf-8")
+        self.assertIn('BACK_BUTTON = "⬅️ بازگشت به صفحه قبلی"', config_text)
+        self.assertIn('HOME_BUTTON = "🏠 بازگشت به صفحه اصلی"', config_text)
+
+        navigation_sources = (
+            ROOT / "handlers" / "admin.py",
+            ROOT / "handlers" / "common.py",
+            ROOT / "handlers" / "profile.py",
+            ROOT / "handlers" / "radar.py",
+            ROOT / "radar_engine" / "renderer.py",
+        )
+        forbidden_labels = (
+            'InlineKeyboardButton("⬅️ بازگشت',
+            'InlineKeyboardButton("↩️ بازگشت',
+            'InlineKeyboardButton("🏠 خانه"',
+            'InlineKeyboardButton("🏠 صفحه اصلی"',
+            'InlineKeyboardButton("🏠 منوی اصلی"',
+            'InlineKeyboardButton("🏠 بازگشت به خانه"',
+            'KeyboardButton("🏠 بازگشت به خانه"',
+            'ButtonSpec("⬅️ صفحه قبل"',
+            'ButtonSpec("🏠 صفحه اصلی"',
+        )
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in navigation_sources)
+        for label in forbidden_labels:
+            self.assertNotIn(label, combined)
+
+    def test_navigation_callbacks_keep_previous_and_home_destinations(self):
+        radar_text = (ROOT / "handlers" / "radar.py").read_text(encoding="utf-8")
+        admin_text = (ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
+        self.assertIn('InlineKeyboardButton(BACK_BUTTON, callback_data="radar:open")', radar_text)
+        self.assertIn('InlineKeyboardButton(HOME_BUTTON, callback_data="radar:home")', radar_text)
+        self.assertIn('InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:admin")', admin_text)
+        self.assertIn('InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home")', admin_text)
+        self.assertIn('InlineKeyboardButton(HOME_BUTTON, callback_data="admin:panel:home")', admin_text)
+
     def test_main_menu_uses_expected_existing_callback_routes(self):
         text = (ROOT / "handlers" / "start.py").read_text(encoding="utf-8")
         expected = {

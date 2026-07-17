@@ -155,7 +155,7 @@ def need_edit_keyboard(content):
         [
             [InlineKeyboardButton("✏️ ویرایش آگهی", callback_data=f"draft:edit:{content['human_id']}")],
             [InlineKeyboardButton("🗑 حذف آگهی", callback_data=f"draft:archive:{content['human_id']}")],
-            [InlineKeyboardButton("🏠 منوی اصلی", callback_data=f"draft:home:{content['human_id']}")],
+            [InlineKeyboardButton(HOME_BUTTON, callback_data=f"draft:home:{content['human_id']}")],
         ]
     )
 
@@ -177,7 +177,7 @@ def preview_keyboard(content):
             [InlineKeyboardButton("✏️ ویرایش", callback_data=f"draft:edit:{content['human_id']}")],
             [InlineKeyboardButton("🗑 حذف", callback_data=f"draft:archive:{content['human_id']}")],
             [InlineKeyboardButton("📤 ارسال برای بررسی", callback_data=f"draft:submit:{content['human_id']}")],
-            [InlineKeyboardButton("🏠 بازگشت به خانه", callback_data=f"draft:home:{content['human_id']}")],
+            [InlineKeyboardButton(HOME_BUTTON, callback_data=f"draft:home:{content['human_id']}")],
         ]
     )
 

@@ -15,7 +15,7 @@ PROFILE_KEYBOARD = ReplyKeyboardMarkup(
         [KeyboardButton(PROFILE_DRAFTS)],
         [KeyboardButton(PROFILE_PENDING)],
         [KeyboardButton(PROFILE_PUBLISHED)],
-        [KeyboardButton("🏠 بازگشت به خانه")],
+        [KeyboardButton(HOME_BUTTON)],
     ],
     resize_keyboard=True,
 )
@@ -85,7 +85,7 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text
-    if text in (HOME_BUTTON, "🏠 بازگشت به خانه"):
+    if text == HOME_BUTTON:
         context.user_data.clear()
         from handlers.start import MAIN_MENU
 

@@ -12,7 +12,7 @@ from telegram import (
 from telegram.error import BadRequest
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
-from config_v2 import ADMIN_IDS, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
+from config_v2 import ADMIN_IDS, BACK_BUTTON, CHANNEL_HAYAT, CHANNEL_VITRIN, HOME_BUTTON, TECH_SUPPORT_IDS
 from database.db import (
     create_radar_item,
     count_radar_reactions,
@@ -74,8 +74,8 @@ ADMIN_USERS_MANAGE = "👥 مدیریت کاربران"
 ADMIN_PENDING = "📝 مدیریت محتواهای در انتظار"
 ADMIN_COMMENTS = "💬 مدیریت کامنت‌ها"
 ADMIN_REPORTS = "🚨 گزارش‌ها"
-ADMIN_HOME = "🏠 بازگشت به خانه"
-ADMIN_RADAR_BACK = "⬅️ بازگشت"
+ADMIN_HOME = HOME_BUTTON
+ADMIN_RADAR_BACK = BACK_BUTTON
 ADMIN_RADAR = "📡 انتشار رادار"
 ADMIN_RADAR_NEW = "➕ محتوای جدید"
 ADMIN_RADAR_DRAFTS = "📝 پیش‌نویس‌ها"
@@ -264,7 +264,7 @@ def admin_panel_inline_keyboard():
                 InlineKeyboardButton(ADMIN_COMMENTS, callback_data="admin:panel:comments"),
                 InlineKeyboardButton("🚨 مدیریت گزارشات", callback_data="admin:panel:reports"),
             ],
-            [InlineKeyboardButton("🏠 بازگشت به پنل اصلی", callback_data="admin:panel:home")],
+            [InlineKeyboardButton(HOME_BUTTON, callback_data="admin:panel:home")],
         ]
     )
 
@@ -284,8 +284,8 @@ def admin_radar_menu_keyboard():
             [InlineKeyboardButton(ADMIN_RADAR_REVIEW, callback_data="admin_radar:review:list")],
             [InlineKeyboardButton(ADMIN_RADAR_SOURCES, callback_data="admin_radar:menu:sources")],
             [
-                InlineKeyboardButton("⬅️ بازگشت به پنل ادمین", callback_data="admin_radar:menu:admin"),
-                InlineKeyboardButton("🏠 خانه", callback_data="admin_radar:menu:home"),
+                InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:admin"),
+                InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home"),
             ],
         ]
     )
@@ -309,7 +309,7 @@ def step_prompt_text(step_index):
 def create_nav_keyboard(include_back=True):
     rows = []
     if include_back:
-        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
+        rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")])
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
     return InlineKeyboardMarkup(rows)
 
@@ -450,14 +450,14 @@ def selector_keyboard(field, data):
             for value, label in RADAR_CATEGORY_OPTIONS
         ]
         rows.append([InlineKeyboardButton("✅ تأیید", callback_data="admin_radar:cat_done")])
-        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
+        rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")])
         rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
         return InlineKeyboardMarkup(rows)
 
     if field == "city":
         rows = [[InlineKeyboardButton(label, callback_data=f"admin_radar:city:{value}")] for value, label in CITY_OPTIONS]
         rows.append([InlineKeyboardButton("📍 شهر دیگر", callback_data="admin_radar:city:other")])
-        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
+        rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")])
         rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
         return InlineKeyboardMarkup(rows)
 
@@ -467,7 +467,7 @@ def selector_keyboard(field, data):
                 [InlineKeyboardButton("📅 امروز", callback_data="admin_radar:date:start:today")],
                 [InlineKeyboardButton("📅 فردا", callback_data="admin_radar:date:start:tomorrow")],
                 [InlineKeyboardButton("✍️ ورود تاریخ دستی", callback_data="admin_radar:date:start:manual")],
-                [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")],
+                [InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")],
                 [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
             ]
         )
@@ -485,7 +485,7 @@ def selector_keyboard(field, data):
                 ],
                 [InlineKeyboardButton("30 روز", callback_data="admin_radar:date:end:30")],
                 [InlineKeyboardButton("✍️ ورود تاریخ دستی", callback_data="admin_radar:date:end:manual")],
-                [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")],
+                [InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")],
                 [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
             ]
         )
@@ -494,7 +494,7 @@ def selector_keyboard(field, data):
         return InlineKeyboardMarkup(
             [[InlineKeyboardButton(label, callback_data=f"admin_radar:urgency:{value}")] for value, label in URGENCY_OPTIONS]
             + [
-                [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")],
+                [InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")],
                 [InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")],
             ]
         )
@@ -513,7 +513,7 @@ def selector_keyboard(field, data):
         ]
         rows.append([InlineKeyboardButton("✅ تأیید", callback_data="admin_radar:aud_done")])
         rows.append([InlineKeyboardButton("➕ افزودن تگ سفارشی", callback_data="admin_radar:aud_custom")])
-        rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:create:back")])
+        rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:back")])
         rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_radar:create:cancel")])
         return InlineKeyboardMarkup(rows)
 
@@ -522,7 +522,7 @@ def selector_keyboard(field, data):
 
 def edit_field_keyboard():
     rows = [[InlineKeyboardButton(label, callback_data=f"admin_radar:edit_field:{field}")] for field, label in EDIT_FIELD_LABELS]
-    rows.append([InlineKeyboardButton("بازگشت", callback_data="admin_radar:create:preview")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:create:preview")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -649,7 +649,7 @@ async def edit_radar_publication_result(query, item_id, result):
             f"Message ID: {result.telegram_message_id or '-'}\n"
             f"URL: {result.channel_post_url or '-'}",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
             ),
         )
         return
@@ -658,7 +658,7 @@ async def edit_radar_publication_result(query, item_id, result):
             "این آیتم قبلاً منتشر شده است و پیام تکراری ارسال نشد.\n\n"
             f"Message ID: {result.telegram_message_id or '-'}",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
             ),
         )
         return
@@ -667,7 +667,7 @@ async def edit_radar_publication_result(query, item_id, result):
             "انتشار این آیتم همین الان در حال انجام است.\n\n"
             "لطفاً چند لحظه بعد دوباره وضعیت را بررسی کنید.",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
             ),
         )
         return
@@ -677,7 +677,7 @@ async def edit_radar_publication_result(query, item_id, result):
             f"Radar item ID: {item_id}\n"
             f"Message ID: {result.telegram_message_id or '-'}",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
             ),
         )
         return
@@ -686,7 +686,7 @@ async def edit_radar_publication_result(query, item_id, result):
         f"وضعیت: {result.status}\n"
         f"خطا: {result.error or '-'}",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+            [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
         ),
     )
 
@@ -730,7 +730,7 @@ def radar_admin_list_keyboard(grouped_items):
                 ]
             )
     rows.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="admin_radar:list")])
-    rows.append([InlineKeyboardButton("⬅️ بازگشت به مدیریت رادار", callback_data="admin_radar:menu:open")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:open")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -742,7 +742,7 @@ def radar_item_preview_keyboard(item):
         rows.append(
             [InlineKeyboardButton("🔄 بروزرسانی دکمه‌های کانال", callback_data=f"admin_radar:refresh_buttons:{item['id']}")]
         )
-    rows.append([InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -770,7 +770,7 @@ def radar_review_queue_keyboard(items):
             ]
         )
     rows.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="admin_radar:review:list")])
-    rows.append([InlineKeyboardButton("⬅️ بازگشت به مدیریت رادار", callback_data="admin_radar:menu:open")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:open")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -793,7 +793,7 @@ def radar_review_item_keyboard(candidate_id):
         callback_data = safe_review_callback_data(operation, candidate_id)
         if callback_data:
             rows.append([InlineKeyboardButton(label, callback_data=callback_data)])
-    rows.append([InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")])
     return InlineKeyboardMarkup(
         rows
     )
@@ -808,7 +808,7 @@ def radar_promotion_keyboard(candidate_id=None):
                 [InlineKeyboardButton("آماده‌سازی برای انتشار", callback_data=callback_data)]
             )
     rows.append([InlineKeyboardButton("✅ آماده انتشارها", callback_data="admin_radar:menu:ready")])
-    rows.append([InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")])
+    rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -1102,7 +1102,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(
                 "درخواست بازبینی معتبر نیست. لطفاً فهرست بازبینی را دوباره باز کنید.",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")]]
                 ),
             )
             return
@@ -1132,7 +1132,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.edit_message_text(
                     "منبع فعالی برای رادار ثبت نشده است.",
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:menu:open")]]
+                        [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:open")]]
                     ),
                 )
                 return
@@ -1151,7 +1151,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(
                 "\n".join(lines).strip(),
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_radar:menu:open")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:open")]]
                 ),
             )
             return
@@ -1182,7 +1182,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.edit_message_text(
                     "این گزینه برای بازبینی پیدا نشد یا قبلاً تصمیم‌گیری شده است.",
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                        [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")]]
                     ),
                 )
                 return
@@ -1202,19 +1202,19 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 stored = reject_candidate(candidate_id, query.from_user.id, note)
                 label = "رد شد"
                 reply_markup = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")]]
                 )
             else:
                 stored = needs_edit_candidate(candidate_id, query.from_user.id, note)
                 label = "نیازمند ویرایش شد"
                 reply_markup = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")]]
                 )
             if not stored:
                 await query.edit_message_text(
                     "برای این گزینه قبلاً تصمیم ثبت شده است.",
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                        [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")]]
                     ),
                 )
                 return
@@ -1226,7 +1226,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(
             "درخواست بازبینی معتبر نیست.",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به بازبینی", callback_data="admin_radar:review:list")]]
+                [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")]]
             ),
         )
         return
@@ -1494,7 +1494,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(
                 "برای این آیتم پیام کانال ثبت نشده است.",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
             )
             return
@@ -1510,14 +1510,14 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "❌ بروزرسانی دکمه‌های کانال ناموفق بود.\n\n"
                 f"خطا: {error}",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
             )
             return
         await query.edit_message_text(
             "✅ دکمه‌های کانال بروزرسانی شد.",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
             ),
         )
         return
@@ -1527,7 +1527,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(
                 "این آیتم منقضی شده و قابل انتشار نیست.",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
             )
             return
@@ -1536,7 +1536,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "این آیتم قبلاً منتشر شده است.\n\n"
                 f"Message ID: {item.get('channel_message_id') or '-'}",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
             )
             return
@@ -1545,7 +1545,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup(
                 [
                     [InlineKeyboardButton("✅ تأیید انتشار", callback_data=f"admin_radar:publish_confirm:{item_id}")],
-                    [InlineKeyboardButton("↩️ بازگشت به آیتم", callback_data=f"admin_radar:item:{item_id}")],
+                    [InlineKeyboardButton(BACK_BUTTON, callback_data=f"admin_radar:item:{item_id}")],
                 ]
             ),
         )
@@ -1556,7 +1556,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(
                 "این آیتم منقضی شده و قابل انتشار نیست.",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
             )
             return
@@ -1565,7 +1565,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "این آیتم قبلاً منتشر شده است.\n\n"
                 f"Message ID: {item.get('channel_message_id') or '-'}",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("↩️ بازگشت به لیست", callback_data="admin_radar:list")]]
+                    [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
             )
             return

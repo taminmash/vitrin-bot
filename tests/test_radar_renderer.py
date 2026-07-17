@@ -110,7 +110,10 @@ class RadarRendererTests(unittest.TestCase):
             "https://t.me/vitrinspain/42",
         )
         labels = [button.text for row in rows for button in row]
-        self.assertEqual(labels, ["📤 اشتراک‌گذاری", "⬅️ صفحه قبل", "🏠 صفحه اصلی"])
+        self.assertEqual(
+            labels,
+            ["📤 اشتراک‌گذاری", "⬅️ بازگشت به صفحه قبلی", "🏠 بازگشت به صفحه اصلی"],
+        )
         self.assertNotIn("🔗 منبع رسمی", labels)
         self.assertEqual(rows[1][0].callback_data, "radar:type:event")
 
