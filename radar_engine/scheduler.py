@@ -17,6 +17,7 @@ from radar_engine.pipeline.engine import PipelineReport, RadarCandidatePipeline
 from radar_engine.pipeline.actionability_backfill import ActionabilityBackfillReport, backfill_actionability
 from radar_engine.source_manager import IngestionReport, build_default_source_manager
 from radar_engine.source_config import source_interval_minutes
+from radar_engine.urgent import UrgentAutoPublicationEngine, UrgentPublicationReport
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,9 @@ class RadarFetchCycleReport:
     classification_completed: int = 0
     classification_postponed: int = 0
     queued_for_review: int = 0
+    urgent_evaluated: int = 0
+    urgent_published: int = 0
+    urgent_fallback_review: int = 0
     duration_seconds: float = 0.0
     skipped: bool = False
     failed: bool = False
@@ -64,6 +68,7 @@ class RadarFetchCycleReport:
 AsyncStage = Callable[[], Awaitable[object]]
 LockFactory = Callable[[], AbstractContextManager[bool]]
 ReviewNotificationStage = Callable[[int], Awaitable[object]]
+UrgentPublicationStage = Callable[[], Awaitable[object]]
 
 
 def advisory_lock_key(name: str = ADVISORY_LOCK_NAME) -> int:
@@ -256,6 +261,49 @@ def _default_classification_stage(limit: int, request_delay_seconds: float = 0.0
     return run_classification
 
 
+async def _empty_urgent_publication_stage():
+    return UrgentPublicationReport()
+
+
+def _default_urgent_publication_stage(bot, admin_ids, limit: int):
+    async def notify_admins(item, radar_item, decision, result):
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from radar_engine.urgent import urgent_admin_notification_text
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("مشاهده آیتم منتشرشده", callback_data=f"admin_radar:item:{radar_item['id']}")],
+                [InlineKeyboardButton("صف بازبینی Radar", callback_data="admin_radar:review:list")],
+            ]
+        )
+        sent = 0
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(
+                    chat_id=admin_id,
+                    text=urgent_admin_notification_text(item, decision),
+                    reply_markup=keyboard,
+                )
+                sent += 1
+            except Exception:
+                logger.exception("Could not notify admin_id=%s about urgent publication", admin_id)
+        return sent
+
+    async def run_urgent_publication():
+        from config_v2 import CHANNEL_VITRIN, CHANNEL_VITRIN_USERNAME
+        from radar_engine.publication.engine import RadarPublicationEngine
+        from radar_engine.publication.publisher import RadarTelegramPublisher
+
+        publisher = RadarTelegramPublisher(bot, channel_id=CHANNEL_VITRIN, channel_username=CHANNEL_VITRIN_USERNAME)
+        engine = UrgentAutoPublicationEngine(
+            publisher=RadarPublicationEngine(publisher=publisher),
+            admin_notifier=notify_admins,
+        )
+        return await engine.run(limit=limit)
+
+    return run_urgent_publication
+
+
 def radar_review_notification_text(new_count: int, pending_total: int) -> str:
     return (
         "🔔 Radar\n\n"
@@ -404,6 +452,7 @@ class RadarBOEIngestionScheduler:
         actionability_backfill_stage: AsyncStage | None = None,
         ai_stage: AsyncStage | None = None,
         classification_stage: AsyncStage | None = None,
+        urgent_publication_stage: UrgentPublicationStage | None = None,
         review_notification_stage: ReviewNotificationStage | None = None,
         lock_factory: LockFactory | None = None,
         sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -438,6 +487,7 @@ class RadarBOEIngestionScheduler:
             self.ai_batch_limit,
             self.ai_request_delay_seconds,
         )
+        self.urgent_publication_stage = urgent_publication_stage or _empty_urgent_publication_stage
         self.review_notification_stage = review_notification_stage
         self.lock_factory = lock_factory or (lambda: PostgresAdvisoryLock(ADVISORY_LOCK_NAME))
         self.sleep_func = sleep_func
@@ -519,6 +569,8 @@ class RadarBOEIngestionScheduler:
                 classification = await self.classification_stage()
                 self._apply_classification(report, classification)
                 report.queued_for_review = report.classification_completed
+                urgent = await self.urgent_publication_stage()
+                self._apply_urgent_publication(report, urgent)
                 await self._notify_review_queue(report)
         except Exception as error:
             report.failed = True
@@ -574,6 +626,14 @@ class RadarBOEIngestionScheduler:
         report.classification_postponed = classification.remaining
         report.errors.extend(classification.errors)
 
+    def _apply_urgent_publication(self, report: RadarFetchCycleReport, urgent) -> None:
+        if not isinstance(urgent, UrgentPublicationReport):
+            return
+        report.urgent_evaluated = urgent.evaluated
+        report.urgent_published = urgent.published
+        report.urgent_fallback_review = urgent.fallback_review
+        report.errors.extend(urgent.errors)
+
     async def _notify_review_queue(self, report: RadarFetchCycleReport, *, retry_pending_only: bool = False) -> None:
         if not self.review_notification_stage:
             return
@@ -598,7 +658,8 @@ class RadarBOEIngestionScheduler:
             "AI processed=%s AI completed=%s AI failed=%s "
             "AI postponed=%s Classification completed=%s Classification postponed=%s "
             "Remaining AI queue estimate=%s "
-            "Queued for review=%s Cycle duration=%.2fs",
+            "Queued for review=%s Urgent evaluated=%s published=%s fallback_review=%s "
+            "Cycle duration=%.2fs",
             report.fetched,
             report.skipped_duplicate,
             report.inserted_raw,
@@ -615,6 +676,9 @@ class RadarBOEIngestionScheduler:
             report.classification_postponed,
             report.ai_postponed,
             report.queued_for_review,
+            report.urgent_evaluated,
+            report.urgent_published,
+            report.urgent_fallback_review,
             report.duration_seconds,
         )
 
@@ -633,7 +697,10 @@ async def start_radar_scheduler(application) -> None:
         send_message=application.bot.send_message,
         pending_review_count=pending_review_count,
     )
-    scheduler = RadarBOEIngestionScheduler(review_notification_stage=notifier.notify_if_pending_increased)
+    scheduler = RadarBOEIngestionScheduler(
+        review_notification_stage=notifier.notify_if_pending_increased,
+        urgent_publication_stage=_default_urgent_publication_stage(application.bot, ADMIN_IDS, 50),
+    )
     application.bot_data["radar_boe_scheduler"] = scheduler
     application.bot_data["radar_review_notifier"] = notifier
     scheduler.start()

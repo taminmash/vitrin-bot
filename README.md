@@ -23,6 +23,17 @@ Set these in Railway or your local shell:
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
 - `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled. Use `0`,
   `false`, `no`, or `off` to disable automatic Radar ingestion.
+- `RADAR_URGENT_AUTO_PUBLISH_ENABLED` optional; defaults to `false`. Accepted
+  true values are `1`, `true`, `yes`, and `on`.
+- `RADAR_URGENT_AUTO_PUBLISH_MIN_SCORE` optional; defaults to `90` and is
+  clamped to `0` through `100`.
+- `RADAR_URGENT_AUTO_PUBLISH_MIN_CONFIDENCE` optional; defaults to `0.90` and
+  is clamped to `0.0` through `1.0`.
+- `RADAR_URGENT_AUTO_PUBLISH_COOLDOWN_MINUTES` optional; defaults to `30` and
+  is clamped to `5` through `1440`.
+- `RADAR_URGENT_AUTO_PUBLISH_DAILY_SAFETY_LIMIT` optional; defaults to `10`.
+  This emergency flood guard applies only to automatic urgent-alert
+  publication and never limits manual admin publication.
 - `RADAR_ACTIONABILITY_MIN_SCORE` optional; defaults to `60`. Candidates below
   this actionability score are stored as rejected before AI processing.
 - `AI_PROVIDER` optional; `gemini` by default. Allowed values: `gemini`,
@@ -55,6 +66,34 @@ that Telegram channel. Channel deep links use this format:
 
 ```text
 https://t.me/<BOT_USERNAME>?start=radar_<item_id>
+```
+
+### Radar publishing policy
+
+The automatic scheduler may fetch, normalize, deduplicate, score, summarize,
+classify, store, and queue ordinary Radar content, but it never publishes that
+content. News, jobs, discounts, events, legal, transport, economy, education,
+ordinary weather, city, family, and travel items always require admin review
+and manual publication. Manual publication has no daily or category limit.
+
+Only an item classified exactly as `alert` with urgency `urgent` can enter the
+automatic publication safety check. Automatic publication remains off by
+default. When enabled, the actionability gate and score, classification
+confidence, official active source registry trust, current validity, required
+content, URL, duplicate/rejection state, cooldown, daily flood guard, renderer,
+and configured Telegram target must all pass. At most one urgent alert is
+published per scheduler cycle. Any failed check leaves the candidate in the
+existing admin review queue; nothing is silently discarded.
+
+Recommended initial Railway values:
+
+```text
+RADAR_AUTO_INGESTION_ENABLED=true
+RADAR_URGENT_AUTO_PUBLISH_ENABLED=false
+RADAR_URGENT_AUTO_PUBLISH_MIN_SCORE=90
+RADAR_URGENT_AUTO_PUBLISH_MIN_CONFIDENCE=0.90
+RADAR_URGENT_AUTO_PUBLISH_COOLDOWN_MINUTES=30
+RADAR_URGENT_AUTO_PUBLISH_DAILY_SAFETY_LIMIT=10
 ```
 
 ## Run Locally
@@ -281,7 +320,8 @@ Known limitations:
 - BOE ingestion stores raw Spanish source records before pushing them through
   the existing candidate, AI, classification, and review queue stages.
 - It does not mark content as ready or published.
-- It does not publish to Telegram automatically.
+- It does not publish ordinary content automatically. Verified urgent alerts
+  may use the separately gated, disabled-by-default exception documented above.
 - BOE upstream XML availability or format changes can affect ingestion.
 
 ## Radar Candidate Pipeline
