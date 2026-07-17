@@ -68,11 +68,13 @@ def load_source_info(source_key: str) -> SourceInfo | None:
             """
             SELECT name, category, source_url, source_type, trust_level, country, city
             FROM source_registry
-            WHERE name = %s OR lower(name) = lower(%s)
+            WHERE name = %s
+               OR lower(name) = lower(%s)
+               OR lower(replace(name, ' ', '_')) = lower(%s)
             ORDER BY is_active DESC, trust_level DESC
             LIMIT 1
             """,
-            (source_key, source_key),
+            (source_key, source_key, source_key),
         )
         row = cur.fetchone()
         if not row:

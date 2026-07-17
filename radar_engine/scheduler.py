@@ -16,6 +16,7 @@ from radar_engine.classification.engine import ClassificationReport, RadarClassi
 from radar_engine.pipeline.engine import PipelineReport, RadarCandidatePipeline
 from radar_engine.pipeline.actionability_backfill import ActionabilityBackfillReport, backfill_actionability
 from radar_engine.source_manager import IngestionReport, build_default_source_manager
+from radar_engine.source_config import source_interval_minutes
 
 
 logger = logging.getLogger(__name__)
@@ -183,7 +184,39 @@ def ai_request_delay_seconds_from_env(value: str | None = None, provider: str | 
 def _default_ingest_stage(source_key: str):
     async def ingest():
         manager = build_default_source_manager()
-        return await manager.ingest_source(source_key)
+        primary = await manager.ingest_source(source_key)
+        now = monotonic()
+        last_runs = getattr(_default_ingest_stage, "_job_source_last_runs", {})
+        for job_key in manager.source_keys():
+            if job_key == source_key:
+                continue
+            interval = source_interval_minutes(job_key) * 60
+            if now - last_runs.get(job_key, float("-inf")) < interval:
+                continue
+            # Each connector is isolated: one failure is recorded but never prevents
+            # another source or the existing downstream pipeline from running.
+            report = await manager.ingest_source(job_key)
+            last_runs[job_key] = now
+            logger.info(
+                "Radar job source cycle source=%s fetched=%s normalized=%s inserted=%s "
+                "duplicates=%s updated=%s failed=%s",
+                job_key,
+                report.fetched_count,
+                report.normalized_count,
+                report.inserted_count,
+                report.duplicate_count,
+                report.updated_count,
+                report.failed_count,
+            )
+            primary.fetched_count += report.fetched_count
+            primary.normalized_count += report.normalized_count
+            primary.inserted_count += report.inserted_count
+            primary.duplicate_count += report.duplicate_count
+            primary.updated_count += report.updated_count
+            primary.failed_count += report.failed_count
+            primary.errors.extend(f"{job_key}: {error}" for error in report.errors)
+        _default_ingest_stage._job_source_last_runs = last_runs
+        return primary
 
     return ingest
 

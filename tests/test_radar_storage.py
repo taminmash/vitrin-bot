@@ -88,3 +88,17 @@ class StorageTests(unittest.TestCase):
         result = store_raw_item(raw_item("Changed"))
         self.assertEqual(result.status, "updated")
         self.assertIn("COALESCE(NULLIF", cursor.executed[-1][0])
+
+    def test_cross_source_job_is_merged_without_second_raw_row(self):
+        item = raw_item()
+        item.source_key = "source_b"
+        item.metadata = {
+            "job_fingerprint": "same-job",
+            "provenance": [{"source_key": "source_b", "external_id": "b-1", "url": item.source_url}],
+        }
+        cursor = FakeCursor([{"id": "source-a-id", "deduplication_key": "source_a:external:a-1"}])
+        install_storage_stubs(cursor)
+        result = store_raw_item(item)
+        self.assertEqual(result.status, "duplicate")
+        self.assertEqual(result.raw_item_id, "source-a-id")
+        self.assertIn("provenance", cursor.executed[-1][0])

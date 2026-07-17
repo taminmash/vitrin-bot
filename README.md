@@ -37,6 +37,15 @@ Set these in Railway or your local shell:
 - `RADAR_AI_REQUEST_DELAY_SECONDS` optional for automatic ingestion; defaults
   to `15` when `AI_PROVIDER=gemini` and `1` when `AI_PROVIDER=openai`. It is
   clamped to `0` through `60`.
+- Job connectors are opt-in via `RADAR_SOURCE_INFOJOBS_ENABLED`,
+  `RADAR_SOURCE_MADRID_EMPLEO_ENABLED`, `RADAR_SOURCE_TECNOEMPLEO_ENABLED`, and
+  `RADAR_SOURCE_DOMESTIKA_JOBS_ENABLED`. InfoJobs also requires
+  `INFOJOBS_CLIENT_ID`/`INFOJOBS_CLIENT_SECRET`; Tecnoempleo requires an
+  official feed in `TECNOEMPLEO_RSS_URL`.
+- Per-source schedules use `RADAR_SOURCE_<KEY>_INTERVAL_MINUTES` (minimum 5,
+  default 60). Shared bounds: `RADAR_JOB_SOURCE_TIMEOUT_SECONDS` (12),
+  `RADAR_JOB_SOURCE_RETRIES` (2), and `RADAR_JOB_SOURCE_MAX_ITEMS` (50,
+  maximum 200).
 
 The bot checks membership through the public channel usernames configured in
 `config_v2.py`: `@vitrinspain` and `@hayatkhalvatspain`.
@@ -216,6 +225,41 @@ by default one summarization job and one classification job are attempted per
 cycle with a 15-second provider-call delay. If Gemini returns a quota/rate-limit
 response, the current AI or classification batch stops immediately and the
 remaining work stays retryable for the next scheduled cycle.
+
+### Radar job sources
+
+Permitted job feeds normalize into the existing raw-item/candidate pipeline.
+Original source identity and URL are retained in provenance. A deterministic
+title/employer/location fingerprint merges obvious cross-source duplicates
+into the first-seen raw record and appends the additional provenance; records
+are never deleted. Existing validation, Actionability Gate, AI,
+classification, and admin review remain unchanged.
+
+All job sources default to disabled. Enabled sources run after BOE during
+normal scheduler cycles, each with its own interval and failure boundary. A
+failed connector does not stop BOE, another connector, or backlog processing.
+
+| Source | Status | Integration |
+| --- | --- | --- |
+| InfoJobs | Ready with credentials | Official REST search API |
+| Madrid Empleo | Ready | Madrid open-data employment/opposition RSS |
+| Tecnoempleo | Ready with feed URL | Official user-configured RSS |
+| Domestika Jobs | Ready | Public jobs Atom feed |
+| EURES | Blocked | No documented public vacancy retrieval API; partner/PES access required |
+| Indeed | Blocked | Job Sync posts ATS jobs; it is not a public vacancy retrieval API |
+| LinkedIn Jobs | Blocked | Job APIs require approved partner access; no public search API |
+| Barcelona Activa | Blocked | No documented public feed/API; search is a dynamic authenticated app |
+
+Controlled smoke test (fetch and normalize only; no database write, AI,
+review, promotion, or publication):
+
+```bash
+python scripts/run_radar_jobs.py --smoke
+python scripts/run_radar_jobs.py --source madrid_empleo --smoke
+```
+
+Without `--smoke`, the command stores raw records only. It never invokes AI or
+publication; subsequent processing uses the existing scheduler pipeline.
 
 Manual one-off ingestion:
 

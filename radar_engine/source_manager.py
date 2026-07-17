@@ -7,6 +7,7 @@ from typing import Callable
 from radar_engine.models import RawRadarItem
 from radar_engine.sources.base import BaseRadarSource
 from radar_engine.sources.boe import BOESource
+from radar_engine.source_config import configured_job_sources
 from radar_engine.storage import StoreResult, store_raw_item
 
 
@@ -43,6 +44,9 @@ class SourceManager:
             return self._sources[source_key]
         except KeyError as error:
             raise KeyError(f"Unknown Radar source: {source_key}") from error
+
+    def source_keys(self) -> tuple[str, ...]:
+        return tuple(self._sources)
 
     async def ingest_source(self, source_key: str) -> IngestionReport:
         source = self.get_source(source_key)
@@ -92,4 +96,6 @@ class SourceManager:
 def build_default_source_manager(boe_days_back: int | None = None) -> SourceManager:
     manager = SourceManager()
     manager.register(BOESource(days_back=boe_days_back))
+    for source in configured_job_sources():
+        manager.register(source)
     return manager
