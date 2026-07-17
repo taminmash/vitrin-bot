@@ -328,7 +328,6 @@ def render_admin_preview(item: dict) -> str:
                 "why_it_matters": preview.get("ai_reason") or preview.get("summary"),
                 "source_url": preview.get("source_url"),
             },
-            compact=True,
         )
 
     return _join_blocks(

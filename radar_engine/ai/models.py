@@ -24,7 +24,7 @@ class AITaskResult:
     def __post_init__(self) -> None:
         self.headline = _required_text(self.headline, "headline")
         self.short_summary = _required_text(self.short_summary, "short_summary")
-        self.why_it_matters = _required_text(self.why_it_matters, "why_it_matters")
+        self.why_it_matters = (self.why_it_matters or "").strip()
         self.model_name = _required_text(self.model_name, "model_name")
         self.prompt_version = _required_text(self.prompt_version, "prompt_version")
         self.confidence = float(self.confidence)

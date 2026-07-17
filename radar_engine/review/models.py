@@ -36,7 +36,7 @@ class RadarSummaryForReview:
         self.ai_result_id = _required_text(self.ai_result_id, "ai_result_id")
         self.headline = _required_text(self.headline, "headline")
         self.summary = _required_text(self.summary, "summary")
-        self.why_it_matters = _required_text(self.why_it_matters, "why_it_matters")
+        self.why_it_matters = (self.why_it_matters or "").strip()
         self.confidence = float(self.confidence)
         if not 0 <= self.confidence <= 1:
             raise ValueError("summary confidence must be between 0 and 1")

@@ -333,7 +333,7 @@ The prompt version is `radar-structured-v2`. AI extracts the job category,
 title, employer, city/region, salary, contract and hours, deadline,
 requirements, language and experience levels, visa sponsorship, relocation,
 outside-Spain application support, why the item matters, and source URL.
-Unavailable fields are stored as `null`; the three mobility fields use only
+Unavailable fields, including `why_it_matters`, are stored as `null`; the three mobility fields use only
 `YES`, `NO`, or `UNKNOWN`. The structured payload is stored in
 `radar_ai_results.structured_data` while the existing headline/summary fields
 remain populated for backward compatibility with classification and legacy

@@ -196,7 +196,8 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertIn("دسته اصلی:", text)
         self.assertIn("فوریت:", text)
         self.assertIn("اولویت:", text)
-        self.assertIn("اعتماد طبقه‌بندی:", text)
+        self.assertNotIn("اعتماد طبقه‌بندی:", text)
+        self.assertNotIn("اعتماد خلاصه:", text)
         self.assertIn("https://www.boe.es/test/unicode", text)
 
     def test_extremely_long_source_name_is_shortened_before_url(self):
@@ -254,7 +255,8 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertIn("high", text)
         self.assertIn("اولویت:", text)
         self.assertIn("80", text)
-        self.assertIn("اعتماد طبقه‌بندی:", text)
+        self.assertNotIn("اعتماد طبقه‌بندی:", text)
+        self.assertNotIn("اعتماد خلاصه:", text)
 
     def test_classification_list_displays_are_truncated_after_ai_fields(self):
         item = make_item()

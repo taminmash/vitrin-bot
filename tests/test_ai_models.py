@@ -23,3 +23,7 @@ class AITaskResultTests(unittest.TestCase):
             AITaskResult("", "summary", "why", 0.5, "model", "prompt", 1)
         with self.assertRaises(ValueError):
             AITaskResult("headline", "summary", "why", 1.5, "model", "prompt", 1)
+
+    def test_why_it_matters_may_be_empty(self):
+        result = AITaskResult("headline", "summary", None, 0.5, "model", "prompt", 1)
+        self.assertEqual(result.why_it_matters, "")

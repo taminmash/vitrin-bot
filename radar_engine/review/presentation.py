@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from radar_engine.pipeline.actionability import ACTIONABILITY_METADATA_KEY
-from radar_engine.job_presentation import is_job, job_card
+from radar_engine.job_presentation import is_job, job_card, radar_score
 
 
 SAFE_TELEGRAM_TEXT_LIMIT = 3800
@@ -71,7 +71,7 @@ def _review_item_text_from_fields(fields: dict[str, str], classification) -> str
         f"{fields['headline']}\n"
         f"{fields['summary']}\n"
         f"چرا مهم است: {fields['why_it_matters']}\n"
-        f"اعتماد خلاصه: {fields['summary_confidence']}\n\n"
+        "\n"
         "Radar V2:\n"
         f"Importance: {fields['importance_score']}\n"
         f"Actionability: {fields['actionability_score']}\n\n"
@@ -83,7 +83,7 @@ def _review_item_text_from_fields(fields: dict[str, str], classification) -> str
         f"شهرها: {fields['cities']}\n"
         f"فوریت: {fields['urgency']}\n"
         f"اولویت: {classification.priority_score}\n"
-        f"اعتماد طبقه‌بندی: {classification.confidence}\n\n"
+        "\n"
         "منبع اصلی:\n"
         f"{fields['source_name']}\n"
         f"{fields['source_url']}"
@@ -164,8 +164,10 @@ def build_review_item_text(
             "why_it_matters": summary.why_it_matters,
             "source_url": candidate.source_url,
         }
+        score = radar_score(candidate.metadata, classification.confidence, summary.structured_data)
+        score_block = f"⭐ امتیاز Radar\n{score} / 100\n\n" if score is not None else ""
         return truncate_text(
-            job_card(summary.structured_data, fallback=fallback, compact=True),
+            score_block + job_card(summary.structured_data, fallback=fallback),
             max_length,
             marker=SHORT_TRUNCATION_MARKER,
         )
@@ -181,7 +183,6 @@ def build_review_item_text(
         "headline": summary.headline,
         "summary": summary.summary,
         "why_it_matters": summary.why_it_matters,
-        "summary_confidence": str(summary.confidence),
         "importance_score": importance_score,
         "actionability_score": actionability_score,
         "categories": categories,

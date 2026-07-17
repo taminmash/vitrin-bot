@@ -41,6 +41,40 @@ def is_job(category: str | None, structured_data=None) -> bool:
     return (category or "").strip().casefold() == "job" or str(structured.get("category") or "").casefold() == "job"
 
 
+def radar_score(metadata, classification_confidence, structured_data) -> int | None:
+    """Combine available normalized Radar and job signals without another AI call."""
+    metadata = clean_structured_data(metadata)
+    gate = clean_structured_data(metadata.get("actionability_gate")) or metadata
+    data = clean_structured_data(structured_data)
+    components: list[float] = []
+
+    for key in ("actionability_score", "importance_score"):
+        value = gate.get(key)
+        if value is not None:
+            try:
+                components.append(max(0.0, min(100.0, float(value))))
+            except (TypeError, ValueError):
+                pass
+
+    try:
+        confidence = float(classification_confidence)
+        if confidence > 0:
+            components.append(max(0.0, min(100.0, confidence * 100)))
+    except (TypeError, ValueError):
+        pass
+
+    if data:
+        sponsorship = str(data.get("visa_sponsorship") or "").strip().upper()
+        if sponsorship in {"YES", "NO"}:
+            components.append(100.0 if sponsorship == "YES" else 0.0)
+        for key in ("salary", "deadline", "language_level"):
+            components.append(100.0 if data.get(key) else 0.0)
+
+    if not components:
+        return None
+    return round(sum(components) / len(components))
+
+
 def _display_value(key: str, value) -> str | None:
     if value is None:
         return None

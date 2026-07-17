@@ -1,7 +1,8 @@
 import unittest
 
 from radar_engine.category_headers import CATEGORY_HEADERS, category_header
-from radar_engine.job_presentation import JOB_HELP_TEXT, job_card
+from radar_engine.ai.summarizer import SUMMARY_SCHEMA
+from radar_engine.job_presentation import JOB_HELP_TEXT, job_card, radar_score
 from radar_engine.renderer import render_admin_preview, render_channel_post, render_details_page
 from radar_engine.review.presentation import build_review_item_text
 from tests.test_review_presentation import make_candidate, make_classification, make_item, make_summary
@@ -53,6 +54,7 @@ class JobPresentationTests(unittest.TestCase):
 
     def test_boe_job_with_salary_is_structured(self):
         text = build_review_item_text(review_item(structured()))
+        self.assertIn("⭐ امتیاز Radar\n95 / 100", text)
         self.assertIn("🟢 آگهی استخدام رایگان", text)
         self.assertIn("💶 حقوق\n€35,000–€42,000", text)
         self.assertIn("🛂 Visa Sponsorship\nبله", text)
@@ -90,10 +92,35 @@ class JobPresentationTests(unittest.TestCase):
         self.assertIn("https://www.boe.es/job-1", text)
         self.assertNotIn("Unknown", text)
 
-    def test_admin_preview_is_compact(self):
+    def test_admin_review_and_preview_use_full_card(self):
         text = render_admin_preview({"type": "job", "structured_data": structured(), "body": "x" * 2000})
         self.assertNotIn("x" * 100, text)
         self.assertIn("مهندس نرم‌افزار", text)
+        self.assertIn("🌍 استان / منطقه", text)
+        self.assertIn("🕒 ساعت کاری", text)
+        self.assertIn("🎓 پیش‌نیازها", text)
+        self.assertIn("👔 سطح شغلی", text)
+        self.assertIn("📈 سابقه موردنیاز", text)
+        self.assertIn("✈️ Relocation Support", text)
+
+    def test_radar_score_hides_when_no_inputs_exist(self):
+        self.assertIsNone(radar_score({}, None, {}))
+
+    def test_optional_why_it_matters_is_hidden(self):
+        data = structured(why_it_matters=None)
+        text = job_card(data)
+        self.assertNotIn("چرا این فرصت مهم است؟", text)
+        self.assertIn("null", SUMMARY_SCHEMA["properties"]["why_it_matters"]["type"])
+        self.assertNotIn("why_it_matters", SUMMARY_SCHEMA["required"])
+
+    def test_confidence_never_appears_in_job_renderers(self):
+        item = review_item(structured())
+        review = build_review_item_text(item)
+        detail = render_details_page({"type": "job", "structured_data": structured()})
+        channel = render_channel_post({"type": "job", "structured_data": structured()})
+        for text in (review, detail, channel):
+            self.assertNotIn("confidence", text.casefold())
+            self.assertNotIn("اعتماد", text)
 
     def test_help_text_is_detail_only_never_channel(self):
         item = {"type": "job", "structured_data": structured()}
