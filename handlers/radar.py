@@ -17,6 +17,7 @@ from database.db import (
 )
 from handlers.start import MAIN_MENU, send_home_dashboard
 from radar_engine.renderer import (
+    build_radar_deep_link,
     channel_button_specs,
     clean_text as render_clean_text,
     details_button_specs,
@@ -145,7 +146,7 @@ def radar_keyboard():
 
 
 def deep_link_for_item(item):
-    return f"https://t.me/{BOT_USERNAME}?start=radar_{item['id']}"
+    return build_radar_deep_link(BOT_USERNAME, item["id"])
 
 
 def get_radar_cta_label(item_type):

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from radar_engine.renderer import (
     SEPARATOR,
+    build_radar_deep_link,
     channel_button_specs,
     details_button_specs,
     location_text,
@@ -92,10 +93,21 @@ class RadarRendererTests(unittest.TestCase):
 
     def test_channel_buttons_match_requested_layout(self):
         rows = channel_button_specs(sample_item(), "https://t.me/VitrinSpainBot?start=radar_radar-1", {"like": 2})
-        self.assertEqual([button.text for button in rows[0]], ["📄 مشاهده جزئیات رویداد"])
-        self.assertEqual([button.text for button in rows[1]], ["📤 اشتراک‌گذاری"])
-        self.assertEqual([button.text for button in rows[2]], ["👍 پسندیدم · 2", "👎 نپسندیدم"])
+        self.assertEqual([button.text for button in rows[0]], ["🤖 مشاهده جزئیات در ویترین"])
+        self.assertEqual([button.text for button in rows[1]], ["👍 پسندیدم · 2", "👎 نپسندیدم"])
         self.assertEqual(rows[0][0].url, "https://t.me/VitrinSpainBot?start=radar_radar-1")
+        self.assertTrue(all(button.url or button.callback_data for row in rows for button in row))
+        self.assertTrue(all(button.switch_inline_query is None for row in rows for button in row))
+
+    def test_radar_deep_link_normalizes_bot_username_and_keeps_item_id(self):
+        expected = "https://t.me/VitrinSpainBot?start=radar_6fb69d8d-4f99-432a-b887-2102570288dd"
+        self.assertEqual(build_radar_deep_link("@VitrinSpainBot", "6fb69d8d-4f99-432a-b887-2102570288dd"), expected)
+        self.assertEqual(build_radar_deep_link("VitrinSpainBot", "6fb69d8d-4f99-432a-b887-2102570288dd"), expected)
+
+    def test_radar_deep_link_rejects_missing_or_invalid_bot_username(self):
+        for username in (None, "", "@", "bad username", "t.me/VitrinSpainBot", "VitrinSpain"):
+            with self.subTest(username=username), self.assertRaisesRegex(ValueError, "BOT_USERNAME is missing or invalid"):
+                build_radar_deep_link(username, "radar-1")
 
     def test_details_buttons_remove_official_source_button(self):
         rows = details_button_specs(

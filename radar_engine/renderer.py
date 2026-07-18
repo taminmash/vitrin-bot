@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -72,6 +73,21 @@ class ButtonSpec:
     callback_data: str | None = None
     url: str | None = None
     switch_inline_query: str | None = None
+
+
+BOT_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{2,29}bot$", re.IGNORECASE)
+
+
+def build_radar_deep_link(bot_username, item_id) -> str:
+    username = clean_text(bot_username).lstrip("@")
+    if not BOT_USERNAME_PATTERN.fullmatch(username):
+        raise ValueError(
+            "BOT_USERNAME is missing or invalid; configure a 5-32 character Telegram bot username"
+        )
+    clean_item_id = clean_text(item_id)
+    if not clean_item_id:
+        raise ValueError("Radar item id is missing; cannot build the channel deep link")
+    return f"https://t.me/{username}?start=radar_{clean_item_id}"
 
 
 def clean_text(value) -> str:
@@ -356,8 +372,7 @@ def channel_button_specs(item: dict, deep_link: str, reaction_counts: dict | Non
     counts = reaction_counts or {}
     item_id = item["id"]
     return [
-        [ButtonSpec("📄 مشاهده جزئیات رویداد", url=deep_link)],
-        [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
+        [ButtonSpec("🤖 مشاهده جزئیات در ویترین", url=deep_link)],
         [
             ButtonSpec(reaction_label("👍 پسندیدم", counts.get("like", 0)), callback_data=f"radar_feedback:like:{item_id}"),
             ButtonSpec(reaction_label("👎 نپسندیدم", counts.get("dislike", 0)), callback_data=f"radar_feedback:dislike:{item_id}"),
