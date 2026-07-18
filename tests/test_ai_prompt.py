@@ -7,7 +7,7 @@ from tests.test_radar_candidate import make_candidate
 class AIPromptTests(unittest.TestCase):
     def test_prompt_is_versioned_and_constrained(self):
         messages = build_summary_prompt(make_candidate(title="Titulo", body="Texto oficial en español."))
-        self.assertEqual(PROMPT_VERSION, "radar-structured-v2")
+        self.assertEqual(PROMPT_VERSION, "radar-structured-v3")
         combined = "\n".join(message["content"] for message in messages)
         self.assertIn("factual", combined)
         self.assertIn("Do not hallucinate", combined)
@@ -17,6 +17,15 @@ class AIPromptTests(unittest.TestCase):
         self.assertIn("requirements", combined)
         self.assertIn("salary", combined)
         self.assertIn("job_title", combined)
+        self.assertIn("job_title_confidence", combined)
+        self.assertIn("at most 6 words", combined)
+        self.assertIn('"UNKNOWN"', combined)
+        self.assertIn("job_title_extraction_needed: NO", combined)
         self.assertIn("visa_sponsorship", combined)
         self.assertIn("apply_from_outside_spain", combined)
         self.assertIn("why_it_matters", combined)
+
+    def test_generic_source_title_requests_profession_extraction(self):
+        messages = build_summary_prompt(make_candidate(title="una plaza", body="Auxiliar Administrativo"))
+        combined = "\n".join(message["content"] for message in messages)
+        self.assertIn("job_title_extraction_needed: YES", combined)

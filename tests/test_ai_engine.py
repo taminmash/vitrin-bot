@@ -393,7 +393,7 @@ class AISummarizerTests(unittest.TestCase):
 
         result = RadarAISummarizer(Client()).summarize(make_candidate())
         self.assertEqual(result.model_name, "test-model")
-        self.assertEqual(result.prompt_version, "radar-structured-v2")
+        self.assertEqual(result.prompt_version, "radar-structured-v3")
 
     def test_summarizer_extracts_job_fields_and_normalizes_support_values(self):
         class Client:
@@ -403,6 +403,7 @@ class AISummarizerTests(unittest.TestCase):
                 return {
                     "category": "JOB",
                     "job_title": "مهندس",
+                    "job_title_confidence": 0.9,
                     "employer": "شرکت",
                     "city": "Madrid",
                     "region": None,

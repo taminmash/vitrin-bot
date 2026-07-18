@@ -5,6 +5,7 @@ import time
 from radar_engine.ai.client import AIClient
 from radar_engine.ai.models import AITaskResult
 from radar_engine.ai.prompts import PROMPT_VERSION, build_summary_prompt
+from radar_engine.job_title import displayed_job_title
 from radar_engine.pipeline.candidate import RadarCandidate
 
 
@@ -13,6 +14,7 @@ SUMMARY_SCHEMA = {
     "properties": {
         "category": {"type": ["string", "null"]},
         "job_title": {"type": ["string", "null"]},
+        "job_title_confidence": {"type": ["number", "null"]},
         "employer": {"type": ["string", "null"]},
         "city": {"type": ["string", "null"]},
         "region": {"type": ["string", "null"]},
@@ -32,7 +34,7 @@ SUMMARY_SCHEMA = {
         "confidence": {"type": "number"},
     },
     "required": [
-        "category", "job_title", "employer", "city", "region", "salary", "contract_type",
+        "category", "job_title", "job_title_confidence", "employer", "city", "region", "salary", "contract_type",
         "working_hours", "deadline", "requirements", "language_level", "job_level",
         "experience_required", "visa_sponsorship", "relocation_support",
         "apply_from_outside_spain", "source_url", "confidence",
@@ -61,7 +63,21 @@ class RadarAISummarizer:
         structured["source_url"] = structured.get("source_url") or candidate.source_url
         if structured.get("category"):
             structured["category"] = str(structured["category"]).strip().casefold()
-        job_title = (structured.get("job_title") or candidate.title or "").strip()
+        is_job_candidate = (
+            structured.get("category") == "job"
+            or str(candidate.source_category or "").strip().casefold() in {"job", "jobs"}
+            or str(candidate.metadata.get("content_type") or "").strip().casefold() == "job"
+        )
+        if is_job_candidate:
+            job_title = displayed_job_title(
+                candidate.title,
+                candidate.metadata,
+                structured.get("job_title"),
+                structured.get("job_title_confidence"),
+            )
+            structured["job_title"] = job_title
+        else:
+            job_title = (structured.get("job_title") or candidate.title or "").strip()
         summary_parts = [
             structured.get("employer"), structured.get("city"), structured.get("salary"),
             structured.get("contract_type"), structured.get("deadline"),
