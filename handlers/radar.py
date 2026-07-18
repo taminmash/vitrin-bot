@@ -42,6 +42,13 @@ from radar_engine.renderer import (
 
 logger = logging.getLogger(__name__)
 
+REQUEST_ACTION_UNAVAILABLE_TEXT = (
+    "🚧 این خدمت در حال راه‌اندازی است\n\n"
+    "امکان ثبت درخواست اقدام از طریق ویترین در حال حاضر فعال نیست.\n\n"
+    "این بخش در حال تکمیل و به‌روزرسانی است و به‌زودی در دسترس قرار خواهد گرفت.\n\n"
+    "از شکیبایی شما سپاسگزاریم. 🙏"
+)
+
 
 RADAR_TYPES = {
     "alert": {"label": "فوری", "emoji": "🔥", "demo": 1},
@@ -207,6 +214,15 @@ def expired_item_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton("🏠 خانه", callback_data="radar:home")]])
 
 
+def request_action_unavailable_keyboard(item_id):
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ بازگشت به صفحه قبلی", callback_data=f"radar:details:{item_id}")],
+            [InlineKeyboardButton("🏠 بازگشت به صفحه اصلی", callback_data="radar:home")],
+        ]
+    )
+
+
 def format_date(value):
     return render_format_date(value)
 
@@ -320,6 +336,39 @@ async def send_missing_radar_item(message):
     )
 
 
+async def edit_or_reply(query, text, reply_markup):
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
+    except TelegramError as error:
+        logger.warning("Could not edit Radar callback message; sending fallback: %s", error)
+        await query.message.reply_text(
+            text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
+
+
+def load_job_for_navigation(item_id):
+    if not item_id:
+        return None
+    try:
+        item = get_active_or_demo_radar_item(item_id)
+    except Exception:
+        item = None
+    if not item:
+        try:
+            item = get_radar_item(item_id)
+        except Exception:
+            item = None
+    if not item or not is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+        return None
+    return item
+
+
 async def open_radar_deep_link(update: Update, item_id: str):
     try:
         item = get_active_or_demo_radar_item(item_id)
@@ -413,7 +462,7 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    data = query.data
+    data = query.data or ""
     if data == "radar:open":
         await show_radar_overview(query)
         return
@@ -425,6 +474,22 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data in ("radar:save", "radar:reminder"):
         await query.message.reply_text("این قابلیت در نسخه بعدی فعال می‌شود.", reply_markup=MAIN_MENU)
+        return
+
+    if data == "radar:apply" or data.startswith("radar:apply:"):
+        item_id = data.removeprefix("radar:apply:").strip() if ":" in data else ""
+        item = load_job_for_navigation(item_id)
+        if not item:
+            await edit_or_reply(query, "این آگهی شغلی پیدا نشد.", expired_item_keyboard())
+            return
+        if job_temporal_state(item).expired:
+            await edit_or_reply(query, format_radar_details(item), details_keyboard(item))
+            return
+        await edit_or_reply(
+            query,
+            REQUEST_ACTION_UNAVAILABLE_TEXT,
+            request_action_unavailable_keyboard(item_id),
+        )
         return
 
     if data.startswith("radar:item:"):
@@ -441,14 +506,19 @@ async def radar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("radar:details:"):
         item_id = data.removeprefix("radar:details:")
-        try:
-            item = get_active_or_demo_radar_item(item_id)
-        except Exception:
-            item = None
+        item = load_job_for_navigation(item_id)
+        if not item:
+            try:
+                item = get_active_or_demo_radar_item(item_id)
+            except Exception:
+                item = None
         if not item:
             await send_missing_radar_item(query.message)
             return
-        await send_radar_details_message(query.message, item)
+        if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+            await edit_or_reply(query, format_radar_details(item), details_keyboard(item))
+        else:
+            await send_radar_details_message(query.message, item)
         return
 
     if data.startswith("radar:type:"):
