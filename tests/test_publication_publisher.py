@@ -1,6 +1,8 @@
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
+from handlers.radar import channel_post_keyboard
 from radar_engine.publication.models import EligiblePublicationItem
 from radar_engine.publication.publisher import (
     AmbiguousTelegramFailure,
@@ -94,6 +96,25 @@ class PublicationPublisherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.calls[0]["reply_markup"], keyboard)
         self.assertTrue(bot.calls[0]["disable_web_page_preview"])
 
+    async def test_manual_channel_publish_uses_url_keyboard_without_inline_switch(self):
+        bot = FakeBot()
+        publisher = RadarTelegramPublisher(
+            bot,
+            channel_id="@vitrinspain",
+            renderer=lambda item: f"📡 {item['title']}",
+            keyboard_builder=lambda item: channel_post_keyboard(item, {"like": 0, "dislike": 0}),
+        )
+        with patch("handlers.radar.BOT_USERNAME", "@VitrinSpainBot"):
+            response = await publisher.publish(EligiblePublicationItem(ready_item(id="radar-123")))
+
+        self.assertEqual(response.telegram_message_id, 321)
+        buttons = [button for row in bot.calls[0]["reply_markup"].inline_keyboard for button in row]
+        details = buttons[0]
+        self.assertEqual(details.text, "🤖 مشاهده جزئیات در ویترین")
+        self.assertEqual(details.url, "https://t.me/VitrinSpainBot?start=radar_radar-123")
+        self.assertTrue(all(button.switch_inline_query is None for button in buttons))
+        self.assertTrue(all(button.switch_inline_query_current_chat is None for button in buttons))
+
     async def test_publish_maps_definite_and_ambiguous_telegram_failures(self):
         definite = RadarTelegramPublisher(
             FakeBot(RuntimeError("bad request")),
@@ -112,6 +133,35 @@ class PublicationPublisherTests(unittest.IsolatedAsyncioTestCase):
         )
         with self.assertRaises(AmbiguousTelegramFailure):
             await ambiguous.publish(EligiblePublicationItem(ready_item()))
+
+    async def test_missing_bot_username_is_a_definite_failure_without_telegram_send(self):
+        bot = FakeBot()
+
+        def invalid_keyboard(item):
+            raise ValueError("BOT_USERNAME is missing or invalid; configure BOT_USERNAME")
+
+        publisher = RadarTelegramPublisher(
+            bot,
+            channel_id="@vitrinspain",
+            renderer=lambda item: "post",
+            keyboard_builder=invalid_keyboard,
+        )
+        with self.assertRaisesRegex(DefiniteTelegramFailure, "BOT_USERNAME is missing or invalid"):
+            await publisher.publish(EligiblePublicationItem(ready_item()))
+        self.assertEqual(bot.calls, [])
+
+    async def test_default_channel_keyboard_rejects_missing_username_before_send(self):
+        bot = FakeBot()
+        publisher = RadarTelegramPublisher(
+            bot,
+            channel_id="@vitrinspain",
+            renderer=lambda item: "post",
+            keyboard_builder=lambda item: channel_post_keyboard(item, {}),
+        )
+        with patch("handlers.radar.BOT_USERNAME", ""):
+            with self.assertRaisesRegex(DefiniteTelegramFailure, "BOT_USERNAME is missing or invalid"):
+                await publisher.publish(EligiblePublicationItem(ready_item()))
+        self.assertEqual(bot.calls, [])
 
     async def test_publish_does_not_send_invalid_rendered_post(self):
         bot = FakeBot()
