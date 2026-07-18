@@ -17,11 +17,13 @@ from database.db import (
 )
 from handlers.start import MAIN_MENU, send_home_dashboard
 from radar_engine.job_presentation import is_job
+from radar_engine.job_expiration import job_temporal_state
 from radar_engine.renderer import (
     build_radar_deep_link,
     channel_button_specs,
     clean_text as render_clean_text,
     details_button_specs,
+    expired_job_button_specs,
     field_log,
     format_date as render_format_date,
     job_details_button_specs,
@@ -194,7 +196,10 @@ def full_item_keyboard(item):
 
 def details_keyboard(item):
     category = item.get("type") or item.get("category")
-    builder = job_details_button_specs if is_job(category, item.get("structured_data")) else details_button_specs
+    if is_job(category, item.get("structured_data")) and job_temporal_state(item).expired:
+        builder = expired_job_button_specs
+    else:
+        builder = job_details_button_specs if is_job(category, item.get("structured_data")) else details_button_specs
     return telegram_keyboard(builder(item, deep_link_for_item(item), channel_url_for_item(item)))
 
 
@@ -320,6 +325,16 @@ async def open_radar_deep_link(update: Update, item_id: str):
         item = get_active_or_demo_radar_item(item_id)
     except Exception:
         item = None
+    if not item:
+        try:
+            historical = get_radar_item(item_id)
+        except Exception:
+            historical = None
+        if historical and is_job(
+            historical.get("type") or historical.get("category"),
+            historical.get("structured_data"),
+        ):
+            item = historical
     if not item:
         await send_missing_radar_item(update.message)
         return

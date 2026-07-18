@@ -53,10 +53,20 @@ Set these in Railway or your local shell:
   `RADAR_SOURCE_DOMESTIKA_JOBS_ENABLED`. InfoJobs also requires
   `INFOJOBS_CLIENT_ID`/`INFOJOBS_CLIENT_SECRET`; Tecnoempleo requires an
   official feed in `TECNOEMPLEO_RSS_URL`.
+- InfoJobs search is configured with `RADAR_INFOJOBS_KEYWORDS` (optional),
+  `RADAR_INFOJOBS_PROVINCES` (comma-separated; defaults to Madrid, Barcelona,
+  Valencia, Alicante, Málaga, Sevilla, Baleares, Las Palmas, and Santa Cruz de
+  Tenerife), `RADAR_INFOJOBS_PAGE_SIZE` (default 20, range 10-50), and
+  `RADAR_INFOJOBS_MAX_PAGES_PER_CYCLE` (default 2, range 1-10). Credentials are
+  sent only through HTTP Basic authentication and are never put in URLs/logs.
 - Per-source schedules use `RADAR_SOURCE_<KEY>_INTERVAL_MINUTES` (minimum 5,
   default 60). Shared bounds: `RADAR_JOB_SOURCE_TIMEOUT_SECONDS` (12),
   `RADAR_JOB_SOURCE_RETRIES` (2), and `RADAR_JOB_SOURCE_MAX_ITEMS` (50,
   maximum 200).
+- `RADAR_JOB_STALE_REVIEW_DAYS` defaults to 30. A job without a reliable
+  deadline becomes "needs validity review" after this age; it is not falsely
+  marked expired. `RADAR_EXPIRED_CHANNEL_EDIT_ENABLED` defaults to `false` and
+  enables best-effort editing of already-published expired channel messages.
 
 The bot checks membership through the public channel usernames configured in
 `config_v2.py`: `@vitrinspain` and `@hayatkhalvatspain`.
@@ -94,6 +104,12 @@ RADAR_URGENT_AUTO_PUBLISH_MIN_SCORE=90
 RADAR_URGENT_AUTO_PUBLISH_MIN_CONFIDENCE=0.90
 RADAR_URGENT_AUTO_PUBLISH_COOLDOWN_MINUTES=30
 RADAR_URGENT_AUTO_PUBLISH_DAILY_SAFETY_LIMIT=10
+RADAR_SOURCE_INFOJOBS_ENABLED=false
+RADAR_SOURCE_MADRID_EMPLEO_ENABLED=false
+RADAR_SOURCE_DOMESTIKA_JOBS_ENABLED=false
+RADAR_SOURCE_TECNOEMPLEO_ENABLED=false
+RADAR_JOB_STALE_REVIEW_DAYS=30
+RADAR_EXPIRED_CHANNEL_EDIT_ENABLED=false
 ```
 
 ## Run Locally
@@ -288,6 +304,29 @@ failed connector does not stop BOE, another connector, or backlog processing.
 | Indeed | Blocked | Job Sync posts ATS jobs; it is not a public vacancy retrieval API |
 | LinkedIn Jobs | Blocked | Job APIs require approved partner access; no public search API |
 | Barcelona Activa | Blocked | No documented public feed/API; search is a dynamic authenticated app |
+| Additional local sources | Not integrated | No additional official machine-readable current-vacancy feed with stable IDs, canonical URLs, and reliable dates was verified for this release |
+
+All connectors use public/official API, RSS, or Atom access only. There is no
+HTML scraping, browser automation, CAPTCHA bypass, or undocumented endpoint.
+The Madrid and Domestika connectors remain disabled until their endpoint can be
+smoke-tested from the production network. Tecnoempleo accepts only an
+operator-supplied RSS/Atom URL and has no HTML fallback.
+
+### Job date and expiration policy
+
+Source publication/update dates and application deadlines are stored with
+their provenance in existing metadata/structured JSON; no schema migration is
+required. Date-only deadlines expire at the end of that calendar day in
+`Europe/Madrid`, including daylight-saving transitions. A deadline is accepted
+only from an explicit source field or deadline-labelled source text. A generic
+page publication date is never treated as an application deadline.
+
+The scheduler refreshes at most 200 non-expired jobs per normal cycle, inside
+the existing advisory lock. Expired records are retained for history and deep
+links continue to display them with an expired notice, but they are rejected
+before AI/review eligibility and rechecked immediately before Telegram send.
+Stale jobs with unknown deadlines stay stored and reviewable with a warning.
+Ordinary jobs are never auto-published.
 
 Controlled smoke test (fetch and normalize only; no database write, AI,
 review, promotion, or publication):
@@ -295,7 +334,14 @@ review, promotion, or publication):
 ```bash
 python scripts/run_radar_jobs.py --smoke
 python scripts/run_radar_jobs.py --source madrid_empleo --smoke
+python scripts/run_radar_jobs.py --source infojobs --smoke
+python scripts/run_radar_jobs.py --source domestika_jobs --smoke
 ```
+
+Smoke mode reports fetched, normalized, expired/invalid skipped, failures, and
+duration per source. It performs no database write, AI request, review,
+promotion, Telegram send, or publication. Output samples are sanitized and do
+not include credentials or full source payloads.
 
 Without `--smoke`, the command stores raw records only. It never invokes AI or
 publication; subsequent processing uses the existing scheduler pipeline.

@@ -119,6 +119,8 @@ def _approved_source_select(extra_where: str = "", limit_clause: str = "") -> st
         JOIN radar_reviews reviews ON reviews.candidate_id = c.id
         LEFT JOIN radar_promotions promotions ON promotions.candidate_id = c.id
         WHERE reviews.review_status = 'approved'
+          AND (c.valid_until IS NULL OR c.valid_until > CURRENT_TIMESTAMP)
+          AND COALESCE(c.metadata ->> 'is_expired', 'false') <> 'true'
           {extra_where}
         ORDER BY reviews.reviewed_at ASC NULLS LAST, reviews.created_at ASC
         {limit_clause}

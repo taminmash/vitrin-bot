@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from radar_engine.promotion.models import ApprovedPromotionSource, MappedRadarItemPayload, RADAR_READY_STATUS
 from radar_engine.taxonomy import RADAR_CATEGORY_VALUES, RADAR_URGENCY_VALUES
+from radar_engine.job_expiration import parse_source_datetime
 
 
 def _clean(value) -> str:
@@ -53,8 +54,13 @@ def map_approved_source_to_radar_item(source: ApprovedPromotionSource) -> Mapped
     cities = _dedupe(classification.cities)
     city = cities[0] if cities else None
     metadata = candidate.metadata or {}
-    structured = summary.structured_data if isinstance(summary.structured_data, dict) else {}
+    structured = dict(summary.structured_data) if isinstance(summary.structured_data, dict) else {}
     expires_at = candidate.valid_until
+    if classification.primary_category == "job":
+        structured.setdefault("publication_date", candidate.published_at.isoformat() if candidate.published_at else None)
+        structured.setdefault("deadline_unknown", not bool(structured.get("deadline") or candidate.valid_until))
+        structured.setdefault("stale_review", bool(metadata.get("stale_review")))
+        expires_at = expires_at or parse_source_datetime(structured.get("deadline"), end_of_day=True)
     fields = {
         "title": _clean(structured.get("job_title")) or _clean(summary.headline),
         "summary": _clean(summary.summary),

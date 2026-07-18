@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from radar_engine.job_presentation import JOB_HELP_TEXT, is_job, job_card, job_channel_card, job_detail_card
+from radar_engine.job_expiration import (
+    EXPIRED_DETAIL_MESSAGE,
+    STALE_REVIEW_MESSAGE,
+    format_job_date,
+    job_temporal_state,
+)
 
 
 RADAR_HEADER = "🛰️ رادار اسپانیا"
@@ -269,7 +275,8 @@ def _join_blocks(blocks: Iterable[Iterable[str] | str]) -> str:
 
 def render_channel_post(item: dict) -> str:
     if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
-        return job_channel_card(
+        state = job_temporal_state(item)
+        card = job_channel_card(
             item.get("structured_data"),
             fallback={
                 "job_title": item.get("title"),
@@ -279,6 +286,12 @@ def render_channel_post(item: dict) -> str:
                 "language_level": item.get("language_level"),
             },
         )
+        date_blocks = []
+        if state.publication_date:
+            date_blocks.append(f"📅 تاریخ انتشار\n{format_job_date(state.publication_date)}")
+        if state.deadline:
+            date_blocks.append(f"⏳ مهلت ارسال درخواست\n{format_job_date(state.deadline)}")
+        return _join_blocks([card, *date_blocks])
     return _join_blocks(
         [
             RADAR_HEADER,
@@ -295,8 +308,12 @@ def render_channel_post(item: dict) -> str:
 
 def render_details_page(item: dict) -> str:
     if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+        state = job_temporal_state(item)
+        structured = dict(item.get("structured_data") or {})
+        structured["publication_date"] = format_job_date(state.publication_date)
+        structured["deadline"] = format_job_date(state.deadline)
         card = job_detail_card(
-            item.get("structured_data"),
+            structured,
             fallback={
                 "job_title": item.get("title"),
                 "city": item.get("city"),
@@ -307,7 +324,14 @@ def render_details_page(item: dict) -> str:
                 "full_description": item.get("body") or item.get("original_text"),
             },
         )
-        return _join_blocks([card, SEPARATOR, JOB_HELP_TEXT])
+        if state.expired:
+            return _join_blocks([EXPIRED_DETAIL_MESSAGE, SEPARATOR, card])
+        warnings = []
+        if state.stale:
+            warnings.append(STALE_REVIEW_MESSAGE)
+        if state.days_remaining is not None and state.days_remaining < 3:
+            warnings.append(f"⚠️ تنها {state.days_remaining} روز تا پایان مهلت")
+        return _join_blocks([*warnings, card, SEPARATOR, JOB_HELP_TEXT])
     return _join_blocks(
         [
             RADAR_HEADER,
@@ -337,8 +361,13 @@ def render_admin_preview(item: dict) -> str:
         preview["urgency"] = item.get("admin_urgency")
 
     if is_job(preview.get("type") or preview.get("category"), preview.get("structured_data")):
-        return job_card(
-            preview.get("structured_data"),
+        state = job_temporal_state(preview)
+        structured = dict(preview.get("structured_data") or {})
+        structured["publication_date"] = format_job_date(state.publication_date)
+        structured["deadline"] = format_job_date(state.deadline) or "ذکر نشده"
+        status = "⛔ منقضی شده" if state.expired else (STALE_REVIEW_MESSAGE if state.stale else "")
+        card = job_card(
+            structured,
             fallback={
                 "job_title": preview.get("title"),
                 "city": preview.get("city"),
@@ -347,6 +376,7 @@ def render_admin_preview(item: dict) -> str:
                 "source_url": preview.get("source_url"),
             },
         )
+        return _join_blocks([status, card])
 
     return _join_blocks(
         [
@@ -396,6 +426,14 @@ def job_details_button_specs(item: dict, deep_link: str, channel_url: str | None
     return [
         [ButtonSpec("⬅️ بازگشت به صفحه قبلی", url=back_target)],
         [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
+        [ButtonSpec("🏠 بازگشت به صفحه اصلی", callback_data="radar:home")],
+    ]
+
+
+def expired_job_button_specs(item: dict, deep_link: str, channel_url: str | None = None) -> list[list[ButtonSpec]]:
+    back_target = channel_url or deep_link
+    return [
+        [ButtonSpec("⬅️ بازگشت به صفحه قبلی", url=back_target)],
         [ButtonSpec("🏠 بازگشت به صفحه اصلی", callback_data="radar:home")],
     ]
 

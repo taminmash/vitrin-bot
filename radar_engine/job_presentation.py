@@ -20,7 +20,8 @@ FIELD_LABELS = (
     ("salary", "💶 حقوق"),
     ("contract_type", "📄 نوع قرارداد"),
     ("working_hours", "🕒 ساعت کاری"),
-    ("deadline", "📅 مهلت درخواست"),
+    ("publication_date", "📅 تاریخ انتشار"),
+    ("deadline", "⏳ مهلت ارسال درخواست"),
     ("requirements", "🎓 پیش‌نیازها"),
     ("language_level", "🗣 سطح زبان"),
     ("job_level", "👔 سطح شغلی"),
@@ -121,13 +122,13 @@ def job_card(structured_data, *, fallback=None, compact: bool = False) -> str:
     merged["job_title"] = _presented_job_title(data, fallback)
     keys = (
         "job_title", "employer", "city", "region", "salary", "contract_type",
-        "working_hours", "deadline", "requirements", "language_level", "job_level",
+        "working_hours", "publication_date", "deadline", "requirements", "language_level", "job_level",
         "experience_required", "visa_sponsorship", "relocation_support",
         "apply_from_outside_spain", "why_it_matters", "source_url",
     )
     if compact:
         keys = (
-            "job_title", "employer", "city", "salary", "contract_type", "deadline",
+            "job_title", "employer", "city", "salary", "contract_type", "publication_date", "deadline",
             "language_level", "visa_sponsorship", "apply_from_outside_spain",
             "why_it_matters", "source_url",
         )

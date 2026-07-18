@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
 import html
@@ -10,15 +10,29 @@ import json
 import re
 import time
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
 from radar_engine.models import RawRadarItem
+from radar_engine.job_expiration import job_temporal_state, parse_source_datetime
 from radar_engine.sources.base import BaseRadarSource
 
 
 USER_AGENT = "VitrinSpainRadar/1.0 (+https://t.me/vitrinspain)"
+
+
+def _explicit_deadline(text: str | None) -> datetime | None:
+    value = text or ""
+    patterns = (
+        r"(?:plazo|fecha\s+l[ií]mite|presentaci[oó]n\s+de\s+solicitudes)[^\d]{0,50}(\d{1,2}[/-]\d{1,2}[/-]\d{4})",
+        r"(?:hasta\s+el)[^\d]{0,20}(\d{1,2}[/-]\d{1,2}[/-]\d{4})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, value, re.IGNORECASE)
+        if match:
+            return parse_source_datetime(match.group(1), end_of_day=True)
+    return None
 
 
 def _text(value: Any) -> str | None:
@@ -61,8 +75,16 @@ class NormalizedJob:
     contract_type: str | None = None
     working_hours: str | None = None
     published_at: datetime | None = None
+    updated_at: datetime | None = None
     deadline: datetime | None = None
     remote: bool | None = None
+    experience: str | None = None
+    education: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    source_status: str | None = None
+    reference_number: str | None = None
+    application_url: str | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -96,11 +118,6 @@ class JobSourceAdapter(BaseRadarSource):
 
     def normalize(self, raw_item: Any) -> RawRadarItem:
         job = self.normalize_job(raw_item)
-        now = datetime.now(timezone.utc)
-        if job.deadline and job.deadline < now:
-            raise ValueError("expired job")
-        if job.published_at and job.published_at < now.replace(microsecond=0) - timedelta(days=60):
-            raise ValueError("stale job")
         if len(job.description) < 40:
             raise ValueError("job description is too short")
         location = ", ".join(value for value in (job.city, job.region) if value) or "Spain"
@@ -113,9 +130,26 @@ class JobSourceAdapter(BaseRadarSource):
             "contract_type": job.contract_type,
             "working_hours": job.working_hours,
             "remote": job.remote,
+            "source_published_at": job.published_at.isoformat() if job.published_at else None,
+            "source_updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            "application_deadline": job.deadline.isoformat() if job.deadline else None,
+            "deadline_unknown": job.deadline is None,
+            "experience_required": job.experience,
+            "education": job.education,
+            "category": job.category,
+            "subcategory": job.subcategory,
+            "source_status": job.source_status,
+            "reference_number": job.reference_number,
+            "application_url": job.application_url,
             "job_fingerprint": job_fingerprint(job.title, job.employer, location),
             "provenance": [{"source_key": self.source_key, "external_id": job.external_id, "url": job.url}],
         }
+        temporal = job_temporal_state({"published_at": job.published_at, "valid_until": job.deadline, "metadata": metadata})
+        metadata.update({
+            "is_expired": temporal.expired,
+            "expiration_reason": temporal.expiration_reason,
+            "stale_review": temporal.stale,
+        })
         return RawRadarItem(
             source_key=self.source_key, external_id=job.external_id, source_name=self.source_name,
             source_url=job.url, canonical_url=job.url, original_title=job.title,
@@ -132,8 +166,16 @@ class FeedJobSource(JobSourceAdapter):
     feed_url: str
 
     def _fetch_sync(self) -> list[dict[str, str]]:
-        root = ET.fromstring(self._read(self.feed_url))
+        payload = self._read(self.feed_url)
+        if payload.lstrip().lower().startswith((b"<!doctype html", b"<html")):
+            raise ValueError(f"{self.source_key} endpoint returned HTML instead of RSS/Atom")
+        root = ET.fromstring(payload)
+        root_name = root.tag.rsplit("}", 1)[-1].casefold()
+        if root_name not in {"rss", "feed", "rdf"}:
+            raise ValueError(f"{self.source_key} endpoint is not RSS or Atom")
         entries = root.findall(".//item") or root.findall("{http://www.w3.org/2005/Atom}entry")
+        if not entries:
+            raise ValueError(f"{self.source_key} feed contains no job entries")
         return [self._feed_entry(entry) for entry in entries[: self.max_items]]
 
     def _feed_entry(self, entry: ET.Element) -> dict[str, str]:
@@ -160,6 +202,12 @@ class FeedJobSource(JobSourceAdapter):
             employer=_text(item.get("author") or item.get("company")),
             city=_text(item.get("city")), region=_text(item.get("region")),
             published_at=_datetime(item.get("pubDate") or item.get("published") or item.get("updated")),
+            updated_at=_datetime(item.get("updated")),
+            deadline=(
+                _datetime(item.get("deadline") or item.get("applicationDeadline") or item.get("validUntil"))
+                or _explicit_deadline(description)
+            ),
+            source_status=_text(item.get("status")),
             raw=item,
         )
 
@@ -171,7 +219,13 @@ class MadridEmpleoSource(FeedJobSource):
 
     def normalize_job(self, item: Any) -> NormalizedJob:
         job = super().normalize_job(item)
-        return NormalizedJob(**{**job.__dict__, "city": "Madrid", "region": "Comunidad de Madrid"})
+        searchable = f"{job.title} {job.description}".casefold()
+        if any(term in searchable for term in ("relación de puestos de trabajo", "plantilla de personal", "oferta de empleo público anual", "plan de empleo")):
+            raise ValueError("static workforce dataset is not an active vacancy")
+        status = job.source_status
+        if any(term in searchable for term in ("plazo cerrado", "plazo finalizado", "convocatoria cerrada")):
+            status = "convocatoria cerrada"
+        return NormalizedJob(**{**job.__dict__, "city": "Madrid", "region": "Comunidad de Madrid", "source_status": status})
 
 
 class TecnoempleoSource(FeedJobSource):
@@ -182,6 +236,9 @@ class TecnoempleoSource(FeedJobSource):
         super().__init__(**kwargs)
         if not feed_url:
             raise ValueError("Tecnoempleo requires an official RSS URL from Tecnoempleo")
+        parsed = urlparse(feed_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Tecnoempleo RSS URL must use http or https")
         self.feed_url = feed_url
 
 
@@ -196,18 +253,37 @@ class InfoJobsSource(JobSourceAdapter):
     source_name = "InfoJobs"
     api_url = "https://api.infojobs.net/api/9/offer"
 
-    def __init__(self, *, client_id: str, client_secret: str, **kwargs):
+    def __init__(self, *, client_id: str, client_secret: str, keywords: str = "", provinces=None, page_size: int = 20, max_pages: int = 2, **kwargs):
         super().__init__(**kwargs)
         if not client_id or not client_secret:
             raise ValueError("InfoJobs client_id and client_secret are required")
         import base64
         self.authorization = "Basic " + base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        self.keywords = _text(keywords) or ""
+        self.provinces = tuple(value.strip() for value in (provinces or ()) if value.strip())
+        self.page_size = min(50, max(10, int(page_size)))
+        self.max_pages = min(10, max(1, int(max_pages)))
 
     def _fetch_sync(self) -> list[dict[str, Any]]:
-        query = urlencode({"country": "espana", "maxResults": self.max_items})
-        payload = self._read(f"{self.api_url}?{query}", headers={"Authorization": self.authorization})
-        data = json.loads(payload.decode("utf-8"))
-        return list(data.get("offers") or data.get("items") or [])[: self.max_items]
+        offers: list[dict[str, Any]] = []
+        province_values = self.provinces or (None,)
+        for province in province_values:
+            for page in range(1, self.max_pages + 1):
+                params = {"country": "espana", "maxResults": self.page_size, "page": page}
+                if self.keywords:
+                    params["q"] = self.keywords
+                if province:
+                    params["province"] = province
+                payload = self._read(f"{self.api_url}?{urlencode(params)}", headers={"Authorization": self.authorization})
+                data = json.loads(payload.decode("utf-8"))
+                page_offers = list(data.get("offers") or data.get("items") or [])
+                offers.extend(page_offers)
+                total_pages = int(data.get("totalPages") or page)
+                if not page_offers or page >= total_pages or len(offers) >= self.max_items:
+                    break
+            if len(offers) >= self.max_items:
+                break
+        return offers[: self.max_items]
 
     def normalize_job(self, item: Any) -> NormalizedJob:
         if not isinstance(item, dict):
@@ -226,5 +302,13 @@ class InfoJobsSource(JobSourceAdapter):
             city=_text(city.get("value") if isinstance(city, dict) else city),
             region=_text(province.get("value") if isinstance(province, dict) else province),
             salary=_text(item.get("salaryDescription")), contract_type=_text((item.get("contractType") or {}).get("value") if isinstance(item.get("contractType"), dict) else item.get("contractType")),
-            published_at=_datetime(item.get("published")), raw=item,
+            working_hours=_text((item.get("workDay") or {}).get("value") if isinstance(item.get("workDay"), dict) else item.get("workDay")),
+            published_at=_datetime(item.get("published")), updated_at=_datetime(item.get("updated")),
+            deadline=_datetime(item.get("applicationDeadline") or item.get("deadline")),
+            experience=_text((item.get("experienceMin") or {}).get("value") if isinstance(item.get("experienceMin"), dict) else item.get("experienceMin")),
+            education=_text((item.get("study") or {}).get("value") if isinstance(item.get("study"), dict) else item.get("study")),
+            category=_text((item.get("category") or {}).get("value") if isinstance(item.get("category"), dict) else item.get("category")),
+            subcategory=_text((item.get("subcategory") or {}).get("value") if isinstance(item.get("subcategory"), dict) else item.get("subcategory")),
+            source_status=_text(item.get("status")), remote=bool(item.get("teleworking")) if item.get("teleworking") is not None else None,
+            application_url=_text(item.get("applicationUrl") or url), raw=item,
         )

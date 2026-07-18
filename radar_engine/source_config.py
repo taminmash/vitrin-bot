@@ -16,11 +16,39 @@ class SourceStatus:
     reason: str
 
 
+@dataclass(frozen=True)
+class JobSourceDefinition:
+    key: str
+    display_name: str
+    official_domain: str
+    source_type: str
+    trust_level: int
+    default_enabled: bool
+    credential_requirements: tuple[str, ...]
+    interval_minutes: int
+    attribution: str
+    limitations: str
+
+
+JOB_SOURCE_CATALOG = (
+    JobSourceDefinition("infojobs", "InfoJobs", "api.infojobs.net", "official_api", 4, False, ("INFOJOBS_CLIENT_ID", "INFOJOBS_CLIENT_SECRET"), 60, "InfoJobs source URL must be retained", "API credentials and quotas required"),
+    JobSourceDefinition("madrid_empleo", "Madrid Empleo", "datos.madrid.es", "official_rss", 5, False, (), 60, "Ayuntamiento de Madrid canonical URL", "Official endpoint may return 403 from some hosting networks"),
+    JobSourceDefinition("domestika_jobs", "Domestika Jobs", "domestika.org", "public_atom", 4, False, (), 60, "Domestika canonical job URL", "Feed availability must be smoke-tested before enabling"),
+    JobSourceDefinition("tecnoempleo", "Tecnoempleo", "operator_configured", "official_rss", 4, False, ("TECNOEMPLEO_RSS_URL",), 60, "Tecnoempleo canonical job URL", "Only operator-provided RSS/Atom; no HTML fallback"),
+)
+
+
 BLOCKED_SOURCES = (
     SourceStatus("eures", "blocked", "No documented public vacancy retrieval API; partner/public-employment-service access is required."),
     SourceStatus("indeed", "blocked", "Indeed Job Sync is an ATS posting API, not a public vacancy search API."),
     SourceStatus("linkedin_jobs", "blocked", "LinkedIn job APIs require approved partner access and do not provide public job search ingestion."),
     SourceStatus("barcelona_activa", "blocked", "No documented public vacancy feed/API was found; the public search is an authenticated dynamic application."),
+    SourceStatus("additional_local", "not_integrated", "No additional official machine-readable feed with current vacancies, stable IDs, reliable dates, and canonical URLs was verified for this release."),
+)
+
+DEFAULT_INFOJOBS_PROVINCES = (
+    "Madrid", "Barcelona", "Valencia", "Alicante", "Málaga", "Sevilla", "Baleares",
+    "Las Palmas", "Santa Cruz de Tenerife",
 )
 
 
@@ -54,7 +82,21 @@ def configured_job_sources():
     }
     sources = []
     if enabled("infojobs") and os.getenv("INFOJOBS_CLIENT_ID") and os.getenv("INFOJOBS_CLIENT_SECRET"):
-        sources.append(InfoJobsSource(client_id=os.environ["INFOJOBS_CLIENT_ID"], client_secret=os.environ["INFOJOBS_CLIENT_SECRET"], **common))
+        provinces = tuple(
+            value.strip() for value in os.getenv("RADAR_INFOJOBS_PROVINCES", ",".join(DEFAULT_INFOJOBS_PROVINCES)).split(",")
+            if value.strip()
+        )
+        sources.append(
+            InfoJobsSource(
+                client_id=os.environ["INFOJOBS_CLIENT_ID"],
+                client_secret=os.environ["INFOJOBS_CLIENT_SECRET"],
+                keywords=os.getenv("RADAR_INFOJOBS_KEYWORDS", ""),
+                provinces=provinces,
+                page_size=_bounded_int("RADAR_INFOJOBS_PAGE_SIZE", 20, 10, 50),
+                max_pages=_bounded_int("RADAR_INFOJOBS_MAX_PAGES_PER_CYCLE", 2, 1, 10),
+                **common,
+            )
+        )
     if enabled("madrid_empleo"):
         sources.append(MadridEmpleoSource(**common))
     if enabled("domestika_jobs"):
