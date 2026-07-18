@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
-from radar_engine.job_presentation import JOB_HELP_TEXT, is_job, job_card
+from radar_engine.job_presentation import JOB_HELP_TEXT, is_job, job_card, job_channel_card, job_detail_card
 
 
 RADAR_HEADER = "🛰️ رادار اسپانیا"
@@ -269,15 +269,15 @@ def _join_blocks(blocks: Iterable[Iterable[str] | str]) -> str:
 
 def render_channel_post(item: dict) -> str:
     if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
-        return job_card(
+        return job_channel_card(
             item.get("structured_data"),
             fallback={
                 "job_title": item.get("title"),
                 "city": item.get("city"),
-                "region": item.get("province"),
-                "why_it_matters": item.get("ai_reason") or item.get("summary"),
+                "contract_type": item.get("contract_type"),
+                "requirements": item.get("requirements"),
+                "language_level": item.get("language_level"),
             },
-            compact=True,
         )
     return _join_blocks(
         [
@@ -295,7 +295,7 @@ def render_channel_post(item: dict) -> str:
 
 def render_details_page(item: dict) -> str:
     if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
-        card = job_card(
+        card = job_detail_card(
             item.get("structured_data"),
             fallback={
                 "job_title": item.get("title"),
@@ -303,6 +303,8 @@ def render_details_page(item: dict) -> str:
                 "region": item.get("province"),
                 "why_it_matters": item.get("ai_reason") or item.get("summary"),
                 "source_url": item.get("source_url"),
+                "source_name": item.get("source_name"),
+                "full_description": item.get("body") or item.get("original_text"),
             },
         )
         return _join_blocks([card, SEPARATOR, JOB_HELP_TEXT])
@@ -386,6 +388,15 @@ def details_button_specs(item: dict, deep_link: str, channel_url: str | None = N
         [ButtonSpec("📺 بازگشت به کانال", url=back_target)],
         [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
         [ButtonSpec("🏠 خانه", callback_data="radar:home")],
+    ]
+
+
+def job_details_button_specs(item: dict, deep_link: str, channel_url: str | None = None) -> list[list[ButtonSpec]]:
+    back_target = channel_url or deep_link
+    return [
+        [ButtonSpec("⬅️ بازگشت به صفحه قبلی", url=back_target)],
+        [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
+        [ButtonSpec("🏠 بازگشت به صفحه اصلی", callback_data="radar:home")],
     ]
 
 

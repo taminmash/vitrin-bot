@@ -31,6 +31,14 @@ FIELD_LABELS = (
     ("source_url", "🔗 منبع"),
 )
 
+DETAIL_FIELD_LABELS = (
+    ("full_description", "📝 توضیحات کامل"),
+    ("duties", "📋 وظایف"),
+    ("education", "🎓 تحصیلات"),
+    ("remote_status", "🏠 وضعیت دورکاری"),
+    ("source_name", "🏷 نام منبع"),
+)
+
 
 def clean_structured_data(value) -> dict:
     return dict(value) if isinstance(value, dict) else {}
@@ -114,3 +122,52 @@ def job_card(structured_data, *, fallback=None, compact: bool = False) -> str:
         if displayed:
             blocks.append(f"{labels[key]}\n{displayed}")
     return "\n\n".join(block for block in blocks if block)
+
+
+def _concise_requirements(data: dict) -> str:
+    raw_requirements = data.get("requirements")
+    if isinstance(raw_requirements, (list, tuple)):
+        parts = [str(part).strip() for part in raw_requirements if str(part).strip()]
+    else:
+        text = str(raw_requirements or "").strip()
+        parts = [text] if text and text.upper() != "UNKNOWN" else []
+    if parts:
+        return " • ".join(parts[:2])[:240].rstrip()
+    for key in ("language_level", "requirements_or_language", "language_requirement", "required_language"):
+        value = _display_value(key, data.get(key))
+        if value:
+            return value[:240].rstrip()
+    return "ذکر نشده"
+
+
+def job_channel_card(structured_data, *, fallback=None) -> str:
+    data = clean_structured_data(structured_data)
+    fallback = clean_structured_data(fallback)
+    merged = {**fallback, **{key: value for key, value in data.items() if value not in (None, "", [])}}
+    title = _display_value("job_title", merged.get("job_title")) or _display_value("title", merged.get("title")) or "ذکر نشده"
+    city = _display_value("city", merged.get("city")) or "نامشخص"
+    contract_type = _display_value("contract_type", merged.get("contract_type")) or "نامشخص"
+    requirements = _concise_requirements(merged)
+    return "\n\n".join(
+        (
+            category_header("job"),
+            f"💼 عنوان شغل\n{title}",
+            f"📍 شهر\n{city}",
+            f"📄 نوع قرارداد\n{contract_type}",
+            f"🗣 پیش‌نیازها / زبان موردنیاز\n{requirements}",
+        )
+    )
+
+
+def job_detail_card(structured_data, *, fallback=None) -> str:
+    data = clean_structured_data(structured_data)
+    fallback = clean_structured_data(fallback)
+    merged = {**fallback, **{key: value for key, value in data.items() if value not in (None, "", [])}}
+    if not merged.get("full_description"):
+        merged["full_description"] = merged.get("description")
+    blocks = [job_card(data, fallback=fallback)]
+    for key, label in DETAIL_FIELD_LABELS:
+        displayed = _display_value(key, merged.get(key))
+        if displayed:
+            blocks.append(f"{label}\n{displayed}")
+    return "\n\n".join(blocks)
