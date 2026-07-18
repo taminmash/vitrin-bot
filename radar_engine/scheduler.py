@@ -59,6 +59,8 @@ class RadarFetchCycleReport:
     urgent_evaluated: int = 0
     urgent_published: int = 0
     urgent_fallback_review: int = 0
+    jobs_expired_refreshed: int = 0
+    stale_jobs_flagged: int = 0
     duration_seconds: float = 0.0
     skipped: bool = False
     failed: bool = False
@@ -69,6 +71,35 @@ AsyncStage = Callable[[], Awaitable[object]]
 LockFactory = Callable[[], AbstractContextManager[bool]]
 ReviewNotificationStage = Callable[[int], Awaitable[object]]
 UrgentPublicationStage = Callable[[], Awaitable[object]]
+
+
+async def _empty_expiration_stage():
+    return None
+
+
+async def _default_expiration_stage(bot=None):
+    from radar_engine.job_expiration import EXPIRED_DETAIL_MESSAGE, expired_channel_edit_enabled, refresh_expired_jobs
+
+    report = await asyncio.to_thread(refresh_expired_jobs)
+    if not bot or not expired_channel_edit_enabled():
+        return report
+    from config_v2 import CHANNEL_VITRIN
+    from handlers.radar import channel_post_keyboard, format_radar_channel_post
+
+    for item in report.expired_items:
+        if not item.get("channel_message_id"):
+            continue
+        try:
+            await bot.edit_message_text(
+                chat_id=CHANNEL_VITRIN,
+                message_id=item["channel_message_id"],
+                text=f"{EXPIRED_DETAIL_MESSAGE.splitlines()[0]}\n\n{format_radar_channel_post(item)}",
+                reply_markup=channel_post_keyboard(item),
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            logger.exception("Could not edit expired Radar channel post item_id=%s", item.get("id"))
+    return report
 
 
 def advisory_lock_key(name: str = ADVISORY_LOCK_NAME) -> int:
@@ -453,6 +484,7 @@ class RadarBOEIngestionScheduler:
         ai_stage: AsyncStage | None = None,
         classification_stage: AsyncStage | None = None,
         urgent_publication_stage: UrgentPublicationStage | None = None,
+        expiration_stage: AsyncStage | None = None,
         review_notification_stage: ReviewNotificationStage | None = None,
         lock_factory: LockFactory | None = None,
         sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -488,6 +520,12 @@ class RadarBOEIngestionScheduler:
             self.ai_request_delay_seconds,
         )
         self.urgent_publication_stage = urgent_publication_stage or _empty_urgent_publication_stage
+        if expiration_stage is not None:
+            self.expiration_stage = expiration_stage
+        elif ingest_stage is not None:
+            self.expiration_stage = _empty_expiration_stage
+        else:
+            self.expiration_stage = _default_expiration_stage
         self.review_notification_stage = review_notification_stage
         self.lock_factory = lock_factory or (lambda: PostgresAdvisoryLock(ADVISORY_LOCK_NAME))
         self.sleep_func = sleep_func
@@ -546,6 +584,9 @@ class RadarBOEIngestionScheduler:
                     report.skipped = True
                     return report
 
+                expiration = await self.expiration_stage()
+                self._apply_expiration(report, expiration)
+
                 ingestion = await self.ingest_stage()
                 self._apply_ingestion(report, ingestion)
                 if self._fatal_ingestion_failure(ingestion):
@@ -594,6 +635,13 @@ class RadarBOEIngestionScheduler:
         report.skipped_duplicate = ingestion.duplicate_count
         report.inserted_raw = ingestion.inserted_count
         report.errors.extend(ingestion.errors)
+
+    def _apply_expiration(self, report: RadarFetchCycleReport, expiration) -> None:
+        from radar_engine.job_expiration import ExpirationRefreshReport
+
+        if isinstance(expiration, ExpirationRefreshReport):
+            report.jobs_expired_refreshed = expiration.expired
+            report.stale_jobs_flagged = expiration.stale
 
     def _apply_pipeline(self, report: RadarFetchCycleReport, pipeline) -> None:
         if not isinstance(pipeline, PipelineReport):
@@ -659,6 +707,7 @@ class RadarBOEIngestionScheduler:
             "AI postponed=%s Classification completed=%s Classification postponed=%s "
             "Remaining AI queue estimate=%s "
             "Queued for review=%s Urgent evaluated=%s published=%s fallback_review=%s "
+            "Jobs expired=%s stale flagged=%s "
             "Cycle duration=%.2fs",
             report.fetched,
             report.skipped_duplicate,
@@ -679,6 +728,8 @@ class RadarBOEIngestionScheduler:
             report.urgent_evaluated,
             report.urgent_published,
             report.urgent_fallback_review,
+            report.jobs_expired_refreshed,
+            report.stale_jobs_flagged,
             report.duration_seconds,
         )
 
@@ -700,6 +751,7 @@ async def start_radar_scheduler(application) -> None:
     scheduler = RadarBOEIngestionScheduler(
         review_notification_stage=notifier.notify_if_pending_increased,
         urgent_publication_stage=_default_urgent_publication_stage(application.bot, ADMIN_IDS, 50),
+        expiration_stage=lambda: _default_expiration_stage(application.bot),
     )
     application.bot_data["radar_boe_scheduler"] = scheduler
     application.bot_data["radar_review_notifier"] = notifier

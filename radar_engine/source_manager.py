@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+from time import monotonic
 from typing import Callable
 
 from radar_engine.models import RawRadarItem
@@ -23,6 +24,9 @@ class IngestionReport:
     duplicate_count: int = 0
     updated_count: int = 0
     failed_count: int = 0
+    expired_skipped_count: int = 0
+    invalid_skipped_count: int = 0
+    duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
 
 
@@ -52,22 +56,28 @@ class SourceManager:
         source = self.get_source(source_key)
         report = IngestionReport(source_key=source_key)
 
+        started = monotonic()
         try:
             raw_items = await source.fetch()
         except Exception as error:
             logger.exception("Radar source fetch failed for %s", source_key)
             report.errors.append(f"fetch failed: {error}")
             report.failed_count += 1
+            report.duration_seconds = monotonic() - started
             return report
 
         report.fetched_count = len(raw_items)
         normalized: list[RawRadarItem] = []
         for index, raw_item in enumerate(raw_items):
             try:
-                normalized.append(source.normalize(raw_item))
+                item = source.normalize(raw_item)
+                if item.metadata.get("is_expired"):
+                    report.expired_skipped_count += 1
+                normalized.append(item)
             except Exception as error:
                 logger.exception("Radar source normalization failed for %s item %s", source_key, index)
                 report.failed_count += 1
+                report.invalid_skipped_count += 1
                 report.errors.append(f"normalize item {index}: {error}")
 
         report.normalized_count = len(normalized)
@@ -90,6 +100,7 @@ class SourceManager:
                 report.failed_count += 1
                 report.errors.append(f"unknown store status: {result.status}")
 
+        report.duration_seconds = monotonic() - started
         return report
 
 

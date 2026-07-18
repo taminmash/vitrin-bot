@@ -531,6 +531,10 @@ def today_midnight():
 
 
 def is_radar_expired(item):
+    from radar_engine.job_expiration import job_temporal_state
+
+    if (item.get("type") or item.get("category")) == "job":
+        return job_temporal_state(item).expired
     from datetime import datetime
 
     now = datetime.now()
@@ -1290,7 +1294,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     return
                 if is_radar_expired(item):
                     await query.edit_message_text(
-                        "❌ این آیتم منقضی شده و قابل انتشار نیست.",
+                        "⛔ این آگهی منقضی شده است و امکان انتشار آن به‌عنوان فرصت فعال وجود ندارد.",
                         reply_markup=approved_radar_result_keyboard(candidate_id),
                     )
                     return
@@ -1518,7 +1522,9 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.edit_message_text(f"✅ محتوای رادار با وضعیت {label} ذخیره شد.")
                 return
             if is_radar_expired(item):
-                await query.edit_message_text("این آیتم منقضی شده و قابل انتشار نیست.")
+                await query.edit_message_text(
+                    "⛔ این آگهی منقضی شده است و امکان انتشار آن به‌عنوان فرصت فعال وجود ندارد."
+                )
                 return
             result = await publish_radar_item(context, item, published_by=query.from_user.id)
             await edit_radar_publication_result(query, item["id"], result)
@@ -1579,7 +1585,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if action == "publish":
         if radar_status(item) == "expired":
             await query.edit_message_text(
-                "این آیتم منقضی شده و قابل انتشار نیست.",
+                "⛔ این آگهی منقضی شده است و امکان انتشار آن به‌عنوان فرصت فعال وجود ندارد.",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),
@@ -1608,7 +1614,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if action == "publish_confirm":
         if radar_status(item) == "expired":
             await query.edit_message_text(
-                "این آیتم منقضی شده و قابل انتشار نیست.",
+                "⛔ این آگهی منقضی شده است و امکان انتشار آن به‌عنوان فرصت فعال وجود ندارد.",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")]]
                 ),

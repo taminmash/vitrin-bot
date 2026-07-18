@@ -23,6 +23,10 @@ def _clean(value) -> str:
 
 
 def is_expired(item: dict) -> bool:
+    from radar_engine.job_expiration import job_temporal_state
+
+    if (item.get("type") or item.get("category")) == "job":
+        return job_temporal_state(item).expired
     from datetime import datetime
 
     now = datetime.now()
@@ -48,7 +52,9 @@ def validate_publication_item(item: dict, rendered_text: str | None = None, chan
     if item.get("channel_message_id"):
         errors.append({"field": "channel_message_id", "code": "already_sent", "message": "item already has a Telegram message"})
     if is_expired(item):
-        errors.append({"field": "expires_at", "code": "expired", "message": "item is expired"})
+        from radar_engine.job_expiration import EXPIRED_PUBLICATION_MESSAGE
+
+        errors.append({"field": "expires_at", "code": "expired", "message": EXPIRED_PUBLICATION_MESSAGE})
     if channel_id in (None, "", 0):
         errors.append({"field": "channel_id", "code": "missing_channel", "message": "Telegram channel is not configured"})
     if rendered_text is not None:

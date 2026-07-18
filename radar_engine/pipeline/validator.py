@@ -50,4 +50,6 @@ def validate_candidate(candidate: RadarCandidate) -> ValidationResult:
             issues.append(ValidationIssue("published_at", "invalid", "published_at is outside a usable range."))
     if not 1 <= int(candidate.trust_level) <= 5:
         issues.append(ValidationIssue("trust_level", "out_of_range", "Trust level must be between 1 and 5."))
+    if candidate.metadata.get("is_expired"):
+        issues.append(ValidationIssue("valid_until", "expired", "Job deadline has passed or source is closed."))
     return ValidationResult(is_valid=not issues, issues=issues)
