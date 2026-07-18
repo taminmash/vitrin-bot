@@ -31,8 +31,8 @@ CHANNEL_HAYAT_USERNAME = "@hayatkhalvatspain"
 BOT_USERNAME = os.getenv("BOT_USERNAME", "VitrinSpainBot")
 PROJECT_NAME = "ویترین اسپانیا"
 
-BACK_BUTTON = "🔙 بازگشت"
-HOME_BUTTON = "🏠 منوی اصلی"
+BACK_BUTTON = "⬅️ بازگشت به صفحه قبلی"
+HOME_BUTTON = "🏠 بازگشت به صفحه اصلی"
 MENU_CREATE_VITRIN = "🟡 ثبت آگهی در ویترین"
 MENU_CREATE_HAYAT = "🟣 ثبت پیام در حیاط خلوت"
 MENU_PROFILE = "👤 پروفایل من"

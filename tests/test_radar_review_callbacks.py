@@ -22,6 +22,8 @@ class RadarReviewCallbackTests(unittest.TestCase):
             "x": f"admin_radar:r:x:{REAL_CANDIDATE_ID}",
             "e": f"admin_radar:r:e:{REAL_CANDIDATE_ID}",
             "p": f"admin_radar:r:p:{REAL_CANDIDATE_ID}",
+            "u": f"admin_radar:r:u:{REAL_CANDIDATE_ID}",
+            "d": f"admin_radar:r:d:{REAL_CANDIDATE_ID}",
         }
 
         for operation, expected in expected_formats.items():
@@ -54,9 +56,9 @@ class RadarReviewCallbackTests(unittest.TestCase):
             "\n\ndef radar_review_item_text", 1
         )[0]
         item_helper = admin_text.split("def radar_review_item_keyboard", 1)[1].split(
-            "\n\ndef radar_promotion_keyboard", 1
+            "\n\ndef approved_radar_decision_keyboard", 1
         )[0]
-        promotion_helper = admin_text.split("def radar_promotion_keyboard", 1)[1].split(
+        promotion_helper = admin_text.split("def approved_radar_decision_keyboard", 1)[1].split(
             "\n\ndef safe_review_callback_data", 1
         )[0]
 
@@ -65,6 +67,7 @@ class RadarReviewCallbackTests(unittest.TestCase):
             self.assertIn(f'"{operation}"', item_helper)
         self.assertIn("safe_review_callback_data(operation, candidate_id)", item_helper)
         self.assertIn('safe_review_callback_data("p", candidate_id)', promotion_helper)
+        self.assertIn('safe_review_callback_data("u", candidate_id)', promotion_helper)
         self.assertNotIn("admin_radar:review:item:{item.candidate_id}", queue_helper)
         self.assertNotIn("admin_radar:review:needs_edit:{candidate_id}", item_helper)
         self.assertNotIn("admin_radar:promote:{candidate_id}", promotion_helper)
@@ -80,11 +83,12 @@ class RadarReviewCallbackTests(unittest.TestCase):
         self.assertIn('"x": "reject"', compact_branch)
         self.assertIn('"e": "needs_edit"', compact_branch)
         self.assertIn('"p": "promote"', compact_branch)
-        self.assertIn('parts = ["admin_radar", "promote", candidate_id]', compact_branch)
+        self.assertIn('"u": "publish_approved"', compact_branch)
+        self.assertIn('parts = ["admin_radar", operation, candidate_id]', compact_branch)
 
     def test_legacy_callbacks_remain_supported(self):
         admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
-        review_branch = admin_text.split('if action == "review":', 1)[1].split('\n    if action == "promote":', 1)[0]
+        review_branch = admin_text.split('if action == "review":', 1)[1].split('\n    if action == "approved_decision":', 1)[0]
 
         self.assertIn('operation = parts[2] if len(parts) > 2 else "list"', review_branch)
         self.assertIn('candidate_id = parts[3] if len(parts) > 3 else None', review_branch)
