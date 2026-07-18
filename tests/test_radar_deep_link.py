@@ -56,11 +56,19 @@ class RadarDeepLinkTests(unittest.IsolatedAsyncioTestCase):
         buttons = [button for row in keyboard.inline_keyboard for button in row]
         self.assertEqual(
             [button.text for button in buttons],
-            ["⬅️ بازگشت به صفحه قبلی", "📤 اشتراک‌گذاری", "🏠 بازگشت به صفحه اصلی"],
+            [
+                "↩️ بازگشت به ویترین",
+                "📤 اشتراک‌گذاری",
+                "🤝 درخواست اقدام توسط ویترین",
+                "⬅️ بازگشت به صفحه قبلی",
+                "🏠 بازگشت به صفحه اصلی",
+            ],
         )
         self.assertEqual(buttons[0].url, "https://t.me/VitrinSpainBot?start=radar_job-123")
         self.assertEqual(buttons[1].switch_inline_query, "https://t.me/VitrinSpainBot?start=radar_job-123")
-        self.assertEqual(buttons[2].callback_data, "radar:home")
+        self.assertEqual(buttons[2].callback_data, "radar:apply:job-123")
+        self.assertEqual(buttons[3].callback_data, "radar:item:job-123")
+        self.assertEqual(buttons[4].callback_data, "radar:home")
 
     def test_expired_job_keyboard_removes_active_share_control(self):
         item = {
