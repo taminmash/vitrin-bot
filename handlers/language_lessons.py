@@ -13,6 +13,4 @@ from database.db import db_cursor
 logger = logging.getLogger(__name__)
 LEVEL_PATTERN = re.compile(r"^[a-z0-9_-]{1,16}$")
 MAX_FEEDBACK_LENGTH = 1000
-
-
-def _validate
+PLACEHOLDER_TEXT = "🚧 این بخش در حال آماده‌سازی
