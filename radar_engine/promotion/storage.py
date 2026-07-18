@@ -69,7 +69,7 @@ def _row_to_source(row) -> ApprovedPromotionSource:
     )
 
 
-def _approved_source_select(extra_where: str) -> str:
+def _approved_source_select(extra_where: str = "", limit_clause: str = "") -> str:
     return f"""
         SELECT
             c.id AS candidate_id,
@@ -121,6 +121,7 @@ def _approved_source_select(extra_where: str) -> str:
         WHERE reviews.review_status = 'approved'
           {extra_where}
         ORDER BY reviews.reviewed_at ASC NULLS LAST, reviews.created_at ASC
+        {limit_clause}
     """
 
 
@@ -134,12 +135,12 @@ def load_approved_unpromoted_candidates(
     with db_cursor(dict_cursor=True) as (_, cur):
         if candidate_id:
             cur.execute(
-                _approved_source_select("AND c.id = %s LIMIT 1"),
+                _approved_source_select("AND c.id = %s", "LIMIT 1"),
                 (candidate_id,),
             )
         else:
             cur.execute(
-                _approved_source_select("AND promotions.id IS NULL LIMIT %s"),
+                _approved_source_select("AND promotions.id IS NULL", "LIMIT %s"),
                 (safe_limit,),
             )
         return [_row_to_source(row) for row in cur.fetchall()]

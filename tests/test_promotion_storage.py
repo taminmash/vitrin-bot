@@ -6,7 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from radar_engine.promotion.storage import _insert_radar_item, load_approved_unpromoted_candidates, promote_candidate
+from radar_engine.promotion.storage import (
+    _insert_radar_item,
+    get_approved_promotion_source,
+    load_approved_unpromoted_candidates,
+    promote_candidate,
+)
 from tests.test_promotion_mapper import make_source
 
 
@@ -127,7 +132,20 @@ class PromotionStorageTests(unittest.TestCase):
         self.assertIn("JOIN radar_reviews", sql)
         self.assertIn("reviews.review_status = 'approved'", sql)
         self.assertIn("promotions.id IS NULL", sql)
+        self.assertLess(sql.index("ORDER BY reviews.reviewed_at ASC NULLS LAST"), sql.index("LIMIT %s"))
         self.assertEqual(params, (5,))
+
+    def test_loader_empty_and_multiple_results_preserve_review_order_clause(self):
+        for rows, expected in (([], 0), ([promotion_row(), promotion_row(candidate_id="candidate-2")], 2)):
+            with self.subTest(expected=expected):
+                cursor = FakeCursor(rows=rows)
+                with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+                    loaded = load_approved_unpromoted_candidates(limit=10)
+                self.assertEqual(len(loaded), expected)
+                sql, params = cursor.executed[0]
+                self.assertIn("ORDER BY reviews.reviewed_at ASC NULLS LAST, reviews.created_at ASC", sql)
+                self.assertNotIn("LIMIT %s\n        ORDER BY", sql)
+                self.assertEqual(params, (10,))
 
     def test_candidate_specific_loader_reports_already_promoted(self):
         cursor = FakeCursor(
@@ -144,7 +162,30 @@ class PromotionStorageTests(unittest.TestCase):
         self.assertEqual(rows[0].radar_item_id, "radar-1")
         sql, params = cursor.executed[0]
         self.assertIn("c.id = %s", sql)
+        self.assertLess(sql.index("ORDER BY reviews.reviewed_at ASC NULLS LAST"), sql.index("LIMIT 1"))
+        self.assertNotIn("candidate-1", sql)
         self.assertEqual(params, ("candidate-1",))
+
+    def test_candidate_specific_empty_result_returns_none(self):
+        cursor = FakeCursor(rows=[])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            rows = load_approved_unpromoted_candidates(candidate_id="missing")
+        self.assertEqual(rows, [])
+        sql, params = cursor.executed[0]
+        self.assertIn("c.id = %s", sql)
+        self.assertEqual(params, ("missing",))
+
+    def test_get_candidate_returns_one_or_none(self):
+        for rows, expected in (([promotion_row()], "candidate-1"), ([], None)):
+            with self.subTest(expected=expected):
+                cursor = FakeCursor(rows=rows)
+                with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+                    source = get_approved_promotion_source("candidate-1")
+                self.assertEqual(source.candidate_id if source else None, expected)
+                sql, params = cursor.executed[0]
+                self.assertIn("c.id = %s", sql)
+                self.assertNotIn("candidate-1", sql)
+                self.assertEqual(params, ("candidate-1",))
 
     def test_promote_creates_radar_item_and_audit_row_atomically(self):
         cursor = FakeCursor(

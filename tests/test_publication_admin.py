@@ -45,6 +45,24 @@ class PublicationAdminStaticTests(unittest.TestCase):
         self.assertIn('"is_published": status == "published"', payload_helper)
         self.assertNotIn('"is_published": status in ("ready", "published")', payload_helper)
 
+    def test_direct_approval_flow_and_navigation_labels_are_present(self):
+        admin_text = (PROJECT_ROOT / "handlers" / "admin.py").read_text(encoding="utf-8")
+        self.assertIn('InlineKeyboardButton("✅ انتشار در ویترین"', admin_text)
+        self.assertIn('InlineKeyboardButton("⏳ انتقال به انتظار انتشار"', admin_text)
+        self.assertIn('safe_review_callback_data("u", candidate_id)', admin_text)
+        self.assertIn('safe_review_callback_data("p", candidate_id)', admin_text)
+        self.assertIn('publish_radar_item(context, item, published_by=query.from_user.id)', admin_text)
+        self.assertIn("BACK_BUTTON", admin_text)
+        self.assertIn("HOME_BUTTON", admin_text)
+        for forbidden in (
+            'InlineKeyboardButton("⬅️ بازگشت',
+            'InlineKeyboardButton("↩️ بازگشت',
+            'InlineKeyboardButton("🏠 خانه"',
+            'InlineKeyboardButton("🏠 بازگشت',
+            'InlineKeyboardButton("بازگشت"',
+        ):
+            self.assertNotIn(forbidden, admin_text)
+
 
 if __name__ == "__main__":
     unittest.main()
