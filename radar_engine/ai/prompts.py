@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from radar_engine.pipeline.candidate import RadarCandidate
+from radar_engine.job_title import existing_job_title
 
 
-PROMPT_VERSION = "radar-structured-v2"
+PROMPT_VERSION = "radar-structured-v3"
 
 
 SYSTEM_PROMPT = """You extract practical structured information from official Spanish source material for Vitrin Spain Radar.
@@ -17,16 +18,26 @@ Rules:
 - Input source text is Spanish.
 - Use null for every unavailable field; never infer missing facts.
 - For visa_sponsorship, relocation_support, and apply_from_outside_spain use only YES, NO, or UNKNOWN.
+- For job_title, extract the actual profession from the source; never invent one.
+- job_title must be Persian, contain at most 6 words, and contain no punctuation or explanation.
+- Never return generic job_title phrases such as فرصت شغلی, موقعیت شغلی, استخدام, or فرصت استخدام.
+- If the profession is not explicitly identifiable (for example only "una plaza" or "puesto"), return job_title as "UNKNOWN".
+- job_title_confidence must measure confidence in the extracted profession from 0 to 1.
 - Return structured JSON only.
 """
 
 
 def build_summary_prompt(candidate: RadarCandidate) -> list[dict[str, str]]:
+    title_extraction_needed = "NO" if existing_job_title(candidate.title, candidate.metadata) else "YES"
     user_prompt = f"""Extract a structured Persian record for this Radar candidate.
+
+job_title_extraction_needed: {title_extraction_needed}
+If job_title_extraction_needed is NO, return null for job_title and job_title_confidence.
 
 Return JSON with exactly these keys:
 - category
 - job_title
+- job_title_confidence
 - employer
 - city
 - region

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from radar_engine.category_headers import category_header
+from radar_engine.job_title import UNKNOWN_JOB_TITLE, is_meaningful_job_title
 
 
 JOB_STRUCTURED_METADATA_KEY = "job_structured"
@@ -99,10 +100,25 @@ def _display_value(key: str, value) -> str | None:
     return text
 
 
+def _presented_job_title(data: dict, fallback: dict) -> str:
+    for value in (
+        data.get("job_title"),
+        data.get("normalized_job_title"),
+        data.get("occupation"),
+        data.get("profession"),
+        fallback.get("job_title"),
+        fallback.get("title"),
+    ):
+        if is_meaningful_job_title(value, source_title=True):
+            return str(value).strip()
+    return UNKNOWN_JOB_TITLE
+
+
 def job_card(structured_data, *, fallback=None, compact: bool = False) -> str:
     data = clean_structured_data(structured_data)
     fallback = clean_structured_data(fallback)
     merged = {**fallback, **{key: value for key, value in data.items() if value not in (None, "", [])}}
+    merged["job_title"] = _presented_job_title(data, fallback)
     keys = (
         "job_title", "employer", "city", "region", "salary", "contract_type",
         "working_hours", "deadline", "requirements", "language_level", "job_level",
@@ -144,7 +160,7 @@ def job_channel_card(structured_data, *, fallback=None) -> str:
     data = clean_structured_data(structured_data)
     fallback = clean_structured_data(fallback)
     merged = {**fallback, **{key: value for key, value in data.items() if value not in (None, "", [])}}
-    title = _display_value("job_title", merged.get("job_title")) or _display_value("title", merged.get("title")) or "ذکر نشده"
+    title = _presented_job_title(data, fallback)
     city = _display_value("city", merged.get("city")) or "نامشخص"
     contract_type = _display_value("contract_type", merged.get("contract_type")) or "نامشخص"
     requirements = _concise_requirements(merged)
