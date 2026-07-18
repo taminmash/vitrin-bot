@@ -126,7 +126,7 @@ class RadarRendererTests(unittest.TestCase):
         self.assertIn("return render_details_page(item)", text)
         self.assertIn("return render_admin_preview(item)", text)
         self.assertIn("channel_button_specs(item", text)
-        self.assertIn("details_button_specs(item", text)
+        self.assertIn("builder(item, deep_link_for_item(item)", text)
 
 
 if __name__ == "__main__":

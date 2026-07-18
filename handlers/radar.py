@@ -16,6 +16,7 @@ from database.db import (
     save_radar_reaction,
 )
 from handlers.start import MAIN_MENU, send_home_dashboard
+from radar_engine.job_presentation import is_job
 from radar_engine.renderer import (
     build_radar_deep_link,
     channel_button_specs,
@@ -23,6 +24,7 @@ from radar_engine.renderer import (
     details_button_specs,
     field_log,
     format_date as render_format_date,
+    job_details_button_specs,
     location_text as render_location_text,
     overview_button_specs,
     render_admin_preview,
@@ -191,7 +193,9 @@ def full_item_keyboard(item):
 
 
 def details_keyboard(item):
-    return telegram_keyboard(details_button_specs(item, deep_link_for_item(item), channel_url_for_item(item)))
+    category = item.get("type") or item.get("category")
+    builder = job_details_button_specs if is_job(category, item.get("structured_data")) else details_button_specs
+    return telegram_keyboard(builder(item, deep_link_for_item(item), channel_url_for_item(item)))
 
 
 def expired_item_keyboard():
@@ -318,6 +322,9 @@ async def open_radar_deep_link(update: Update, item_id: str):
         item = None
     if not item:
         await send_missing_radar_item(update.message)
+        return
+    if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+        await send_radar_details_message(update.message, item)
         return
     await send_radar_item_message(update.message, item)
 

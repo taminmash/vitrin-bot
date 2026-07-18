@@ -129,6 +129,103 @@ class JobPresentationTests(unittest.TestCase):
         self.assertIn(JOB_HELP_TEXT, details)
         self.assertNotIn("نیاز به کمک برای ارسال درخواست", channel)
 
+    def test_job_channel_post_contains_only_requested_short_card(self):
+        data = structured(
+            full_description="شرح کامل شغل",
+            duties="توسعه و نگهداری سامانه",
+            remote_status="Hybrid",
+        )
+        text = render_channel_post(
+            {
+                "type": "job",
+                "title": "عنوان نرمال‌شده",
+                "body": "متن کامل منبع",
+                "source_name": "BOE",
+                "source_url": "https://www.boe.es/job-1",
+                "structured_data": data,
+            }
+        )
+        self.assertEqual(
+            text,
+            "🟢 آگهی استخدام رایگان\n\n"
+            "💼 عنوان شغل\nمهندس نرم‌افزار\n\n"
+            "📍 شهر\nMadrid\n\n"
+            "📄 نوع قرارداد\nتمام‌وقت\n\n"
+            "🗣 پیش‌نیازها / زبان موردنیاز\nPython • سه سال سابقه",
+        )
+        for excluded in (
+            "شرکت نمونه", "Visa Sponsorship", "امکان اقدام از خارج اسپانیا",
+            "چرا این فرصت مهم است؟", "https://www.boe.es/job-1", "متن کامل منبع",
+            "شرح کامل شغل", "€35,000", "40 ساعت", "Hybrid", "BOE",
+        ):
+            self.assertNotIn(excluded, text)
+
+    def test_job_channel_post_uses_required_missing_field_fallbacks(self):
+        text = render_channel_post(
+            {
+                "type": "job",
+                "title": "عنوان نرمال‌شده",
+                "structured_data": structured(
+                    job_title=None,
+                    city=None,
+                    contract_type=None,
+                    requirements=None,
+                    language_level=None,
+                ),
+            }
+        )
+        self.assertIn("💼 عنوان شغل\nعنوان نرمال‌شده", text)
+        self.assertIn("📍 شهر\nنامشخص", text)
+        self.assertIn("📄 نوع قرارداد\nنامشخص", text)
+        self.assertIn("🗣 پیش‌نیازها / زبان موردنیاز\nذکر نشده", text)
+
+    def test_job_channel_prefers_requirements_then_language(self):
+        requirements = render_channel_post(
+            {"type": "job", "structured_data": structured(requirements=["Python"], language_level="Spanish B2")}
+        )
+        language = render_channel_post(
+            {"type": "job", "structured_data": structured(requirements=None, language_level="Spanish B2")}
+        )
+        self.assertIn("موردنیاز\nPython", requirements)
+        self.assertNotIn("Spanish B2", requirements)
+        self.assertIn("موردنیاز\nSpanish B2", language)
+
+    def test_full_job_detail_keeps_extended_fields_and_hides_empty_ones(self):
+        text = render_details_page(
+            {
+                "type": "job",
+                "body": "شرح کامل موقعیت و مسئولیت‌ها",
+                "source_name": "InfoJobs",
+                "structured_data": structured(
+                    duties="توسعه سرویس‌های Python",
+                    education="کارشناسی",
+                    remote_status="Hybrid",
+                    relocation_support=None,
+                ),
+            }
+        )
+        self.assertIn("📝 توضیحات کامل\nشرح کامل موقعیت و مسئولیت‌ها", text)
+        self.assertIn("📋 وظایف\nتوسعه سرویس‌های Python", text)
+        self.assertIn("🎓 تحصیلات\nکارشناسی", text)
+        self.assertIn("🏠 وضعیت دورکاری\nHybrid", text)
+        self.assertIn("🏷 نام منبع\nInfoJobs", text)
+        self.assertNotIn("✈️ Relocation Support", text)
+
+    def test_non_job_channel_renderer_keeps_existing_template(self):
+        text = render_channel_post(
+            {
+                "type": "event",
+                "title": "رویداد مادرید",
+                "summary": "خلاصه رویداد",
+                "ai_reason": "برای کاربران مفید است",
+                "source_name": "Eventbrite",
+            }
+        )
+        self.assertIn("🛰️ رادار اسپانیا", text)
+        self.assertIn("📝 خلاصه", text)
+        self.assertIn("💡 چرا مهم است؟", text)
+        self.assertIn("🔗 منبع رسمی", text)
+
 
 if __name__ == "__main__":
     unittest.main()
