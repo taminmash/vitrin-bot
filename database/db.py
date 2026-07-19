@@ -1144,6 +1144,87 @@ def init_db():
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS language_lesson_reactions (
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_telegram_id, level, lesson_number)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_reactions_lesson_idx
+            ON language_lesson_reactions (level, lesson_number)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_comments (
+                id BIGSERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                comment_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_review',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_comments_lesson_idx
+            ON language_lesson_comments (level, lesson_number, status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_reports (
+                id BIGSERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                report_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_reports_lesson_idx
+            ON language_lesson_reports (level, lesson_number, status)
+            """
+        )
+
+        ensure_column(cur, "language_lesson_comments", "display_name", "TEXT")
+        ensure_column(cur, "language_lesson_comments", "public_message_chat_id", "BIGINT")
+        ensure_column(cur, "language_lesson_comments", "public_message_id", "BIGINT")
+        ensure_column(cur, "language_lesson_comments", "published_at", "TIMESTAMP")
+        ensure_column(cur, "language_lesson_comments", "deleted_at", "TIMESTAMP")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_discussion_posts (
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                channel_chat_id BIGINT NOT NULL,
+                channel_message_id BIGINT NOT NULL,
+                discussion_chat_id BIGINT NOT NULL,
+                discussion_message_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(level, lesson_number),
+                UNIQUE(channel_chat_id, channel_message_id)
+            )
+            """
+        )
+
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS admin_logs (
                 internal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 human_id TEXT UNIQUE NOT NULL,
@@ -2064,3 +2145,127 @@ def log_admin_action(admin_id, action, object_id, reason=None, cur=None):
 
     with db_cursor() as (_, own_cur):
         log_admin_action(admin_id, action, object_id, reason, cur=own_cur)
+
+
+def save_language_lesson_reaction(user_telegram_id, level, lesson_number, reaction):
+    """Create or update the sole reaction a user has for a language lesson."""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_reactions
+                (user_telegram_id, level, lesson_number, reaction)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_telegram_id, level, lesson_number) DO UPDATE
+            SET reaction = EXCLUDED.reaction,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, reaction),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_comment(user_telegram_id, level, lesson_number, comment_text):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_comments
+                (user_telegram_id, level, lesson_number, comment_text, status)
+            VALUES (%s, %s, %s, %s, 'pending_review')
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, comment_text),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_report(user_telegram_id, level, lesson_number, report_text):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_reports
+                (user_telegram_id, level, lesson_number, report_text, status)
+            VALUES (%s, %s, %s, %s, 'active')
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, report_text),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def get_language_lesson_reaction_counts(level, lesson_number):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """SELECT reaction, COUNT(*) AS count FROM language_lesson_reactions
+               WHERE level = %s AND lesson_number = %s GROUP BY reaction""",
+            (level, lesson_number),
+        )
+        counts = {"like": 0, "dislike": 0}
+        for row in cur.fetchall():
+            counts[row["reaction"]] = int(row["count"])
+        return counts
+
+
+def save_language_lesson_discussion_post(level, lesson_number, channel_chat_id, channel_message_id, discussion_chat_id, discussion_message_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """INSERT INTO language_lesson_discussion_posts
+                (level, lesson_number, channel_chat_id, channel_message_id, discussion_chat_id, discussion_message_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (level, lesson_number) DO UPDATE
+                SET channel_chat_id = EXCLUDED.channel_chat_id,
+                    channel_message_id = EXCLUDED.channel_message_id,
+                    discussion_chat_id = EXCLUDED.discussion_chat_id,
+                    discussion_message_id = EXCLUDED.discussion_message_id,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING *""",
+            (level, lesson_number, channel_chat_id, channel_message_id, discussion_chat_id, discussion_message_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def get_language_lesson_discussion_post(level, lesson_number):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute("SELECT * FROM language_lesson_discussion_posts WHERE level = %s AND lesson_number = %s", (level, lesson_number))
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_comment(user_telegram_id, level, lesson_number, comment_text, display_name=None):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """INSERT INTO language_lesson_comments
+                (user_telegram_id, level, lesson_number, comment_text, display_name, status)
+                VALUES (%s, %s, %s, %s, %s, 'pending') RETURNING *""",
+            (user_telegram_id, level, lesson_number, comment_text, display_name),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def mark_language_lesson_comment_published(comment_id, chat_id, message_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """UPDATE language_lesson_comments SET status = 'published', public_message_chat_id = %s,
+                public_message_id = %s, published_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING *""",
+            (chat_id, message_id, comment_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def mark_language_lesson_comment_failed(comment_id):
+    with db_cursor() as (_, cur):
+        cur.execute("UPDATE language_lesson_comments SET status = 'failed' WHERE id = %s", (comment_id,))
+
+
+def delete_language_lesson_comment(comment_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """UPDATE language_lesson_comments SET status = 'deleted', deleted_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND status = 'published' RETURNING *""", (comment_id,)
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def get_language_lesson_comment(comment_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute("SELECT * FROM language_lesson_comments WHERE id = %s", (comment_id,))
+        return row_to_dict(cur.fetchone())
