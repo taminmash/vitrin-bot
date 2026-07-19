@@ -17,6 +17,11 @@ from handlers.admin import (
     whoami,
 )
 from handlers.home import home_callback
+from handlers.language_lessons import (
+    cancel_language_lesson_feedback,
+    language_lesson_callback,
+    language_lesson_feedback_handler,
+)
 from handlers.menu import menu_handler
 from handlers.post_create import draft_callback, post_handler, published_callback, user_post_callback
 from handlers.profile import profile_handler
@@ -58,10 +63,12 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cancel", cancel_language_lesson_feedback))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("radar_status", radar_status_command))
     app.add_handler(CommandHandler("radar_review", radar_review_command))
     app.add_handler(CommandHandler("whoami", whoami))
+    app.add_handler(CallbackQueryHandler(language_lesson_callback, pattern=r"^lesson:"))
     app.add_handler(CallbackQueryHandler(admin_radar_callback, pattern=r"^admin_radar:"))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
     app.add_handler(CallbackQueryHandler(comment_admin_callback, pattern=r"^comment:"))
@@ -75,6 +82,7 @@ def main():
         MessageHandler(filters.TEXT & ~filters.COMMAND, admin_edit_reason_handler),
         group=-1,
     )
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, language_lesson_feedback_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, profile_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, post_handler), group=1)
     app.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, post_handler), group=1)
