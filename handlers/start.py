@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
+from handlers.language_lessons import begin_lesson_feedback, feedback_prompt, parse_lesson_callback
 from database.db import count_today_dashboard_items, get_or_create_user, user_exists
 
 
@@ -152,6 +153,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await open_radar_deep_link(update, payload.removeprefix("radar_"))
         return
+
+    if payload and payload.startswith("lesson-comment-"):
+        parts = payload.split("-")
+        if len(parts) >= 4:
+            level = "-".join(parts[2:-1])
+            parsed = parse_lesson_callback(f"lesson:comment:{level}:{parts[-1]}")
+            if parsed:
+                begin_lesson_feedback(context, "comment", parsed.level, parsed.lesson_number)
+                await update.message.reply_text(feedback_prompt("comment", parsed.lesson_number))
+                return
+        logger.warning("Ignoring malformed lesson comment deep link: %r", payload)
 
     await send_home_dashboard(update, show_banner=first_start is not False)
 
