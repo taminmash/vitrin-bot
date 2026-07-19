@@ -1144,6 +1144,64 @@ def init_db():
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS language_lesson_reactions (
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_telegram_id, level, lesson_number)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_reactions_lesson_idx
+            ON language_lesson_reactions (level, lesson_number)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_comments (
+                id BIGSERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                comment_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_review',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_comments_lesson_idx
+            ON language_lesson_comments (level, lesson_number, status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_reports (
+                id BIGSERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                report_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_reports_lesson_idx
+            ON language_lesson_reports (level, lesson_number, status)
+            """
+        )
+
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS admin_logs (
                 internal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 human_id TEXT UNIQUE NOT NULL,
@@ -2064,3 +2122,49 @@ def log_admin_action(admin_id, action, object_id, reason=None, cur=None):
 
     with db_cursor() as (_, own_cur):
         log_admin_action(admin_id, action, object_id, reason, cur=own_cur)
+
+
+def save_language_lesson_reaction(user_telegram_id, level, lesson_number, reaction):
+    """Create or update the sole reaction a user has for a language lesson."""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_reactions
+                (user_telegram_id, level, lesson_number, reaction)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_telegram_id, level, lesson_number) DO UPDATE
+            SET reaction = EXCLUDED.reaction,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, reaction),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_comment(user_telegram_id, level, lesson_number, comment_text):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_comments
+                (user_telegram_id, level, lesson_number, comment_text, status)
+            VALUES (%s, %s, %s, %s, 'pending_review')
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, comment_text),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_report(user_telegram_id, level, lesson_number, report_text):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_reports
+                (user_telegram_id, level, lesson_number, report_text, status)
+            VALUES (%s, %s, %s, %s, 'active')
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, report_text),
+        )
+        return row_to_dict(cur.fetchone())
