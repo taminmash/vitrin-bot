@@ -165,7 +165,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(feedback_prompt(action, parsed.lesson_number))
                 return
         logger.warning("Ignoring malformed lesson feedback deep link: %r", payload)
-
     await send_home_dashboard(update, show_banner=first_start is not False)
 
 

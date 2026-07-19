@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import TelegramError
+from telegram import Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from config_v2 import ADMIN_IDS, BOT_USERNAME, TECH_SUPPORT_IDS
