@@ -154,17 +154,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await open_radar_deep_link(update, payload.removeprefix("radar_"))
         return
 
-    if payload and payload.startswith("lesson-comment-"):
+    if payload and payload.startswith("lesson-"):
         parts = payload.split("-")
-        if len(parts) >= 4:
+        if len(parts) >= 4 and parts[1] in {"comment", "report"}:
+            action = parts[1]
             level = "-".join(parts[2:-1])
-            parsed = parse_lesson_callback(f"lesson:comment:{level}:{parts[-1]}")
+            parsed = parse_lesson_callback(f"lesson:{action}:{level}:{parts[-1]}")
             if parsed:
-                begin_lesson_feedback(context, "comment", parsed.level, parsed.lesson_number)
-                await update.message.reply_text(feedback_prompt("comment", parsed.lesson_number))
+                begin_lesson_feedback(context, action, parsed.level, parsed.lesson_number)
+                await update.message.reply_text(feedback_prompt(action, parsed.lesson_number))
                 return
-        logger.warning("Ignoring malformed lesson comment deep link: %r", payload)
-
+        logger.warning("Ignoring malformed lesson feedback deep link: %r", payload)
     await send_home_dashboard(update, show_banner=first_start is not False)
 
 

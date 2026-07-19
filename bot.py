@@ -19,7 +19,9 @@ from handlers.admin import (
 from handlers.home import home_callback
 from handlers.language_lessons import (
     cancel_language_lesson_feedback,
+    language_lesson_admin_callback,
     language_lesson_callback,
+    language_lesson_discussion_mapping_handler,
     language_lesson_feedback_handler,
 )
 from handlers.menu import menu_handler
@@ -69,6 +71,7 @@ def main():
     app.add_handler(CommandHandler("radar_review", radar_review_command))
     app.add_handler(CommandHandler("whoami", whoami))
     app.add_handler(CallbackQueryHandler(language_lesson_callback, pattern=r"^lesson:"))
+    app.add_handler(CallbackQueryHandler(language_lesson_admin_callback, pattern=r"^admin:lesson-comment:"))
     app.add_handler(CallbackQueryHandler(admin_radar_callback, pattern=r"^admin_radar:"))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
     app.add_handler(CallbackQueryHandler(comment_admin_callback, pattern=r"^comment:"))
@@ -78,6 +81,7 @@ def main():
     app.add_handler(CallbackQueryHandler(draft_callback, pattern=r"^draft:"))
     app.add_handler(CallbackQueryHandler(published_callback, pattern=r"^pub:"))
     app.add_handler(CallbackQueryHandler(user_post_callback, pattern=r"^userpost:"))
+    app.add_handler(MessageHandler(filters.ALL, language_lesson_discussion_mapping_handler), group=-2)
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, admin_edit_reason_handler),
         group=-1,
