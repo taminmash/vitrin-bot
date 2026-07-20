@@ -93,6 +93,7 @@ class StorageTests(unittest.TestCase):
         item = raw_item()
         item.source_key = "source_b"
         item.metadata = {
+            "content_type": "job",
             "job_fingerprint": "same-job",
             "provenance": [{"source_key": "source_b", "external_id": "b-1", "url": item.source_url}],
         }
@@ -101,4 +102,36 @@ class StorageTests(unittest.TestCase):
         result = store_raw_item(item)
         self.assertEqual(result.status, "duplicate")
         self.assertEqual(result.raw_item_id, "source-a-id")
-        self.assertIn("provenance", cursor.executed[-1][0])
+        self.assertTrue(any("provenance" in sql for sql, _ in cursor.executed))
+        self.assertIn("NOT EXISTS", cursor.executed[-1][0])
+
+    def test_duplicate_job_requeues_only_orphaned_nonexpired_raw(self):
+        item = raw_item()
+        item.source_key = "madrid_empleo"
+        item.metadata = {"content_type": "job"}
+        from radar_engine.deduplication import build_content_hash
+
+        cursor = FakeCursor([None, {"id": "job-raw", "content_hash": build_content_hash(item)}, {"id": "job-raw"}])
+        install_storage_stubs(cursor)
+        result = store_raw_item(item)
+
+        self.assertEqual(result.status, "duplicate")
+        requeue_sql, requeue_params = cursor.executed[-1]
+        self.assertIn("SET ingestion_status = 'raw'", requeue_sql)
+        self.assertIn("raw.ingestion_status <> 'raw'", requeue_sql)
+        self.assertIn("COALESCE(raw.metadata ->> 'is_expired', 'false') <> 'true'", requeue_sql)
+        self.assertIn("NOT EXISTS", requeue_sql)
+        self.assertIn("FROM radar_candidates AS candidate", requeue_sql)
+        self.assertEqual(requeue_params, ("job-raw", "job"))
+
+    def test_expired_duplicate_job_is_not_requeued(self):
+        item = raw_item()
+        item.source_key = "madrid_empleo"
+        item.metadata = {"content_type": "job", "is_expired": True}
+        from radar_engine.deduplication import build_content_hash
+
+        cursor = FakeCursor([None, {"id": "job-raw", "content_hash": build_content_hash(item)}, {"id": "job-raw"}])
+        install_storage_stubs(cursor)
+        store_raw_item(item)
+
+        self.assertFalse(any("SET ingestion_status = 'raw'" in sql for sql, _ in cursor.executed))
