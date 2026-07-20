@@ -646,3 +646,13 @@ Optional:
 python -m py_compile bot.py config_v2.py database/db.py handlers/admin.py handlers/home.py handlers/menu.py handlers/post_create.py handlers/profile.py handlers/radar.py handlers/start.py handlers/common.py scripts/seed_radar_items.py scripts/run_radar_source.py scripts/run_radar_pipeline.py scripts/run_radar_ai.py scripts/run_radar_classification.py scripts/run_review_queue.py scripts/run_radar_promotion.py scripts/run_radar_publication.py radar_engine/models.py radar_engine/deduplication.py radar_engine/storage.py radar_engine/source_manager.py radar_engine/scheduler.py radar_engine/taxonomy.py radar_engine/sources/base.py radar_engine/sources/boe.py radar_engine/pipeline/candidate.py radar_engine/pipeline/normalizer.py radar_engine/pipeline/validator.py radar_engine/pipeline/enricher.py radar_engine/pipeline/storage.py radar_engine/pipeline/engine.py radar_engine/ai/prompts.py radar_engine/ai/models.py radar_engine/ai/client.py radar_engine/ai/summarizer.py radar_engine/ai/engine.py radar_engine/ai/storage.py radar_engine/ai/providers/__init__.py radar_engine/ai/providers/base.py radar_engine/ai/providers/gemini.py radar_engine/ai/providers/openai.py radar_engine/classification/prompts.py radar_engine/classification/models.py radar_engine/classification/classifier.py radar_engine/classification/storage.py radar_engine/classification/engine.py radar_engine/review/models.py radar_engine/review/storage.py radar_engine/review/engine.py radar_engine/review/presentation.py radar_engine/promotion/models.py radar_engine/promotion/mapper.py radar_engine/promotion/storage.py radar_engine/promotion/engine.py radar_engine/publication/models.py radar_engine/publication/storage.py radar_engine/publication/publisher.py radar_engine/publication/engine.py
 python -m unittest discover -s tests -v
 ```
+
+## Project Knowledge and Development Rules
+
+The repository maintains its project knowledge in version-controlled documentation. [`AGENTS.md`](AGENTS.md) contains mandatory instructions for Codex and contributors.
+
+- [Project context](PROJECT_CONTEXT.md)
+- [Architecture](ARCHITECTURE.md)
+- [Roadmap](ROADMAP.md)
+- [Known issues](KNOWN_ISSUES.md)
+- [Decisions](DECISIONS.md)
