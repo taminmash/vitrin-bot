@@ -75,6 +75,7 @@ class PipelineStorageTests(unittest.TestCase):
         items = load_pending_raw_items(5)
         self.assertEqual(len(items), 1)
         self.assertEqual(cursor.executed[0][1], ("raw", 5))
+        self.assertIn("WHERE ingestion_status = %s", cursor.executed[0][0])
 
     def test_load_source_info(self):
         cursor = FakeCursor([

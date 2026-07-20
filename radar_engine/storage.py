@@ -22,6 +22,32 @@ def classify_existing_content(existing_content_hash: str | None, incoming_conten
     return "duplicate" if existing_content_hash == incoming_content_hash else "updated"
 
 
+def _requeue_orphaned_job_raw(cur, raw_item_id, item: RawRadarItem) -> None:
+    """Make a previously failed job raw visible again when it has no candidate."""
+    metadata = item.metadata if isinstance(item.metadata, dict) else {}
+    if str(metadata.get("content_type") or "").strip().casefold() != "job":
+        return
+    if metadata.get("is_expired") is True:
+        return
+    cur.execute(
+        """
+        UPDATE radar_raw_items AS raw
+        SET ingestion_status = 'raw',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE raw.id = %s
+          AND raw.ingestion_status <> 'raw'
+          AND lower(COALESCE(raw.metadata ->> 'content_type', %s)) = 'job'
+          AND COALESCE(raw.metadata ->> 'is_expired', 'false') <> 'true'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM radar_candidates AS candidate
+              WHERE candidate.raw_item_id = raw.id
+          )
+        """,
+        (raw_item_id, "job"),
+    )
+
+
 def store_raw_item(item: RawRadarItem) -> StoreResult:
     from psycopg2.extras import Json
 
@@ -66,6 +92,7 @@ def store_raw_item(item: RawRadarItem) -> StoreResult:
                     """,
                     (Json(provenance), Json(provenance), cross_source["id"]),
                 )
+                _requeue_orphaned_job_raw(cur, cross_source["id"], item)
                 return StoreResult("duplicate", cross_source["id"], cross_source["deduplication_key"])
         cur.execute(
             """
@@ -171,4 +198,6 @@ def store_raw_item(item: RawRadarItem) -> StoreResult:
             )
         updated = cur.fetchone()
         raw_item_id = (updated or existing or {}).get("id")
+        if raw_item_id:
+            _requeue_orphaned_job_raw(cur, raw_item_id, item)
         return StoreResult(status, raw_item_id, deduplication_key)
