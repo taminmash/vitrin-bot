@@ -46,6 +46,31 @@ class ActionabilityGateTests(unittest.TestCase):
             "Vacante con contrato, formacion y empleo para personas con ingles.",
         )
 
+    def test_normalized_job_metadata_is_an_existing_work_opportunity(self):
+        result = evaluate_actionability(
+            candidate(
+                "Desarrollador Backend",
+                "Construccion de servicios distribuidos para una empresa internacional.",
+                metadata={"content_type": "job"},
+            ),
+            min_score=60,
+        )
+        self.assertTrue(result.passed)
+        self.assertEqual(result.matched_signals, ["work_opportunity"])
+
+    def test_expired_normalized_job_is_still_rejected(self):
+        result = evaluate_actionability(
+            candidate(
+                "Desarrollador Backend",
+                "Construccion de servicios distribuidos para una empresa internacional.",
+                valid_until=datetime.now(timezone.utc) - timedelta(days=1),
+                metadata={"content_type": "job"},
+            ),
+            min_score=60,
+        )
+        self.assertFalse(result.passed)
+        self.assertEqual(result.rejection_reason, "expired_opportunity")
+
     def test_grant_passes(self):
         self.assert_passes(
             "Nueva ayuda para alquiler",

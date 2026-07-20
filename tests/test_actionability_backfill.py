@@ -8,7 +8,7 @@ from radar_engine.ai.storage import _row_to_candidate as ai_row_to_candidate
 from radar_engine.pipeline.actionability_backfill import backfill_actionability
 
 
-def candidate_row(candidate_id, title, body, *, created_at, metadata=None):
+def candidate_row(candidate_id, title, body, *, created_at, metadata=None, candidate_status="pending_ai", valid_until=None):
     return {
         "id": candidate_id,
         "raw_item_id": f"raw-{candidate_id}",
@@ -22,13 +22,13 @@ def candidate_row(candidate_id, title, body, *, created_at, metadata=None):
         "canonical_url": None,
         "published_at": None,
         "valid_from": None,
-        "valid_until": None,
+        "valid_until": valid_until,
         "source_category": "government",
         "source_location": "Spain",
         "source_type": "official",
         "trust_level": 5,
         "country": "Spain",
-        "candidate_status": "pending_ai",
+        "candidate_status": candidate_status,
         "metadata": metadata or {},
         "validation_errors": [],
         "created_at": created_at,
@@ -45,15 +45,43 @@ class MemoryCursor:
     def execute(self, sql, params=()):
         normalized = " ".join(sql.split())
         if normalized.startswith("SELECT * FROM radar_candidates"):
-            limit = params[1]
+            if "candidate_status = 'rejected'" in normalized:
+                limit = params[0]
+                missing = [
+                    row for row in self.rows
+                    if row["candidate_status"] == "rejected"
+                    and str(row["metadata"].get("content_type", "")).lower() == "job"
+                    and row["metadata"].get("rejection_reason") == "low_practical_impact"
+                ]
+            else:
+                limit = params[1]
+                missing = [
+                    row for row in self.rows
+                    if row["candidate_status"] == "pending_ai" and "actionability_gate" not in row["metadata"]
+                ]
             self.select_limits.append(limit)
-            missing = [
-                row for row in self.rows
-                if row["candidate_status"] == "pending_ai" and "actionability_gate" not in row["metadata"]
-            ]
             self.selected = sorted(missing, key=lambda row: (row["created_at"], row["id"]))[:limit]
             self.fetchone_value = None
         elif normalized.startswith("UPDATE radar_candidates"):
+            if len(params) == 4:
+                metadata, issues, passed, candidate_id = params
+                row = next(row for row in self.rows if row["id"] == candidate_id)
+                if (
+                    row["candidate_status"] != "rejected"
+                    or str(row["metadata"].get("content_type", "")).lower() != "job"
+                    or row["metadata"].get("rejection_reason") != "low_practical_impact"
+                ):
+                    self.fetchone_value = None
+                    return
+                row["metadata"] = metadata.value
+                row["validation_errors"] = [
+                    issue for issue in row["validation_errors"]
+                    if not (issue.get("field") == "actionability" and issue.get("code") == "low_practical_impact")
+                ]
+                row["validation_errors"].extend(issues.value)
+                row["candidate_status"] = "pending_ai" if passed else "rejected"
+                self.fetchone_value = {"candidate_status": row["candidate_status"]}
+                return
             metadata, passed, issues, _, candidate_id, _ = params
             row = next(row for row in self.rows if row["id"] == candidate_id)
             if row["candidate_status"] != "pending_ai" or "actionability_gate" in row["metadata"]:
@@ -66,7 +94,12 @@ class MemoryCursor:
             self.fetchone_value = {"candidate_status": row["candidate_status"]}
         elif normalized.startswith("SELECT COUNT(*) AS remaining"):
             remaining = sum(
-                row["candidate_status"] == "pending_ai" and "actionability_gate" not in row["metadata"]
+                (row["candidate_status"] == "pending_ai" and "actionability_gate" not in row["metadata"])
+                or (
+                    row["candidate_status"] == "rejected"
+                    and str(row["metadata"].get("content_type", "")).lower() == "job"
+                    and row["metadata"].get("rejection_reason") == "low_practical_impact"
+                )
                 for row in self.rows
             )
             self.fetchone_value = {"remaining": remaining}
@@ -128,7 +161,7 @@ class ActionabilityBackfillTests(unittest.TestCase):
         ]
         report, cursor = self.run_backfill(rows, limit=2)
         self.assertEqual((report.evaluated, report.remaining), (2, 1))
-        self.assertEqual(cursor.select_limits, [2])
+        self.assertEqual(cursor.select_limits, [2, 2])
         self.assertIn("actionability_gate", rows[1]["metadata"])
         self.assertIn("actionability_gate", rows[2]["metadata"])
         self.assertNotIn("actionability_gate", rows[0]["metadata"])
@@ -151,6 +184,46 @@ class ActionabilityBackfillTests(unittest.TestCase):
         self.run_backfill(rows)
         mapped = ai_row_to_candidate(rows[0])
         self.assertTrue(mapped.metadata["actionability_gate"]["passed"])
+
+    def test_recovery_updates_only_low_impact_jobs_and_is_idempotent(self):
+        low_impact = {
+            "content_type": "job",
+            "rejection_reason": "low_practical_impact",
+            "actionability_gate": {"passed": False, "rejection_reason": "low_practical_impact"},
+        }
+        intentional = {
+            "content_type": "job",
+            "rejection_reason": "internal_staffing",
+            "actionability_gate": {"passed": False, "rejection_reason": "internal_staffing"},
+        }
+        rows = [
+            candidate_row("recover", "Backend Engineer", "Build distributed systems for customers.", created_at=1, metadata=low_impact, candidate_status="rejected"),
+            candidate_row("intentional", "Internal staffing", "Internal staffing decision for management.", created_at=2, metadata=intentional, candidate_status="rejected"),
+        ]
+        rows[0]["validation_errors"] = [{"field": "actionability", "code": "low_practical_impact"}]
+
+        first, _ = self.run_backfill(rows)
+        self.assertEqual(first.recovered, 1)
+        self.assertEqual(rows[0]["candidate_status"], "pending_ai")
+        self.assertEqual(rows[0]["validation_errors"], [])
+        self.assertEqual(rows[1]["candidate_status"], "rejected")
+
+        second, _ = self.run_backfill(rows)
+        self.assertEqual(second.recovered, 0)
+
+    def test_expired_low_impact_job_is_not_recovered(self):
+        from datetime import datetime, timedelta, timezone
+
+        metadata = {"content_type": "job", "rejection_reason": "low_practical_impact"}
+        rows = [candidate_row(
+            "expired", "Backend Engineer", "Build distributed systems for customers.",
+            created_at=1, metadata=metadata, candidate_status="rejected",
+            valid_until=datetime.now(timezone.utc) - timedelta(days=1),
+        )]
+        report, _ = self.run_backfill(rows)
+        self.assertEqual(report.recovered, 0)
+        self.assertEqual(rows[0]["candidate_status"], "rejected")
+        self.assertEqual(rows[0]["metadata"]["rejection_reason"], "expired_opportunity")
 
 
 if __name__ == "__main__":

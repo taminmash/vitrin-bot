@@ -190,14 +190,24 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
 
         async def pipeline():
             calls.append("pipeline")
-            return PipelineReport(created_count=2)
+            return PipelineReport(loaded_count=4, created_count=2, rejected_count=1)
+
+        async def backfill():
+            from radar_engine.pipeline.actionability_backfill import ActionabilityBackfillReport
+
+            return ActionabilityBackfillReport(recovered=1)
+
+        async def notify(_queued):
+            return 2
 
         scheduler = RadarBOEIngestionScheduler(
             interval_minutes=15,
             ingest_stage=ingest,
             pipeline_stage=pipeline,
+            actionability_backfill_stage=backfill,
             ai_stage=lambda: immediate_report(AIReport(completed=2)),
             classification_stage=lambda: immediate_report(ClassificationReport(completed=2)),
+            review_notification_stage=notify,
             lock_factory=lambda: FakeLock(True),
         )
         report = await scheduler.run_once()
@@ -206,9 +216,32 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.skipped_duplicate, 1)
         self.assertEqual(report.inserted_raw, 2)
         self.assertEqual(report.candidate_created, 2)
+        self.assertEqual(report.raw_backlog_selected, 4)
+        self.assertEqual(report.candidate_recovered, 1)
+        self.assertEqual(report.candidate_rejected, 1)
         self.assertEqual(report.ai_completed, 2)
         self.assertEqual(report.classification_completed, 2)
         self.assertEqual(report.queued_for_review, 2)
+        self.assertEqual(report.notification_sent, 2)
+
+    async def test_scheduler_log_exposes_requested_pipeline_metrics(self):
+        scheduler = RadarBOEIngestionScheduler(
+            ingest_stage=lambda: immediate_report(IngestionReport("boe")),
+            pipeline_stage=lambda: immediate_report(PipelineReport(loaded_count=3, created_count=2, rejected_count=1)),
+            ai_stage=lambda: immediate_report(AIReport(processed=2, completed=2)),
+            classification_stage=lambda: immediate_report(ClassificationReport(completed=2)),
+            review_notification_stage=lambda _queued: immediate_report(1),
+            lock_factory=lambda: FakeLock(True),
+        )
+        with self.assertLogs("radar_engine.scheduler", level="INFO") as logs:
+            await scheduler.run_once()
+        metrics = "\n".join(logs.output)
+        for label in (
+            "Raw backlog selected=3", "Candidate created=2", "Candidate recovered=0",
+            "Candidate rejected=1", "AI processed=2", "AI completed=2",
+            "Review queued=2", "Notification sent=1",
+        ):
+            self.assertIn(label, metrics)
 
     async def test_bounded_actionability_backfill_runs_before_ai(self):
         calls = []

@@ -44,7 +44,10 @@ class RadarFetchCycleReport:
     fetched: int = 0
     skipped_duplicate: int = 0
     inserted_raw: int = 0
+    raw_backlog_selected: int = 0
     candidate_created: int = 0
+    candidate_recovered: int = 0
+    candidate_rejected: int = 0
     actionability_backfill_evaluated: int = 0
     actionability_backfill_passed: int = 0
     actionability_backfill_rejected: int = 0
@@ -56,6 +59,7 @@ class RadarFetchCycleReport:
     classification_completed: int = 0
     classification_postponed: int = 0
     queued_for_review: int = 0
+    notification_sent: int = 0
     urgent_evaluated: int = 0
     urgent_published: int = 0
     urgent_fallback_review: int = 0
@@ -647,6 +651,8 @@ class RadarBOEIngestionScheduler:
         if not isinstance(pipeline, PipelineReport):
             return
         report.candidate_created = pipeline.created_count
+        report.raw_backlog_selected = pipeline.loaded_count
+        report.candidate_rejected = pipeline.rejected_count
         report.errors.extend(pipeline.errors)
 
     def _apply_ai(self, report: RadarFetchCycleReport, ai) -> None:
@@ -664,6 +670,8 @@ class RadarBOEIngestionScheduler:
         report.actionability_backfill_evaluated = backfill.evaluated
         report.actionability_backfill_passed = backfill.passed
         report.actionability_backfill_rejected = backfill.rejected
+        report.candidate_recovered = backfill.recovered
+        report.candidate_rejected += backfill.rejected
         report.actionability_backfill_remaining = backfill.remaining
         report.errors.extend(backfill.errors)
 
@@ -692,7 +700,8 @@ class RadarBOEIngestionScheduler:
                 if retry_pending_delivery:
                     await retry_pending_delivery()
                 return
-            await self.review_notification_stage(report.queued_for_review)
+            sent = await self.review_notification_stage(report.queued_for_review)
+            report.notification_sent += max(0, int(sent or 0))
         except Exception as error:
             report.errors.append(str(error))
             logger.exception("Radar review notification failed")
@@ -702,17 +711,21 @@ class RadarBOEIngestionScheduler:
             return
         logger.info(
             "Radar BOE cycle metrics: Fetched=%s Skipped duplicate=%s Inserted raw=%s "
-            "Candidate created=%s Actionability backfill evaluated=%s passed=%s rejected=%s remaining=%s "
+            "Raw backlog selected=%s Candidate created=%s Candidate recovered=%s Candidate rejected=%s "
+            "Actionability backfill evaluated=%s passed=%s rejected=%s remaining=%s "
             "AI processed=%s AI completed=%s AI failed=%s "
             "AI postponed=%s Classification completed=%s Classification postponed=%s "
             "Remaining AI queue estimate=%s "
-            "Queued for review=%s Urgent evaluated=%s published=%s fallback_review=%s "
+            "Review queued=%s Notification sent=%s Urgent evaluated=%s published=%s fallback_review=%s "
             "Jobs expired=%s stale flagged=%s "
             "Cycle duration=%.2fs",
             report.fetched,
             report.skipped_duplicate,
             report.inserted_raw,
+            report.raw_backlog_selected,
             report.candidate_created,
+            report.candidate_recovered,
+            report.candidate_rejected,
             report.actionability_backfill_evaluated,
             report.actionability_backfill_passed,
             report.actionability_backfill_rejected,
@@ -725,6 +738,7 @@ class RadarBOEIngestionScheduler:
             report.classification_postponed,
             report.ai_postponed,
             report.queued_for_review,
+            report.notification_sent,
             report.urgent_evaluated,
             report.urgent_published,
             report.urgent_fallback_review,
