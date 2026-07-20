@@ -141,3 +141,26 @@ class PipelineEngineTests(unittest.TestCase):
             },
             issues,
         )
+
+    def test_madrid_normalized_job_reaches_shared_candidate_pipeline(self):
+        item = raw(
+            "madrid-job",
+            title="Desarrollador Backend",
+            body="Construccion de servicios distribuidos para una empresa internacional.",
+        )
+        item.source_key = "madrid_empleo"
+        item.source_name = "Madrid Empleo"
+        item.metadata = {"content_type": "job"}
+        stored = []
+        pipeline = RadarCandidatePipeline(
+            load_raw_items=lambda limit: [item],
+            load_source=lambda source_key: SourceInfo(
+                "madrid_empleo", "Madrid Empleo", "Jobs", "official", 5, city="Madrid"
+            ),
+            store_valid=lambda candidate, validation, version: stored.append(candidate)
+            or CandidateStoreResult("created", "candidate-job", candidate.raw_item_id),
+            store_rejected=lambda candidate, validation, version: self.fail("job was rejected"),
+        )
+        report = pipeline.run()
+        self.assertEqual(report.created_count, 1)
+        self.assertEqual(stored[0].metadata["actionability_gate"]["matched_signals"], ["work_opportunity"])

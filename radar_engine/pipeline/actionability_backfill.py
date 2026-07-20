@@ -17,6 +17,7 @@ MAX_BACKFILL_LIMIT = 500
 class ActionabilityBackfillReport:
     evaluated: int = 0
     passed: int = 0
+    recovered: int = 0
     rejected: int = 0
     remaining: int = 0
     errors: list[str] = field(default_factory=list)
@@ -59,15 +60,79 @@ def backfill_actionability(limit: int = 50) -> ActionabilityBackfillReport:
             """
             SELECT *
             FROM radar_candidates
-            WHERE candidate_status = 'pending_ai'
-              AND NOT (metadata ? %s)
+            WHERE candidate_status = 'rejected'
+              AND lower(metadata ->> 'content_type') = 'job'
+              AND metadata ->> 'rejection_reason' = 'low_practical_impact'
             ORDER BY created_at ASC, id ASC
             LIMIT %s
             FOR UPDATE SKIP LOCKED
             """,
-            (ACTIONABILITY_METADATA_KEY, safe_limit),
+            (safe_limit,),
         )
-        rows = cur.fetchall()
+        recovery_rows = cur.fetchall()
+        for row in recovery_rows:
+            candidate = _row_to_candidate(row)
+            result = evaluate_actionability(candidate)
+            apply_actionability_metadata(candidate, result)
+            validation_issue = {
+                "field": "actionability",
+                "code": result.rejection_reason or "low_practical_impact",
+                "message": "Candidate does not meet Radar actionability requirements.",
+            }
+            cur.execute(
+                """
+                UPDATE radar_candidates
+                SET metadata = %s,
+                    validation_errors = (
+                        SELECT COALESCE(jsonb_agg(issue), '[]'::jsonb)
+                        FROM jsonb_array_elements(COALESCE(validation_errors, '[]'::jsonb)) AS issue
+                        WHERE NOT (
+                            issue ->> 'field' = 'actionability'
+                            AND issue ->> 'code' = 'low_practical_impact'
+                        )
+                    ) || %s::jsonb,
+                    candidate_status = CASE WHEN %s THEN 'pending_ai' ELSE 'rejected' END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                  AND candidate_status = 'rejected'
+                  AND lower(metadata ->> 'content_type') = 'job'
+                  AND metadata ->> 'rejection_reason' = 'low_practical_impact'
+                RETURNING candidate_status
+                """,
+                (
+                    Json(candidate.metadata),
+                    Json([] if result.passed else [validation_issue]),
+                    result.passed,
+                    row["id"],
+                ),
+            )
+            updated = cur.fetchone()
+            if not updated:
+                continue
+            report.evaluated += 1
+            if result.passed:
+                report.passed += 1
+                report.recovered += 1
+            else:
+                report.rejected += 1
+
+        remaining_limit = max(0, safe_limit - report.evaluated)
+        if remaining_limit == 0:
+            rows = []
+        else:
+            cur.execute(
+                """
+                SELECT *
+                FROM radar_candidates
+                WHERE candidate_status = 'pending_ai'
+                  AND NOT (metadata ? %s)
+                ORDER BY created_at ASC, id ASC
+                LIMIT %s
+                FOR UPDATE SKIP LOCKED
+                """,
+                (ACTIONABILITY_METADATA_KEY, remaining_limit),
+            )
+            rows = cur.fetchall()
 
         for row in rows:
             candidate = _row_to_candidate(row)
@@ -115,8 +180,14 @@ def backfill_actionability(limit: int = 50) -> ActionabilityBackfillReport:
             """
             SELECT COUNT(*) AS remaining
             FROM radar_candidates
-            WHERE candidate_status = 'pending_ai'
-              AND NOT (metadata ? %s)
+            WHERE (
+                candidate_status = 'pending_ai'
+                AND NOT (metadata ? %s)
+            ) OR (
+                candidate_status = 'rejected'
+                AND lower(metadata ->> 'content_type') = 'job'
+                AND metadata ->> 'rejection_reason' = 'low_practical_impact'
+            )
             """,
             (ACTIONABILITY_METADATA_KEY,),
         )

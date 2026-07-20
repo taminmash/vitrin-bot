@@ -104,6 +104,12 @@ def evaluate_actionability(
     if _is_expired(candidate, now=now):
         return ActionabilityResult(0, 0, "expired_opportunity", [], False)
 
+    # Job connectors normalize this marker before the candidate reaches the
+    # shared gate.  Treat it as the existing work-opportunity signal so new
+    # connectors do not need source-specific actionability rules.
+    if str(metadata.get("content_type") or "").strip().casefold() == "job":
+        return ActionabilityResult(70, 80, None, ["work_opportunity"], True)
+
     for reason, patterns in REJECT_SIGNALS:
         if any(pattern in text for pattern in patterns):
             return ActionabilityResult(10, 10, reason, [], False)
