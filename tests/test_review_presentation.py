@@ -105,7 +105,8 @@ class ReviewPresentationTests(unittest.TestCase):
         text = build_review_item_text(item)
 
         self.assertLessEqual(len(text), SAFE_TELEGRAM_TEXT_LIMIT)
-        self.assertIn(TRUNCATION_MARKER, text)
+        self.assertIn("ترجمه فارسی این محتوا هنوز آماده نشده است.", text)
+        self.assertNotIn("Texto oficial del BOE", text)
         self.assertIn(source_url, text)
         self.assertIn("تیتر هوش مصنوعی", text)
         self.assertIn("خلاصه کوتاه هوش مصنوعی", text)
@@ -116,7 +117,15 @@ class ReviewPresentationTests(unittest.TestCase):
 
     def test_short_review_item_content_remains_unchanged(self):
         body = "متن رسمی کوتاه برای بازبینی در Málaga."
-        item = make_item(candidate=make_candidate(body=body))
+        item = make_item(
+            candidate=make_candidate(
+                body=body,
+                source_key="other",
+                source_name="Other",
+                source_url="https://example.com/item",
+                canonical_url="https://example.com/item",
+            )
+        )
 
         text = build_review_item_text(item)
 

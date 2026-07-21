@@ -47,6 +47,7 @@ At the last review (2026-07-20), this repository supports the implemented-but-un
 - **Source provenance:** retain source identity and canonical URL through source ingestion and candidate processing.
 - **Backward compatibility:** preserve existing schemas, flows, and Telegram callback formats unless a compatible migration is explicitly included.
 - **Persian UX:** user-facing navigation and Radar rendering are Persian-first.
+- **BOE full details:** BOE AI enrichment persistently stores the complete Persian translation in structured data. Admin/user detail views select that Persian field, split long text safely, and show a clear Persian pending message instead of presenting Spanish as Persian when translation is unavailable.
 - **Full detail vs. channel card:** bot detail pages carry the fuller item; channel posts are intentionally concise and link back into the bot.
 - **Restricted sources:** do not bypass access controls, scrape protected sites, automate browsers, solve CAPTCHAs, or use undocumented endpoints.
 

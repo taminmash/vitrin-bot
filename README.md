@@ -459,7 +459,7 @@ Optional:
 - `GEMINI_MODEL` defaults to `gemini-2.5-flash-lite`
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 
-The prompt version is `radar-structured-v2`. AI extracts the job category,
+The prompt version is `radar-structured-v4`. AI extracts the job category,
 title, employer, city/region, salary, contract and hours, deadline,
 requirements, language and experience levels, visa sponsorship, relocation,
 outside-Spain application support, why the item matters, and source URL.
@@ -468,6 +468,15 @@ Unavailable fields, including `why_it_matters`, are stored as `null`; the three 
 `radar_ai_results.structured_data` while the existing headline/summary fields
 remain populated for backward compatibility with classification and legacy
 review flows.
+
+For BOE candidates, this same AI call also stores the complete Persian
+translation as `radar_ai_results.structured_data.full_text_fa`. The original
+Spanish candidate body remains unchanged and is copied to `radar_items.body`
+and `original_text` during promotion. BOE admin/user full-detail views render
+the stored Persian field, show a clear Persian "translation not ready" message
+when it is missing, and split long translations into ordered Telegram-safe
+messages with navigation buttons only on the final message. Opening a detail
+view never triggers a new AI request.
 
 Job review and admin preview use a compact structured card and omit unavailable
 fields. Legacy pending items without structured data remain reviewable through

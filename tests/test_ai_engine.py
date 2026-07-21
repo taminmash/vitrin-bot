@@ -393,7 +393,7 @@ class AISummarizerTests(unittest.TestCase):
 
         result = RadarAISummarizer(Client()).summarize(make_candidate())
         self.assertEqual(result.model_name, "test-model")
-        self.assertEqual(result.prompt_version, "radar-structured-v3")
+        self.assertEqual(result.prompt_version, "radar-structured-v4")
 
     def test_summarizer_extracts_job_fields_and_normalizes_support_values(self):
         class Client:
@@ -419,6 +419,7 @@ class AISummarizerTests(unittest.TestCase):
                     "relocation_support": "not stated",
                     "apply_from_outside_spain": "NO",
                     "why_it_matters": "فرصت تخصصی",
+                    "full_text_fa": "ترجمه کامل فارسی",
                     "source_url": None,
                     "confidence": 0.9,
                 }
@@ -429,6 +430,7 @@ class AISummarizerTests(unittest.TestCase):
         self.assertEqual(result.structured_data["relocation_support"], "UNKNOWN")
         self.assertEqual(result.structured_data["apply_from_outside_spain"], "NO")
         self.assertEqual(result.structured_data["source_url"], "https://www.boe.es/test")
+        self.assertEqual(result.structured_data["full_text_fa"], "ترجمه کامل فارسی")
 
 
 class AIEngineTests(unittest.TestCase):
@@ -541,7 +543,8 @@ class AIStorageTests(unittest.TestCase):
         self.assertIn("radar_ai_results", sql)
         self.assertIn("structured_data", sql)
         self.assertIn("%s::jsonb", sql)
-        self.assertIn("ON CONFLICT (candidate_id) DO NOTHING", sql)
+        self.assertIn("ON CONFLICT (candidate_id) DO UPDATE", sql)
+        self.assertIn("structured_data = radar_ai_results.structured_data || EXCLUDED.structured_data", sql)
         self.assertNotIn("UPDATE radar_candidates", sql)
         self.assertNotIn("ai_completed", sql)
 
@@ -560,3 +563,5 @@ class AIStorageTests(unittest.TestCase):
         self.assertIn("NOT EXISTS", sql)
         self.assertIn("radar_ai_results", sql)
         self.assertIn("actionability_gate", sql)
+        self.assertIn("full_text_fa", sql)
+        self.assertIn("radar_reviews", sql)

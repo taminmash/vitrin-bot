@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from radar_engine.pipeline.actionability import ACTIONABILITY_METADATA_KEY
 from radar_engine.job_presentation import is_job, job_card, radar_score
+from radar_engine.persian_detail import (
+    PERSIAN_FULL_DETAIL_HEADING,
+    PERSIAN_TRANSLATION_PENDING,
+    is_boe_content,
+    persian_full_text,
+)
 
 
 SAFE_TELEGRAM_TEXT_LIMIT = 3800
@@ -64,7 +70,7 @@ def _actionability_scores(candidate) -> tuple[str, str]:
 def _review_item_text_from_fields(fields: dict[str, str], classification) -> str:
     return (
         "🧭 بازبینی رادار\n\n"
-        "متن اصلی:\n"
+        f"{fields['body_heading']}:\n"
         f"{fields['title']}\n"
         f"{fields['body']}\n\n"
         "خلاصه هوش مصنوعی:\n"
@@ -180,6 +186,7 @@ def build_review_item_text(
     fields = {
         "title": candidate.title or "-",
         "body": candidate.body or "-",
+        "body_heading": "متن اصلی",
         "headline": summary.headline,
         "summary": summary.summary,
         "why_it_matters": summary.why_it_matters,
@@ -194,6 +201,15 @@ def build_review_item_text(
         "source_name": candidate.source_name,
         "source_url": candidate.source_url,
     }
+    candidate_source = {
+        "source_key": candidate.source_key,
+        "source_name": candidate.source_name,
+        "source_url": candidate.source_url,
+        "structured_data": summary.structured_data,
+    }
+    if is_boe_content(candidate_source):
+        fields["body_heading"] = PERSIAN_FULL_DETAIL_HEADING
+        fields["body"] = persian_full_text(candidate_source) or PERSIAN_TRANSLATION_PENDING
     return _guarantee_review_item_length(fields, classification, max_length)
 
 

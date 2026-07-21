@@ -18,6 +18,7 @@ from database.db import (
 from handlers.start import MAIN_MENU, send_home_dashboard
 from radar_engine.job_presentation import is_job
 from radar_engine.job_expiration import job_temporal_state
+from radar_engine.persian_detail import split_telegram_text
 from radar_engine.renderer import (
     build_radar_deep_link,
     channel_button_specs,
@@ -313,20 +314,24 @@ async def show_radar_overview(query):
 
 async def send_radar_item_message(message, item):
     logger.info("Rendering Radar bot overview fields=%s", renderer_field_log(item))
-    await message.reply_text(
-        format_radar_bot_overview(item),
-        reply_markup=full_item_keyboard(item),
-        disable_web_page_preview=True,
-    )
+    chunks = split_telegram_text(format_radar_bot_overview(item))
+    for index, chunk in enumerate(chunks):
+        await message.reply_text(
+            chunk,
+            reply_markup=full_item_keyboard(item) if index == len(chunks) - 1 else None,
+            disable_web_page_preview=True,
+        )
 
 
 async def send_radar_details_message(message, item):
     logger.info("Rendering Radar details fields=%s", renderer_field_log(item))
-    await message.reply_text(
-        format_radar_details(item),
-        reply_markup=details_keyboard(item),
-        disable_web_page_preview=True,
-    )
+    chunks = split_telegram_text(format_radar_details(item))
+    for index, chunk in enumerate(chunks):
+        await message.reply_text(
+            chunk,
+            reply_markup=details_keyboard(item) if index == len(chunks) - 1 else None,
+            disable_web_page_preview=True,
+        )
 
 
 async def send_missing_radar_item(message):

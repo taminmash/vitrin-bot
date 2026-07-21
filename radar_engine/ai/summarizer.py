@@ -30,6 +30,7 @@ SUMMARY_SCHEMA = {
         "relocation_support": {"type": ["string", "null"], "enum": ["YES", "NO", "UNKNOWN", None]},
         "apply_from_outside_spain": {"type": ["string", "null"], "enum": ["YES", "NO", "UNKNOWN", None]},
         "why_it_matters": {"type": ["string", "null"]},
+        "full_text_fa": {"type": ["string", "null"]},
         "source_url": {"type": ["string", "null"]},
         "confidence": {"type": "number"},
     },
@@ -37,7 +38,7 @@ SUMMARY_SCHEMA = {
         "category", "job_title", "job_title_confidence", "employer", "city", "region", "salary", "contract_type",
         "working_hours", "deadline", "requirements", "language_level", "job_level",
         "experience_required", "visa_sponsorship", "relocation_support",
-        "apply_from_outside_spain", "source_url", "confidence",
+        "apply_from_outside_spain", "full_text_fa", "source_url", "confidence",
     ],
 }
 
