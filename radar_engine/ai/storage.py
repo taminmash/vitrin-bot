@@ -40,8 +40,20 @@ def load_pending_ai_candidates(limit: int = 50, candidate_id: str | None = None)
                 FROM radar_candidates
                 WHERE id = %s AND candidate_status = %s
                   AND metadata -> 'actionability_gate' ->> 'passed' = 'true'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
+                  AND (
+                    NOT EXISTS (
+                      SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
+                    ) OR (
+                      source_key = 'boe'
+                      AND EXISTS (
+                        SELECT 1 FROM radar_ai_results
+                        WHERE radar_ai_results.candidate_id = radar_candidates.id
+                          AND NOT (radar_ai_results.structured_data ? 'full_text_fa')
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM radar_reviews WHERE radar_reviews.candidate_id = radar_candidates.id
+                      )
+                    )
                   )
                 LIMIT 1
                 """,
@@ -54,8 +66,20 @@ def load_pending_ai_candidates(limit: int = 50, candidate_id: str | None = None)
                 FROM radar_candidates
                 WHERE candidate_status = %s
                   AND metadata -> 'actionability_gate' ->> 'passed' = 'true'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
+                  AND (
+                    NOT EXISTS (
+                      SELECT 1 FROM radar_ai_results WHERE radar_ai_results.candidate_id = radar_candidates.id
+                    ) OR (
+                      source_key = 'boe'
+                      AND EXISTS (
+                        SELECT 1 FROM radar_ai_results
+                        WHERE radar_ai_results.candidate_id = radar_candidates.id
+                          AND NOT (radar_ai_results.structured_data ? 'full_text_fa')
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM radar_reviews WHERE radar_reviews.candidate_id = radar_candidates.id
+                      )
+                    )
                   )
                 ORDER BY created_at ASC
                 LIMIT %s
@@ -79,7 +103,15 @@ def store_ai_result(candidate_id: str, result: AITaskResult) -> None:
                 confidence, model, prompt_version, latency, structured_data
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-            ON CONFLICT (candidate_id) DO NOTHING
+            ON CONFLICT (candidate_id) DO UPDATE SET
+                headline = EXCLUDED.headline,
+                summary = EXCLUDED.summary,
+                why_it_matters = EXCLUDED.why_it_matters,
+                confidence = EXCLUDED.confidence,
+                model = EXCLUDED.model,
+                prompt_version = EXCLUDED.prompt_version,
+                latency = EXCLUDED.latency,
+                structured_data = radar_ai_results.structured_data || EXCLUDED.structured_data
             """,
             (
                 candidate_id,

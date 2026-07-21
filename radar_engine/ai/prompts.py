@@ -4,7 +4,7 @@ from radar_engine.pipeline.candidate import RadarCandidate
 from radar_engine.job_title import existing_job_title
 
 
-PROMPT_VERSION = "radar-structured-v3"
+PROMPT_VERSION = "radar-structured-v4"
 
 
 SYSTEM_PROMPT = """You extract practical structured information from official Spanish source material for Vitrin Spain Radar.
@@ -29,10 +29,15 @@ Rules:
 
 def build_summary_prompt(candidate: RadarCandidate) -> list[dict[str, str]]:
     title_extraction_needed = "NO" if existing_job_title(candidate.title, candidate.metadata) else "YES"
+    full_translation_needed = "YES" if candidate.source_key.strip().casefold() == "boe" else "NO"
     user_prompt = f"""Extract a structured Persian record for this Radar candidate.
 
 job_title_extraction_needed: {title_extraction_needed}
 If job_title_extraction_needed is NO, return null for job_title and job_title_confidence.
+full_persian_translation_needed: {full_translation_needed}
+If full_persian_translation_needed is YES, translate the complete source body into factual Persian as full_text_fa.
+Preserve all facts and paragraph order; do not summarize, omit, interpret, or add information.
+If full_persian_translation_needed is NO, return null for full_text_fa.
 
 Return JSON with exactly these keys:
 - category
@@ -53,6 +58,7 @@ Return JSON with exactly these keys:
 - relocation_support
 - apply_from_outside_spain
 - why_it_matters
+- full_text_fa
 - source_url
 - confidence
 

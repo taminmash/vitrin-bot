@@ -107,6 +107,23 @@ class PromotionMapperTests(unittest.TestCase):
         self.assertEqual(fields["city"], "Madrid")
         self.assertEqual(fields["province"], "Madrid")
 
+    def test_boe_promotion_preserves_spanish_original_and_persian_translation(self):
+        source = make_source(
+            summary=RadarSummaryForReview(
+                ai_result_id="ai-translation",
+                headline="تیتر فارسی",
+                summary="خلاصه فارسی",
+                why_it_matters="دلیل فارسی",
+                confidence=0.9,
+                structured_data={"full_text_fa": "ترجمه کامل فارسی متن رسمی"},
+            )
+        )
+        fields = map_approved_source_to_radar_item(source).fields
+        self.assertEqual(fields["body"], "Official original body")
+        self.assertEqual(fields["original_text"], "Official original body")
+        self.assertEqual(fields["original_language"], "es")
+        self.assertEqual(fields["structured_data"]["full_text_fa"], "ترجمه کامل فارسی متن رسمی")
+
     def test_invalid_controlled_value_and_blank_output_rejected(self):
         payload = MappedRadarItemPayload(
             fields={

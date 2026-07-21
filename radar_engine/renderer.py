@@ -11,6 +11,11 @@ from radar_engine.job_expiration import (
     format_job_date,
     job_temporal_state,
 )
+from radar_engine.persian_detail import (
+    PERSIAN_FULL_DETAIL_HEADING,
+    is_boe_content,
+    persian_detail_text,
+)
 
 
 RADAR_HEADER = "🛰️ رادار اسپانیا"
@@ -235,6 +240,12 @@ def body_text(item: dict) -> str:
     return clean_text(item.get("body") or item.get("original_text")) or "-"
 
 
+def full_detail_section(item: dict) -> list[str]:
+    if is_boe_content(item):
+        return section(PERSIAN_FULL_DETAIL_HEADING, persian_detail_text(item))
+    return section("📄 جزئیات کامل", body_text(item))
+
+
 def source_name(item: dict) -> str:
     return clean_text(item.get("source_name")) or "-"
 
@@ -341,7 +352,7 @@ def render_details_page(item: dict) -> str:
             SEPARATOR,
             section("💡 چرا مهم است؟", reason_text(item)),
             SEPARATOR,
-            section("📄 جزئیات کامل", body_text(item)),
+            full_detail_section(item),
             SEPARATOR,
             metadata_lines(item),
             SEPARATOR,
@@ -387,7 +398,7 @@ def render_admin_preview(item: dict) -> str:
             SEPARATOR,
             section("💡 چرا مهم است؟", reason_text(preview)),
             SEPARATOR,
-            section("📄 جزئیات کامل", body_text(preview)),
+            full_detail_section(preview),
             SEPARATOR,
             metadata_lines(preview, include_status=True),
             SEPARATOR,

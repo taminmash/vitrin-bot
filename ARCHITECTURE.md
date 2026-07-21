@@ -40,6 +40,8 @@ The deterministic Actionability Gate scores practical impact and rejects expired
 
 `RadarAIEngine` loads pending candidates and persists structured summary/extraction results in `radar_ai_results`. `RadarClassificationEngine` then writes controlled-vocabulary results to `radar_ai_classifications`. Gemini is the default provider; OpenAI is explicit configuration. Both stages are bounded and retryable; provider quota/rate-limit handling stops the current batch rather than discarding remaining work.
 
+For BOE candidates, the same AI summary call also produces `structured_data.full_text_fa`, a complete Persian translation of the original Spanish body. Pending-review BOE candidates whose existing AI result predates this field are eligible for an idempotent AI refresh. Promotion copies structured data forward while preserving the Spanish candidate body and `original_text`. BOE review/detail renderers use only the stored Persian field, fall back explicitly when it is missing, and split long Telegram output with navigation controls on the final message.
+
 ## Structured Job Extraction
 
 The summary prompt extracts job-specific fields (such as title, employer, location, deadline, requirements, and mobility-related fields) into structured JSON. Promotion copies this additively into `radar_items.structured_data`; legacy items remain reviewable through fallbacks.
