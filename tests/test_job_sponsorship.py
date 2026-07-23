@@ -95,6 +95,48 @@ class JobSponsorshipTests(unittest.TestCase):
         evidence = "La empresa ofrece apoyo para tramitar el permiso de trabajo."
         self.assertTrue(evidence_matches_original(evidence, "Ingeniero", f"Beneficios: {evidence}"))
 
+    def test_explicit_english_denials_never_verify_even_when_ai_says_yes(self):
+        denials = (
+            "We do not offer visa sponsorship for this role.",
+            "Visa sponsorship is not available for this position.",
+            "No work permit support is provided by the employer.",
+            "Sponsorship will not be provided for this role.",
+            "We are unable to sponsor a work visa for candidates.",
+        )
+        for evidence in denials:
+            with self.subTest(evidence=evidence):
+                self.assertFalse(has_explicit_support_statement(evidence))
+                self.assertFalse(evidence_matches_original(evidence, "Engineer", evidence))
+                structured = apply_sponsorship_verification(
+                    {"visa_sponsorship": "YES", "visa_sponsorship_evidence": evidence},
+                    title="Engineer",
+                    body=evidence,
+                )
+                self.assertFalse(structured["visa_sponsorship_evidence_verified"])
+                self.assertFalse(has_verified_sponsorship(structured))
+
+    def test_explicit_spanish_denials_never_verify_even_when_ai_says_yes(self):
+        denials = (
+            "No ofrecemos patrocinio de visado para este puesto.",
+            "No se ofrece apoyo para el permiso de trabajo.",
+            "El patrocinio de visa no está disponible para este puesto.",
+        )
+        for evidence in denials:
+            with self.subTest(evidence=evidence):
+                self.assertFalse(has_explicit_support_statement(evidence))
+                structured = apply_sponsorship_verification(
+                    {"visa_sponsorship": "YES", "visa_sponsorship_evidence": evidence},
+                    title="Ingeniero",
+                    body=evidence,
+                )
+                self.assertFalse(structured["visa_sponsorship_evidence_verified"])
+                self.assertFalse(has_verified_sponsorship(structured))
+
+    def test_unrelated_negation_does_not_override_explicit_positive_support(self):
+        evidence = "The role is not remote, but we offer work visa sponsorship to successful candidates."
+        self.assertTrue(has_explicit_support_statement(evidence))
+        self.assertTrue(evidence_matches_original(evidence, "Engineer", evidence))
+
     def test_matching_normalizes_unicode_case_and_whitespace(self):
         self.assertTrue(
             evidence_matches_original(

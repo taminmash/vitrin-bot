@@ -30,6 +30,28 @@ EXPLICIT_SUPPORT_PATTERNS = tuple(
     )
 )
 
+EXPLICIT_DENIAL_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(?:do|does|did|will|can)\s+not\b.{0,30}\b(?:offer|provide|sponsor|support)\b"
+        r".{0,50}\b(?:visa|sponsorship|work permit)\b",
+        r"\b(?:visa sponsorship|work visa support|work permit support|sponsorship)\b"
+        r".{0,35}\b(?:not available|unavailable|not provided|not offered|not supported)\b",
+        r"\bno\b.{0,20}\b(?:visa sponsorship|work visa support|work permit support|sponsorship)\b",
+        r"\b(?:unable|not able)\s+to\s+(?:offer|provide|sponsor|support)\b"
+        r".{0,50}\b(?:visa|work permit|sponsorship)\b",
+        r"\bsponsorship\b.{0,30}\bwill\s+not\s+be\s+(?:provided|offered|available)\b",
+        r"\bno\s+(?:ofrecemos|ofrece|se ofrece|proporcionamos|proporciona|brindamos|brinda)\b"
+        r".{0,50}\b(?:patrocinio|apoyo|asistencia)\b.{0,50}"
+        r"\b(?:visado|visa|permiso de trabajo)\b",
+        r"\b(?:patrocinio (?:de|del) (?:visado|visa)|"
+        r"(?:apoyo|asistencia) (?:para|con|al) (?:el )?(?:visado|visa|permiso de trabajo))\b"
+        r".{0,35}\bno (?:esta|está) disponible\b",
+        r"\bno hay\b.{0,30}\b(?:patrocinio|apoyo|asistencia)\b.{0,40}"
+        r"\b(?:visado|visa|permiso de trabajo)\b",
+    )
+)
+
 
 def normalize_sponsorship_value(value) -> str:
     normalized = str(value or SPONSORSHIP_UNKNOWN).strip().upper()
@@ -45,6 +67,10 @@ def has_explicit_support_statement(evidence) -> bool:
     normalized = normalize_evidence_text(evidence)
     tokens = re.findall(r"\b\w+\b", normalized, flags=re.UNICODE)
     if len(normalized) < MIN_EVIDENCE_LENGTH or len(tokens) < MIN_EVIDENCE_TOKENS:
+        return False
+    # Only denials grammatically tied to sponsorship/support terms reject the
+    # excerpt. Unrelated negation elsewhere remains eligible for positive checks.
+    if any(pattern.search(normalized) for pattern in EXPLICIT_DENIAL_PATTERNS):
         return False
     return any(pattern.search(normalized) for pattern in EXPLICIT_SUPPORT_PATTERNS)
 

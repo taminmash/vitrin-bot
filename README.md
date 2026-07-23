@@ -432,7 +432,10 @@ For Job candidates, `visa_sponsorship` uses `YES`, `NO`, or `UNKNOWN`.
 verbatim `visa_sponsorship_evidence` excerpt copied from the original candidate
 title or body. A deterministic normalization step requires a meaningful
 multi-word explicit English/Spanish support statement, matches it against title
-or body independently, and stores the result in structured JSON.
+or body independently, rejects explicit sponsorship/work-permit denials before
+positive matching, and stores the result in structured JSON. Negation is scoped
+to the relevant support language, so an unrelated statement such as a role not
+being remote does not by itself invalidate explicit sponsorship evidence.
 Relocation, English-friendly work, an international company, suitability for
 foreigners, applying from abroad, and probable sponsorship do not qualify.
 
