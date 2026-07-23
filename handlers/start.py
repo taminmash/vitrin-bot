@@ -143,12 +143,12 @@ def build_welcome_text(now, first_name=None, exchange_rates=None, rate_date=None
     if exchange_rates:
         euro_text = format_toman_rate(exchange_rates["EUR"])
         dollar_text = format_toman_rate(exchange_rates["USD"])
-        source_suffix = " (مرجع بین‌المللی Frankfurter)"
-        rate_date_text = f"\n📌 تاریخ نرخ مرجع: {rate_date}" if rate_date else ""
+        source_text = "\n📌 منبع نرخ ارز: Frankfurter (مرجع بین‌المللی)"
+        rate_date_text = f"\n📅 تاریخ نرخ مرجع: {rate_date}" if rate_date else ""
     else:
         euro_text = "موقتاً در دسترس نیست"
         dollar_text = "موقتاً در دسترس نیست"
-        source_suffix = ""
+        source_text = ""
         rate_date_text = ""
 
     return (
@@ -157,8 +157,9 @@ def build_welcome_text(now, first_name=None, exchange_rates=None, rate_date=None
         f"🗓 تاریخ شمسی: {jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}\n\n"
         f"🇪🇸 ساعت اسپانیا: {now:%H:%M}\n"
         f"🇮🇷 ساعت ایران: {iran_now:%H:%M}\n\n"
-        f"💶 قیمت یورو{source_suffix}: {euro_text}\n"
-        f"💵 قیمت دلار{source_suffix}: {dollar_text}"
+        f"💶 قیمت یورو: {euro_text}\n"
+        f"💵 قیمت دلار: {dollar_text}"
+        f"{source_text}"
         f"{rate_date_text}\n\n"
         "──────────────\n\n"
         "👤 با تکمیل پروفایل، اخبار، فرصت‌های شغلی، تخفیف‌ها و پیشنهادهای اختصاصی متناسب با شرایط شما برایتان انتخاب و نمایش داده می‌شود.\n\n"
