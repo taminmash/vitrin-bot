@@ -6,7 +6,7 @@ from unittest.mock import patch
 from database.db import INITIAL_RADAR_SOURCES, configured_radar_source_states
 from radar_engine.source_config import BLOCKED_SOURCES, JOB_SOURCE_CATALOG, configured_job_sources
 from radar_engine.sources.jobs import (
-    DomestikaJobsSource, EmpleoPublicoSource, InfoJobsSource, MadridEmpleoSource,
+    DomestikaJobsSource, EmpleoPublicoSource, GreenhouseSpainSource, InfoJobsSource, MadridEmpleoSource,
     TecnoempleoSource, job_fingerprint,
 )
 
@@ -33,6 +33,37 @@ EMPLEO_PUBLICO_HTML = """<html><body>
   <div>Órgano convocante: Fundación Balear de Innovación y Tecnología</div>
 </article>
 </body></html>""".encode()
+
+GREENHOUSE_PAYLOAD = {
+    "jobs": [
+        {
+            "id": 101,
+            "internal_job_id": 501,
+            "title": "Backend Engineer",
+            "updated_at": "2026-07-23T10:00:00Z",
+            "location": {"name": "ES - Barcelona, Spain"},
+            "absolute_url": "https://job-boards.greenhouse.io/example/jobs/101",
+            "content": "<p>Build and operate reliable backend services for our product team in Barcelona.</p>",
+            "departments": [{"id": 1, "name": "Engineering"}],
+        },
+        {
+            "id": 102,
+            "internal_job_id": 502,
+            "title": "US-only role",
+            "location": {"name": "New York, United States"},
+            "absolute_url": "https://job-boards.greenhouse.io/example/jobs/102",
+            "content": "<p>This vacancy is outside Spain and must not enter the Radar pipeline.</p>",
+        },
+        {
+            "id": 103,
+            "internal_job_id": None,
+            "title": "General interest",
+            "location": {"name": "Madrid"},
+            "absolute_url": "https://job-boards.greenhouse.io/example/jobs/103",
+            "content": "<p>This is a prospect post rather than a concrete vacancy.</p>",
+        },
+    ]
+}
 
 
 class JobSourceTests(unittest.TestCase):
@@ -106,6 +137,60 @@ class JobSourceTests(unittest.TestCase):
         self.assertIn("tam=50", calls[0])
         self.assertIn("desde=1", calls[0])
 
+    def test_greenhouse_public_api_maps_only_real_spain_vacancies(self):
+        source = GreenhouseSpainSource(
+            source_key="example_spain", source_name="Example Spain Careers",
+            board_token="example", retries=0,
+        )
+        with patch.object(source, "_read", return_value=json.dumps(GREENHOUSE_PAYLOAD).encode()):
+            rows = source._fetch_sync()
+        self.assertEqual([row["id"] for row in rows], [101])
+        item = source.normalize(rows[0])
+        self.assertEqual(item.external_id, "101")
+        self.assertEqual(item.raw_location, "ES - Barcelona, Spain")
+        self.assertEqual(item.metadata["employer"], "Example Spain Careers")
+        self.assertEqual(item.metadata["category"], "Engineering")
+        self.assertEqual(item.metadata["content_type"], "job")
+        self.assertEqual(item.raw_category, "jobs")
+        self.assertEqual(item.source_url, "https://job-boards.greenhouse.io/example/jobs/101")
+
+    def test_greenhouse_rejects_malformed_payload_and_unapproved_canonical_host(self):
+        source = GreenhouseSpainSource(
+            source_key="example_spain", source_name="Example Spain Careers",
+            board_token="example", retries=0,
+        )
+        with patch.object(source, "_read", return_value=b"{}"):
+            with self.assertRaisesRegex(ValueError, "jobs list"):
+                source._fetch_sync()
+        bad = {**GREENHOUSE_PAYLOAD["jobs"][0], "absolute_url": "https://example.com/jobs/101"}
+        with self.assertRaisesRegex(ValueError, "approved public job-board host"):
+            source.normalize_job(bad)
+
+    def test_greenhouse_deduplicates_ids_and_bounds_results(self):
+        source = GreenhouseSpainSource(
+            source_key="example_spain", source_name="Example Spain Careers",
+            board_token="example", retries=0, max_items=1,
+        )
+        payload = {"jobs": [GREENHOUSE_PAYLOAD["jobs"][0], GREENHOUSE_PAYLOAD["jobs"][0]]}
+        with patch.object(source, "_read", return_value=json.dumps(payload).encode()):
+            self.assertEqual(len(source._fetch_sync()), 1)
+
+    def test_plain_madrid_location_is_allowed_only_for_dedicated_2k_board(self):
+        job = {**GREENHOUSE_PAYLOAD["jobs"][0], "location": {"name": "Madrid"}}
+        generic = GreenhouseSpainSource(
+            source_key="example_spain", source_name="Example Spain Careers",
+            board_token="example", retries=0,
+        )
+        dedicated = GreenhouseSpainSource(
+            source_key="2k_madrid", source_name="2K Madrid Careers",
+            board_token="2kmadrid", retries=0,
+        )
+        payload = json.dumps({"jobs": [job]}).encode()
+        with patch.object(generic, "_read", return_value=payload):
+            self.assertEqual(generic._fetch_sync(), [])
+        with patch.object(dedicated, "_read", return_value=payload):
+            self.assertEqual(len(dedicated._fetch_sync()), 1)
+
     def test_infojobs_uses_authentication_and_bounded_pagination(self):
         source = InfoJobsSource(
             client_id="client", client_secret="secret", provinces=("Madrid",),
@@ -129,7 +214,10 @@ class JobSourceTests(unittest.TestCase):
     def test_infojobs_disabled_without_both_credentials(self):
         env = {"RADAR_SOURCE_INFOJOBS_ENABLED": "true", "INFOJOBS_CLIENT_ID": "id"}
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual([source.source_key for source in configured_job_sources()], ["empleo_publico"])
+            self.assertEqual(
+                [source.source_key for source in configured_job_sources()],
+                ["empleo_publico", "2k_madrid", "keyfactor_spain", "scopely_spain"],
+            )
 
     def test_madrid_closed_call_is_preserved_as_expired_for_audit(self):
         source = MadridEmpleoSource(retries=0)
@@ -192,6 +280,11 @@ class JobSourceTests(unittest.TestCase):
         catalog = {item.key: item for item in JOB_SOURCE_CATALOG}
         empleo = catalog["empleo_publico"]
         self.assertEqual((empleo.source_type, empleo.trust_level, empleo.default_enabled), ("official_public_listing", 5, True))
+        for key in ("2k_madrid", "keyfactor_spain", "scopely_spain"):
+            self.assertEqual(
+                (catalog[key].source_type, catalog[key].trust_level, catalog[key].default_enabled),
+                ("public_api", 4, True),
+            )
         blocked = {item.key: item.status for item in BLOCKED_SOURCES}
         self.assertEqual(blocked["eures"], "blocked")
         self.assertEqual(blocked["barcelona_activa"], "blocked")
@@ -199,28 +292,38 @@ class JobSourceTests(unittest.TestCase):
 
     def test_registry_lists_requested_jobs_and_keeps_other_government_sources_active(self):
         rows = {row[0]: row for row in INITIAL_RADAR_SOURCES}
-        for name in ("EURES", "Barcelona Activa", "Generalitat/SOC", "Empleo Público"):
-            self.assertEqual((rows[name][1], rows[name][3], rows[name][4]), ("Jobs", "official", 5))
+        self.assertNotIn("EURES", rows)
+        self.assertNotIn("Barcelona Activa", rows)
+        self.assertNotIn("Generalitat/SOC", rows)
+        self.assertEqual((rows["Empleo Público"][1], rows["Empleo Público"][3], rows["Empleo Público"][4]), ("Jobs", "official", 5))
+        for name in ("2K Madrid Careers", "Keyfactor Spain Careers", "Scopely Spain Careers"):
+            self.assertEqual((rows[name][1], rows[name][3], rows[name][4]), ("Jobs", "public_api", 4))
         with patch.dict(os.environ, {}, clear=True):
             states = configured_radar_source_states()
         self.assertFalse(states["BOE"])
-        self.assertFalse(states["EURES"])
-        self.assertFalse(states["Barcelona Activa"])
-        self.assertFalse(states["Generalitat/SOC"])
         self.assertTrue(states["Empleo Público"])
+        self.assertTrue(states["2K Madrid Careers"])
+        self.assertTrue(states["Keyfactor Spain Careers"])
+        self.assertTrue(states["Scopely Spain Careers"])
         for name in ("SEPE", "Seguridad Social", "Agencia Tributaria", "Ministerio de Inclusión"):
             self.assertIn(name, rows)
 
     def test_sources_are_disabled_by_default(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual([source.source_key for source in configured_job_sources()], ["empleo_publico"])
+            self.assertEqual(
+                [source.source_key for source in configured_job_sources()],
+                ["empleo_publico", "2k_madrid", "keyfactor_spain", "scopely_spain"],
+            )
 
     def test_enabled_sources_are_independent(self):
         env = {"RADAR_SOURCE_MADRID_EMPLEO_ENABLED": "1", "RADAR_SOURCE_DOMESTIKA_JOBS_ENABLED": "1"}
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(
                 [s.source_key for s in configured_job_sources()],
-                ["madrid_empleo", "domestika_jobs", "empleo_publico"],
+                [
+                    "madrid_empleo", "domestika_jobs", "empleo_publico",
+                    "2k_madrid", "keyfactor_spain", "scopely_spain",
+                ],
             )
 
     def test_invalid_shared_limits_fall_back_safely(self):

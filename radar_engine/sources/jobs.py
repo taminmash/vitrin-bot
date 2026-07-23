@@ -386,6 +386,80 @@ class EmpleoPublicoSource(JobSourceAdapter):
         )
 
 
+class GreenhouseSpainSource(JobSourceAdapter):
+    """Public Greenhouse Job Board API connector restricted to Spain vacancies."""
+
+    api_root = "https://boards-api.greenhouse.io/v1/boards"
+
+    def __init__(self, *, source_key: str, source_name: str, board_token: str, **kwargs):
+        super().__init__(**kwargs)
+        self.source_key = source_key
+        self.source_name = source_name
+        self.board_token = board_token
+
+    def _is_spain_location(self, location: str) -> bool:
+        normalized = location.casefold().strip()
+        if "spain" in normalized or "españa" in normalized or normalized.startswith("es -"):
+            return True
+        # 2K's dedicated Madrid board currently labels some concrete vacancies
+        # simply "Madrid"; this exception is intentionally board-specific.
+        return self.board_token == "2kmadrid" and normalized == "madrid"
+
+    def _fetch_sync(self) -> list[dict[str, Any]]:
+        payload = self._read(f"{self.api_root}/{self.board_token}/jobs?content=true")
+        data = json.loads(payload.decode("utf-8"))
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list):
+            raise ValueError(f"{self.source_key} response does not contain a jobs list")
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for job in jobs:
+            if not isinstance(job, dict) or job.get("internal_job_id") is None:
+                continue
+            external_id = str(job.get("id") or "").strip()
+            location = _text((job.get("location") or {}).get("name"))
+            if (
+                not external_id
+                or external_id in seen
+                or not location
+                or not self._is_spain_location(location)
+            ):
+                continue
+            seen.add(external_id)
+            rows.append(job)
+            if len(rows) >= self.max_items:
+                break
+        return rows
+
+    def normalize_job(self, item: Any) -> NormalizedJob:
+        if not isinstance(item, dict):
+            raise ValueError("Greenhouse job must be a dictionary")
+        external_id = _text(item.get("id"))
+        title = _text(item.get("title"))
+        url = _text(item.get("absolute_url"))
+        description = _text(item.get("content"))
+        location = _text((item.get("location") or {}).get("name"))
+        if not external_id or not title or not url or not description or not location:
+            raise ValueError("Greenhouse job is missing id, title, URL, description, or location")
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname not in {"job-boards.greenhouse.io", "boards.greenhouse.io"}:
+            raise ValueError("Greenhouse canonical URL is not on an approved public job-board host")
+        departments = item.get("departments") or []
+        category = _text(departments[0].get("name")) if departments and isinstance(departments[0], dict) else None
+        return NormalizedJob(
+            external_id=external_id,
+            title=title,
+            description=description,
+            url=url,
+            employer=self.source_name,
+            region=location,
+            updated_at=_datetime(item.get("updated_at")),
+            category=category,
+            application_url=url,
+            raw=item,
+        )
+
+
 class InfoJobsSource(JobSourceAdapter):
     source_key = "infojobs"
     source_name = "InfoJobs"

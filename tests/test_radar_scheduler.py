@@ -13,6 +13,7 @@ from radar_engine.scheduler import (
     RadarBOEIngestionScheduler,
     RadarReviewNotifier,
     advisory_lock_key,
+    _default_ingest_stage,
     ai_batch_limit_from_env,
     ai_request_delay_seconds_from_env,
     auto_ingestion_enabled,
@@ -59,6 +60,34 @@ class FakeLock:
 
 
 class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_default_ingestion_isolates_one_source_failure(self):
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def source_keys(self):
+                return ("empleo_publico", "2k_madrid", "keyfactor_spain")
+
+            async def ingest_source(self, source_key):
+                self.calls.append(source_key)
+                if source_key == "2k_madrid":
+                    return IngestionReport(source_key, failed_count=1, errors=["temporary upstream failure"])
+                return IngestionReport(source_key, fetched_count=1, inserted_count=1)
+
+        manager = FakeManager()
+        if hasattr(_default_ingest_stage, "_job_source_last_runs"):
+            delattr(_default_ingest_stage, "_job_source_last_runs")
+        with patch("radar_engine.scheduler.build_default_source_manager", return_value=manager), patch(
+            "radar_engine.scheduler.source_interval_minutes", return_value=60
+        ):
+            report = await _default_ingest_stage("boe")()
+
+        self.assertEqual(manager.calls, ["empleo_publico", "2k_madrid", "keyfactor_spain"])
+        self.assertEqual(report.fetched_count, 2)
+        self.assertEqual(report.inserted_count, 2)
+        self.assertEqual(report.failed_count, 1)
+        self.assertIn("2k_madrid: temporary upstream failure", report.errors)
+
     def test_interval_defaults_and_env_override(self):
         self.assertEqual(fetch_interval_minutes_from_env(""), DEFAULT_FETCH_INTERVAL_MINUTES)
         self.assertEqual(fetch_interval_minutes_from_env("15"), 15)

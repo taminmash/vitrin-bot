@@ -50,6 +50,7 @@ All items were last reviewed on **2026-07-20**. “Implemented” is repository 
 | Barcelona Activa ingestion | Blocked | `BLOCKED_SOURCES`: no verified public feed/API; search is dynamic/authenticated. | 2026-07-20 | Do not bypass protections; reassess only if an official feed/API appears. |
 | Generalitat/SOC vacancy ingestion | Blocked | Official vacancy page identified, but no documented stable machine-readable API/feed was verified. | 2026-07-23 | Reassess only when Generalitat/SOC publishes a supported endpoint. |
 | Empleo Público ingestion | Implemented | Bounded parsing of the official server-rendered Administracion.gob.es listing; stable reference IDs, deadlines, organizations, locations, and canonical detail URLs are retained. | 2026-07-23 | Monitor official markup and target-network availability. |
+| Spain-focused public ATS sources | Implemented | 2K Madrid, Keyfactor Spain, and Scopely Spain use allowlisted documented Greenhouse Job Board API boards; current verification found 58 concrete Spain vacancies before prospect filtering. | 2026-07-23 | Monitor board ownership, location labels, and vacancy churn. |
 
 ## Technical Debt
 

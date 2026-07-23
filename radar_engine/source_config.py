@@ -6,6 +6,7 @@ import os
 from radar_engine.sources.jobs import (
     DomestikaJobsSource,
     EmpleoPublicoSource,
+    GreenhouseSpainSource,
     InfoJobsSource,
     MadridEmpleoSource,
     TecnoempleoSource,
@@ -42,6 +43,9 @@ JOB_SOURCE_CATALOG = (
     JobSourceDefinition("domestika_jobs", "Domestika Jobs", "domestika.org", "public_atom", 4, False, (), 60, "Domestika canonical job URL", "Feed availability must be smoke-tested before enabling"),
     JobSourceDefinition("tecnoempleo", "Tecnoempleo", "operator_configured", "official_rss", 4, False, ("TECNOEMPLEO_RSS_URL",), 60, "Tecnoempleo canonical job URL", "Only operator-provided RSS/Atom; no HTML fallback"),
     JobSourceDefinition("empleo_publico", "Empleo Público", "administracion.gob.es", "official_public_listing", 5, True, (), 60, "Administracion.gob.es canonical vacancy URL", "Bounded parsing of the official server-rendered public listing"),
+    JobSourceDefinition("2k_madrid", "2K Madrid Careers", "job-boards.greenhouse.io", "public_api", 4, True, (), 60, "2K Madrid Greenhouse canonical job URL", "Public Greenhouse Job Board API; Spain vacancies only"),
+    JobSourceDefinition("keyfactor_spain", "Keyfactor Spain Careers", "job-boards.greenhouse.io", "public_api", 4, True, (), 60, "Keyfactor Greenhouse canonical job URL", "Public Greenhouse Job Board API; Spain vacancies only"),
+    JobSourceDefinition("scopely_spain", "Scopely Spain Careers", "job-boards.greenhouse.io", "public_api", 4, True, (), 60, "Scopely Greenhouse canonical job URL", "Public Greenhouse Job Board API; Spain vacancies only"),
 )
 
 
@@ -115,6 +119,21 @@ def configured_job_sources():
                 **common,
             )
         )
+    greenhouse_boards = (
+        ("2k_madrid", "2K Madrid Careers", "2kmadrid"),
+        ("keyfactor_spain", "Keyfactor Spain Careers", "keyfactorinc"),
+        ("scopely_spain", "Scopely Spain Careers", "scopely"),
+    )
+    for key, name, board_token in greenhouse_boards:
+        if enabled(key, default=True):
+            sources.append(
+                GreenhouseSpainSource(
+                    source_key=key,
+                    source_name=name,
+                    board_token=board_token,
+                    **common,
+                )
+            )
     feed_url = os.getenv("TECNOEMPLEO_RSS_URL", "").strip()
     if enabled("tecnoempleo") and feed_url:
         sources.append(TecnoempleoSource(feed_url=feed_url, **common))
