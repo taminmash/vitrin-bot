@@ -1,6 +1,9 @@
+import asyncio
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -22,6 +25,17 @@ SEASONAL_BANNERS = {
 MENU_RADAR = "📡 اخبار اختصاصی شما"
 MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
 MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس در حیات خلوت"
+
+EXCHANGE_RATE_URLS = {
+    "EUR": "https://api.frankfurter.dev/v2/rate/EUR/IRR",
+    "USD": "https://api.frankfurter.dev/v2/rate/USD/IRR",
+}
+EXCHANGE_RATE_CACHE_TTL = timedelta(minutes=30)
+_exchange_rate_cache = {
+    "fetched_at": None,
+    "rates": None,
+    "date": None,
+}
 
 MAIN_MENU = InlineKeyboardMarkup(
     [
@@ -73,10 +87,66 @@ def gregorian_to_jalali(year, month, day):
     return jalali_year, jalali_month, jalali_day
 
 
-def build_welcome_text(now, first_name=None):
+def _fetch_rate(currency):
+    request = Request(
+        EXCHANGE_RATE_URLS[currency],
+        headers={"User-Agent": "VitrinSpainBot/1.0"},
+    )
+    with urlopen(request, timeout=8) as response:
+        payload = json.load(response)
+
+    rate = float(payload["rate"])
+    if rate <= 0:
+        raise ValueError(f"Invalid {currency}/IRR rate: {rate}")
+    return rate, payload.get("date")
+
+
+async def get_exchange_rates():
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    fetched_at = _exchange_rate_cache["fetched_at"]
+    cached_rates = _exchange_rate_cache["rates"]
+
+    if fetched_at and cached_rates and now_utc - fetched_at < EXCHANGE_RATE_CACHE_TTL:
+        return cached_rates, _exchange_rate_cache["date"]
+
+    try:
+        eur_result, usd_result = await asyncio.gather(
+            asyncio.to_thread(_fetch_rate, "EUR"),
+            asyncio.to_thread(_fetch_rate, "USD"),
+        )
+        rates = {"EUR": eur_result[0], "USD": usd_result[0]}
+        source_date = eur_result[1] or usd_result[1]
+        _exchange_rate_cache.update(
+            fetched_at=now_utc,
+            rates=rates,
+            date=source_date,
+        )
+        return rates, source_date
+    except Exception:
+        logger.exception("Failed to fetch exchange rates")
+        if cached_rates:
+            return cached_rates, _exchange_rate_cache["date"]
+        return None, None
+
+
+def format_toman_rate(irr_rate):
+    toman_rate = round(irr_rate / 10)
+    return f"{toman_rate:,.0f} تومان"
+
+
+def build_welcome_text(now, first_name=None, exchange_rates=None, rate_date=None):
     iran_now = now.astimezone(ZoneInfo("Asia/Tehran"))
     jalali = gregorian_to_jalali(now.year, now.month, now.day)
     display_name = (first_name or "کاربر").strip()
+
+    if exchange_rates:
+        euro_text = format_toman_rate(exchange_rates["EUR"])
+        dollar_text = format_toman_rate(exchange_rates["USD"])
+        rate_note = f"\n📌 نرخ مرجع بین‌المللی{f' — {rate_date}' if rate_date else ''}"
+    else:
+        euro_text = "موقتاً در دسترس نیست"
+        dollar_text = "موقتاً در دسترس نیست"
+        rate_note = ""
 
     return (
         f"درود، {display_name} 👋\n\n"
@@ -84,8 +154,9 @@ def build_welcome_text(now, first_name=None):
         f"🗓 تاریخ شمسی: {jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}\n\n"
         f"🇪🇸 ساعت اسپانیا: {now:%H:%M}\n"
         f"🇮🇷 ساعت ایران: {iran_now:%H:%M}\n\n"
-        "💶 قیمت یورو: در دسترس نیست\n"
-        "💵 قیمت دلار: در دسترس نیست\n\n"
+        f"💶 قیمت یورو: {euro_text}\n"
+        f"💵 قیمت دلار: {dollar_text}"
+        f"{rate_note}\n\n"
         "──────────────\n\n"
         "👤 با تکمیل پروفایل، اخبار، فرصت‌های شغلی، تخفیف‌ها و پیشنهادهای اختصاصی متناسب با شرایط شما برایتان انتخاب و نمایش داده می‌شود.\n\n"
         "✨ ما همچنان در حال توسعه و رفع اشکال ربات هستیم.\n"
@@ -102,7 +173,13 @@ def update_target(update: Update):
 async def send_home_dashboard(update: Update, show_banner=False):
     now = datetime.now(ZoneInfo("Europe/Madrid"))
     season = season_for_month(now.month)
-    welcome_text = build_welcome_text(now, update.effective_user.first_name)
+    exchange_rates, rate_date = await get_exchange_rates()
+    welcome_text = build_welcome_text(
+        now,
+        update.effective_user.first_name,
+        exchange_rates=exchange_rates,
+        rate_date=rate_date,
+    )
     if not show_banner or not await send_start_banner(update, season, welcome_text):
         await update_target(update).reply_text(
             welcome_text,
