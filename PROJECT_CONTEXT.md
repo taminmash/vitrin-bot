@@ -13,7 +13,7 @@ The current product purpose is to help its audience discover and share local inf
 - **Radar ingestion:** configured source connectors normalize into shared raw-item and candidate processing. BOE is temporarily disabled (its adapter and history are retained); Empleo Público plus the allowlisted 2K Madrid, Keyfactor Spain, and Scopely Spain public Greenhouse boards are active by default.
 - **Radar review and promotion:** AI-assisted candidate review, explicit approval, promotion to a ready Radar item, then explicit publication.
 - **Language lessons:** generated lesson content with reactions, comments, reports, and discussion mapping.
-- **Profiles and dashboard:** user-facing navigation and content/profile views. The primary Telegram navigation is a persistent two-column Reply Keyboard with Home, Radar, ad creation, anonymous messaging, Profile, VIP, Settings, and Help entries; page-specific actions remain inline.
+- **Profiles and dashboard:** user-facing navigation and content/profile views. The `/start` welcome card uses page-specific inline actions. General Home, Radar, ad creation, anonymous messaging, Profile, VIP, Settings, and Help navigation is registered in Telegram's native Bot Menu; no persistent general Reply Keyboard is used.
 
 ## Current Production Stack
 

@@ -208,7 +208,10 @@ class RadarSchedulerTests(unittest.IsolatedAsyncioTestCase):
         bot_text = (PROJECT_ROOT / "bot.py").read_text(encoding="utf-8")
         self.assertIn("start_radar_scheduler", bot_text)
         self.assertIn("stop_radar_scheduler", bot_text)
-        self.assertIn(".post_init(start_radar_scheduler)", bot_text)
+        self.assertIn("async def post_init(application):", bot_text)
+        self.assertIn("await set_public_bot_commands(application)", bot_text)
+        self.assertIn("await start_radar_scheduler(application)", bot_text)
+        self.assertIn(".post_init(post_init)", bot_text)
         self.assertIn(".post_shutdown(stop_radar_scheduler)", bot_text)
 
     async def test_pipeline_called_once_per_cycle_and_metrics_collected(self):

@@ -6,19 +6,10 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from config_v2 import (
-    HOME_BUTTON,
-    MENU_CREATE_HAYAT,
-    MENU_CREATE_VITRIN,
-    MENU_HELP,
-    MENU_PROFILE,
-    MENU_RADAR,
-    MENU_SETTINGS,
-    MENU_VIP,
-)
 from database.db import get_or_create_user, user_exists
 from handlers.language_lessons import begin_lesson_feedback, feedback_prompt, parse_lesson_callback
 
@@ -43,28 +34,17 @@ _exchange_rate_cache = {
     "rates": None,
 }
 
-MAIN_MENU = ReplyKeyboardMarkup(
+MAIN_MENU = InlineKeyboardMarkup(
     [
+        [InlineKeyboardButton("📡 اخبار اختصاصی شما", callback_data="radar:open")],
+        [InlineKeyboardButton("➕ ثبت آگهی در ویترین", callback_data="home:create_vitrin")],
+        [InlineKeyboardButton("💬 پیام ناشناس در حیات خلوت", callback_data="home:create_hayat")],
+        [InlineKeyboardButton("👤 پروفایل من", callback_data="home:profile")],
         [
-            KeyboardButton(HOME_BUTTON),
-            KeyboardButton(MENU_RADAR),
+            InlineKeyboardButton("ℹ️ راهنما", callback_data="home:help"),
+            InlineKeyboardButton("🛟 پشتیبانی", callback_data="home:support"),
         ],
-        [
-            KeyboardButton(MENU_CREATE_VITRIN),
-            KeyboardButton(MENU_CREATE_HAYAT),
-        ],
-        [
-            KeyboardButton(MENU_PROFILE),
-            KeyboardButton(MENU_VIP),
-        ],
-        [
-            KeyboardButton(MENU_SETTINGS),
-            KeyboardButton(MENU_HELP),
-        ],
-    ],
-    resize_keyboard=True,
-    one_time_keyboard=False,
-    is_persistent=True,
+    ]
 )
 
 PERSIAN_DIGITS = str.maketrans("0123456789,", "۰۱۲۳۴۵۶۷۸۹٬")
@@ -214,7 +194,19 @@ def update_target(update: Update):
     return update.message
 
 
+async def remove_persistent_reply_keyboard(update: Update):
+    cleanup_message = await update_target(update).reply_text(
+        "\u2063",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    try:
+        await cleanup_message.delete()
+    except BadRequest:
+        logger.debug("Could not delete transient ReplyKeyboard cleanup message")
+
+
 async def send_home_dashboard(update: Update, show_banner=False):
+    await remove_persistent_reply_keyboard(update)
     now = datetime.now(ZoneInfo("Europe/Madrid"))
     season = season_for_month(now.month)
     exchange_rates, rates_fetched_at, rates_stale = await get_exchange_rates()
