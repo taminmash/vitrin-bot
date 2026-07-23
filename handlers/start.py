@@ -20,20 +20,16 @@ SEASONAL_BANNERS = {
     "winter": Path("assets/winter.png"),
 }
 
-MENU_RADAR = "📡 رادار اسپانیا"
-MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
-MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس حیاط خلوت"
+MENU_RADAR = "📡 اخبار اختصاصی شما"
+MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در کانال ویترین"
+MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس در کانال حیات خلوت"
 
 MAIN_MENU = InlineKeyboardMarkup(
     [
-        [
-            InlineKeyboardButton("💬 پیام ناشناس", callback_data="home:create_hayat"),
-            InlineKeyboardButton("➕ ثبت آگهی", callback_data="home:create_vitrin"),
-        ],
-        [
-            InlineKeyboardButton("📡 رادار", callback_data="radar:open"),
-            InlineKeyboardButton("👤 پروفایل من", callback_data="home:profile"),
-        ],
+        [InlineKeyboardButton(MENU_RADAR, callback_data="radar:open")],
+        [InlineKeyboardButton(MENU_CREATE_VITRIN_DASHBOARD, callback_data="home:create_vitrin")],
+        [InlineKeyboardButton(MENU_CREATE_HAYAT_DASHBOARD, callback_data="home:create_hayat")],
+        [InlineKeyboardButton("پروفایل من 👤", callback_data="home:profile")],
         [
             InlineKeyboardButton("ℹ️ راهنما", callback_data="home:help"),
             InlineKeyboardButton("🛟 پشتیبانی", callback_data="home:support"),
@@ -109,13 +105,13 @@ def build_welcome_text(now, first_name=None):
         "💶 قیمت یورو: در دسترس نیست\n"
         "💵 قیمت دلار: در دسترس نیست\n\n"
         "──────────────\n\n"
-        "✨ امروز ویترین برای شما محتواهای جدید پیدا کرده است.\n\n"
+        "✨ اخبار اختصاصی شما\n\n"
         f"💼 {counts['jobs']} آگهی شغلی جدید\n"
         f"🛍 {counts['discounts']} تخفیف و آفر\n"
         f"🎉 {counts['events']} رویداد نزدیک شما\n"
         f"📡 {counts['radar']} خبر مهم رادار اسپانیا\n"
         f"🚨 {counts['alerts']} هشدار فوری\n\n"
-        "برای دسترسی به این محتواها روی «رادار» کلیک کنید.\n\n"
+        "برای دسترسی به این محتواها روی «اخبار اختصاصی شما» کلیک کنید.\n\n"
         f"آخرین بروزرسانی: {updated_at}"
     )
 
