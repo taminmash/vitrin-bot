@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from radar_engine.category_headers import category_header
 from radar_engine.job_title import UNKNOWN_JOB_TITLE, is_meaningful_job_title
+from radar_engine.job_sponsorship import has_verified_sponsorship
 
 
 JOB_STRUCTURED_METADATA_KEY = "job_structured"
+VERIFIED_SPONSORSHIP_BADGE = "🔥 فرصت ویزا اسپانسرشیپی"
+UNKNOWN_STATUS_TEXT = "➖ اعلام نشده"
 JOB_HELP_TEXT = (
     "✨ نیاز به کمک برای ارسال درخواست؟\n\n"
     "اگر واجد شرایط این موقعیت شغلی هستید اما برای تهیه رزومه، ارسال درخواست یا انجام مراحل استخدام "
@@ -86,6 +89,13 @@ def radar_score(metadata, classification_confidence, structured_data) -> int | N
 
 
 def _display_value(key: str, value) -> str | None:
+    if key in {"visa_sponsorship", "relocation_support", "apply_from_outside_spain"}:
+        text = str(value or "UNKNOWN").strip().upper()
+        return {
+            "YES": "✅ دارد",
+            "NO": "❌ ندارد",
+            "UNKNOWN": UNKNOWN_STATUS_TEXT,
+        }.get(text, UNKNOWN_STATUS_TEXT)
     if value is None:
         return None
     if key == "requirements":
@@ -96,9 +106,14 @@ def _display_value(key: str, value) -> str | None:
     text = str(value).strip()
     if not text or text.upper() == "UNKNOWN":
         return None
-    if key in {"visa_sponsorship", "relocation_support", "apply_from_outside_spain"}:
-        return {"YES": "بله", "NO": "خیر"}.get(text.upper())
     return text
+
+
+def _header_blocks(data: dict) -> list[str]:
+    blocks = [category_header("job")]
+    if has_verified_sponsorship(data):
+        blocks.append(VERIFIED_SPONSORSHIP_BADGE)
+    return blocks
 
 
 def _presented_job_title(data: dict, fallback: dict) -> str:
@@ -133,7 +148,7 @@ def job_card(structured_data, *, fallback=None, compact: bool = False) -> str:
             "why_it_matters", "source_url",
         )
     labels = dict(FIELD_LABELS)
-    blocks = [category_header("job")]
+    blocks = _header_blocks(data)
     for key in keys:
         displayed = _display_value(key, merged.get(key))
         if displayed:
@@ -165,15 +180,34 @@ def job_channel_card(structured_data, *, fallback=None) -> str:
     city = _display_value("city", merged.get("city")) or "نامشخص"
     contract_type = _display_value("contract_type", merged.get("contract_type")) or "نامشخص"
     requirements = _concise_requirements(merged)
-    return "\n\n".join(
+    employer = _display_value("employer", merged.get("employer"))
+    salary = _display_value("salary", merged.get("salary"))
+    sponsorship = _display_value("visa_sponsorship", merged.get("visa_sponsorship"))
+    relocation = _display_value("relocation_support", merged.get("relocation_support"))
+    apply_from_abroad = _display_value("apply_from_outside_spain", merged.get("apply_from_outside_spain"))
+    why_it_matters = _display_value("why_it_matters", merged.get("why_it_matters"))
+    blocks = [*_header_blocks(data), f"💼 عنوان شغل\n{title}"]
+    if employer:
+        blocks.append(f"🏢 کارفرما\n{employer}")
+    blocks.extend(
         (
-            category_header("job"),
-            f"💼 عنوان شغل\n{title}",
             f"📍 شهر\n{city}",
+            f"🛂 Visa Sponsorship\n{sponsorship}",
+            f"✈️ Relocation Support\n{relocation}",
+            f"🌍 امکان اقدام از خارج اسپانیا\n{apply_from_abroad}",
+        )
+    )
+    if salary:
+        blocks.append(f"💶 حقوق\n{salary}")
+    blocks.extend(
+        (
             f"📄 نوع قرارداد\n{contract_type}",
             f"🗣 پیش‌نیازها / زبان موردنیاز\n{requirements}",
         )
     )
+    if why_it_matters:
+        blocks.append(f"⭐ چرا این فرصت مهم است؟\n{why_it_matters}")
+    return "\n\n".join(blocks)
 
 
 def job_detail_card(structured_data, *, fallback=None) -> str:
