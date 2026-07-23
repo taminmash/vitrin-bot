@@ -4,7 +4,7 @@ from radar_engine.pipeline.candidate import RadarCandidate
 from radar_engine.job_title import existing_job_title
 
 
-PROMPT_VERSION = "radar-structured-v4"
+PROMPT_VERSION = "radar-structured-v5"
 
 
 SYSTEM_PROMPT = """You extract practical structured information from official Spanish source material for Vitrin Spain Radar.
@@ -18,6 +18,12 @@ Rules:
 - Input source text is Spanish.
 - Use null for every unavailable field; never infer missing facts.
 - For visa_sponsorship, relocation_support, and apply_from_outside_spain use only YES, NO, or UNKNOWN.
+- Set visa_sponsorship to YES only when the original source explicitly confirms employer-provided visa sponsorship or explicit support for the required work visa/permit.
+- Relocation, English-friendly work, an international company, suitability for foreigners, applying from abroad, or probable/possible support are not visa sponsorship.
+- Set visa_sponsorship to NO only when the source explicitly refuses sponsorship; otherwise use UNKNOWN.
+- When visa_sponsorship is YES, visa_sponsorship_evidence must be one short verbatim excerpt copied from the original title or body.
+- Never translate, paraphrase, clean up, or invent visa_sponsorship_evidence.
+- For visa_sponsorship NO or UNKNOWN, return null for visa_sponsorship_evidence.
 - For job_title, extract the actual profession from the source; never invent one.
 - job_title must be Persian, contain at most 6 words, and contain no punctuation or explanation.
 - Never return generic job_title phrases such as فرصت شغلی, موقعیت شغلی, استخدام, or فرصت استخدام.
@@ -55,6 +61,7 @@ Return JSON with exactly these keys:
 - job_level
 - experience_required
 - visa_sponsorship
+- visa_sponsorship_evidence
 - relocation_support
 - apply_from_outside_spain
 - why_it_matters
