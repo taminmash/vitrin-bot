@@ -24,6 +24,10 @@ INITIAL_RADAR_SOURCES = [
     ("Tecnoempleo", "Jobs", "https://www.tecnoempleo.com/", "jobs", 4, "Spain", None),
     ("Domestika Jobs", "Jobs", "https://www.domestika.org/es/jobs", "jobs", 4, "Spain", None),
     ("Indeed España", "Jobs", "https://es.indeed.com/", "jobs", 4, "Spain", None),
+    ("EURES", "Jobs", "https://eures.europa.eu/", "official", 5, "Europe", None),
+    ("Barcelona Activa", "Jobs", "https://treball.barcelonactiva.cat/es/ofertas-de-empleo", "official", 5, "Spain", "Barcelona"),
+    ("Generalitat/SOC", "Jobs", "https://web.gencat.cat/ca/generalitat/treballar-generalitat/ofertes-treball-temporal", "official", 5, "Spain", None),
+    ("Empleo Público", "Jobs", "https://administracion.gob.es/pagFront/ofertasempleopublico/resultadosEmpleo.htm", "official", 5, "Spain", None),
     ("Renfe", "Travel", "https://www.renfe.com/es/es", "travel", 4, "Spain", None),
     ("Ouigo", "Travel", "https://www.ouigo.com/es/", "travel", 4, "Spain", None),
     ("Iryo", "Travel", "https://iryo.eu/es", "travel", 4, "Spain", None),
@@ -34,6 +38,31 @@ INITIAL_RADAR_SOURCES = [
     ("Meetup", "Events", "https://www.meetup.com/", "events", 3, "Spain", None),
     ("AEMET", "Weather", "https://www.aemet.es/", "weather", 5, "Spain", None),
 ]
+
+
+def configured_radar_source_states():
+    truthy = {"1", "true", "yes", "on"}
+    falsey = {"0", "false", "no", "off"}
+
+    def state(key, default=False):
+        raw = os.getenv(f"RADAR_SOURCE_{key}_ENABLED")
+        if raw is None:
+            return default
+        normalized = raw.strip().casefold()
+        return normalized in truthy if default is False else normalized not in falsey
+
+    return {
+        "BOE": state("BOE"),
+        "InfoJobs": state("INFOJOBS"),
+        "Madrid Empleo": state("MADRID_EMPLEO"),
+        "Tecnoempleo": state("TECNOEMPLEO"),
+        "Domestika Jobs": state("DOMESTIKA_JOBS"),
+        "Indeed España": False,
+        "EURES": False,
+        "Barcelona Activa": False,
+        "Generalitat/SOC": False,
+        "Empleo Público": state("EMPLEO_PUBLICO", default=True),
+    }
 
 
 def get_connection():
@@ -993,6 +1022,15 @@ def init_db():
             ON CONFLICT (name, source_url) DO NOTHING
             """,
             INITIAL_RADAR_SOURCES,
+        )
+        cur.executemany(
+            """
+            UPDATE source_registry
+            SET is_active = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE name = %s
+            """,
+            [(is_active, name) for name, is_active in configured_radar_source_states().items()],
         )
 
         cur.execute(

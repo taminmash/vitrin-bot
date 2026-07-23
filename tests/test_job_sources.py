@@ -3,9 +3,11 @@ import os
 import unittest
 from unittest.mock import patch
 
-from radar_engine.source_config import BLOCKED_SOURCES, configured_job_sources
+from database.db import INITIAL_RADAR_SOURCES, configured_radar_source_states
+from radar_engine.source_config import BLOCKED_SOURCES, JOB_SOURCE_CATALOG, configured_job_sources
 from radar_engine.sources.jobs import (
-    DomestikaJobsSource, InfoJobsSource, MadridEmpleoSource, TecnoempleoSource, job_fingerprint,
+    DomestikaJobsSource, EmpleoPublicoSource, InfoJobsSource, MadridEmpleoSource,
+    TecnoempleoSource, job_fingerprint,
 )
 
 
@@ -19,6 +21,18 @@ ATOM = b"""<?xml version='1.0'?><feed xmlns='http://www.w3.org/2005/Atom'><entry
 <id>job-2</id><title>Product Designer</title><summary>Diseno de productos digitales para clientes de toda Espana.</summary>
 <link href='https://example.es/jobs/2'/><updated>2026-07-16T10:00:00Z</updated>
 </entry></feed>"""
+
+EMPLEO_PUBLICO_HTML = """<html><body>
+<article>
+  <a href="/pagFront/ofertasempleopublico/detalleEmpleo.htm?idConvocatoria=221903&amp;retorno=x">
+    TÉCNICO/A SUPERIOR - Medio Ambiental
+  </a>
+  <div>Ref: 221903</div><div>Plazas: 1</div><div>Fin de plazo: 02/08/2026</div>
+  <div>Titulación: Grado en Ciencias Ambientales</div>
+  <div>Ubicación: AUTONÓMICO - BALEARS, ILLES</div>
+  <div>Órgano convocante: Fundación Balear de Innovación y Tecnología</div>
+</article>
+</body></html>""".encode()
 
 
 class JobSourceTests(unittest.TestCase):
@@ -56,6 +70,42 @@ class JobSourceTests(unittest.TestCase):
         self.assertEqual(item.metadata["salary"], "40k-50k")
         self.assertEqual(item.metadata["contract_type"], "Indefinido")
 
+    def test_empleo_publico_maps_official_listing_to_canonical_job(self):
+        source = EmpleoPublicoSource(max_pages=1, retries=0)
+        with patch.object(source, "_read", return_value=EMPLEO_PUBLICO_HTML):
+            rows = source._fetch_sync()
+        item = source.normalize(rows[0])
+        self.assertEqual(item.external_id, "221903")
+        self.assertEqual(item.original_title, "TÉCNICO/A SUPERIOR - Medio Ambiental")
+        self.assertEqual(item.valid_until.date().isoformat(), "2026-08-02")
+        self.assertEqual(item.metadata["employer"], "Fundación Balear de Innovación y Tecnología")
+        self.assertEqual(item.metadata["content_type"], "job")
+        self.assertIn("idConvocatoria=221903", item.source_url)
+
+    def test_empleo_publico_empty_malformed_and_duplicate_results_are_safe(self):
+        source = EmpleoPublicoSource(max_pages=1, retries=0)
+        with patch.object(source, "_read", return_value=b"<html><body>Sin resultados</body></html>"):
+            self.assertEqual(source._fetch_sync(), [])
+        duplicate = EMPLEO_PUBLICO_HTML.replace(b"</body>", EMPLEO_PUBLICO_HTML.split(b"<article>")[1].split(b"</article>")[0] + b"</body>")
+        with patch.object(source, "_read", return_value=duplicate):
+            self.assertEqual(len(source._fetch_sync()), 1)
+        with self.assertRaisesRegex(ValueError, "missing reference"):
+            source.normalize_job({"title": "Incomplete"})
+
+    def test_empleo_publico_pagination_is_bounded(self):
+        source = EmpleoPublicoSource(max_pages=2, max_items=100, retries=0)
+        calls = []
+
+        def read(url):
+            calls.append(url)
+            return EMPLEO_PUBLICO_HTML
+
+        with patch.object(source, "_read", side_effect=read):
+            source._fetch_sync()
+        self.assertEqual(len(calls), 1)
+        self.assertIn("tam=50", calls[0])
+        self.assertIn("desde=1", calls[0])
+
     def test_infojobs_uses_authentication_and_bounded_pagination(self):
         source = InfoJobsSource(
             client_id="client", client_secret="secret", provinces=("Madrid",),
@@ -79,7 +129,7 @@ class JobSourceTests(unittest.TestCase):
     def test_infojobs_disabled_without_both_credentials(self):
         env = {"RADAR_SOURCE_INFOJOBS_ENABLED": "true", "INFOJOBS_CLIENT_ID": "id"}
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual(configured_job_sources(), [])
+            self.assertEqual([source.source_key for source in configured_job_sources()], ["empleo_publico"])
 
     def test_madrid_closed_call_is_preserved_as_expired_for_audit(self):
         source = MadridEmpleoSource(retries=0)
@@ -134,18 +184,44 @@ class JobSourceTests(unittest.TestCase):
     def test_blocked_sources_have_explicit_reasons_and_no_adapters(self):
         self.assertEqual(
             {item.key for item in BLOCKED_SOURCES},
-            {"eures", "indeed", "linkedin_jobs", "barcelona_activa", "additional_local"},
+            {"eures", "indeed", "linkedin_jobs", "barcelona_activa", "generalitat_soc"},
         )
         self.assertTrue(all(item.status in {"blocked", "not_integrated"} and item.reason for item in BLOCKED_SOURCES))
 
+    def test_requested_source_catalog_has_accurate_trust_type_and_status(self):
+        catalog = {item.key: item for item in JOB_SOURCE_CATALOG}
+        empleo = catalog["empleo_publico"]
+        self.assertEqual((empleo.source_type, empleo.trust_level, empleo.default_enabled), ("official_public_listing", 5, True))
+        blocked = {item.key: item.status for item in BLOCKED_SOURCES}
+        self.assertEqual(blocked["eures"], "blocked")
+        self.assertEqual(blocked["barcelona_activa"], "blocked")
+        self.assertEqual(blocked["generalitat_soc"], "blocked")
+
+    def test_registry_lists_requested_jobs_and_keeps_other_government_sources_active(self):
+        rows = {row[0]: row for row in INITIAL_RADAR_SOURCES}
+        for name in ("EURES", "Barcelona Activa", "Generalitat/SOC", "Empleo Público"):
+            self.assertEqual((rows[name][1], rows[name][3], rows[name][4]), ("Jobs", "official", 5))
+        with patch.dict(os.environ, {}, clear=True):
+            states = configured_radar_source_states()
+        self.assertFalse(states["BOE"])
+        self.assertFalse(states["EURES"])
+        self.assertFalse(states["Barcelona Activa"])
+        self.assertFalse(states["Generalitat/SOC"])
+        self.assertTrue(states["Empleo Público"])
+        for name in ("SEPE", "Seguridad Social", "Agencia Tributaria", "Ministerio de Inclusión"):
+            self.assertIn(name, rows)
+
     def test_sources_are_disabled_by_default(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(configured_job_sources(), [])
+            self.assertEqual([source.source_key for source in configured_job_sources()], ["empleo_publico"])
 
     def test_enabled_sources_are_independent(self):
         env = {"RADAR_SOURCE_MADRID_EMPLEO_ENABLED": "1", "RADAR_SOURCE_DOMESTIKA_JOBS_ENABLED": "1"}
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual([s.source_key for s in configured_job_sources()], ["madrid_empleo", "domestika_jobs"])
+            self.assertEqual(
+                [s.source_key for s in configured_job_sources()],
+                ["madrid_empleo", "domestika_jobs", "empleo_publico"],
+            )
 
     def test_invalid_shared_limits_fall_back_safely(self):
         env = {"RADAR_SOURCE_MADRID_EMPLEO_ENABLED": "1", "RADAR_JOB_SOURCE_TIMEOUT_SECONDS": "bad", "RADAR_JOB_SOURCE_RETRIES": "99"}

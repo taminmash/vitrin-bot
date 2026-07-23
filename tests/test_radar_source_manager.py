@@ -1,4 +1,6 @@
 import unittest
+import os
+from unittest.mock import patch
 
 from radar_engine.models import RawRadarItem
 from radar_engine.source_manager import SourceManager, build_default_source_manager
@@ -38,9 +40,16 @@ class MockSource(BaseRadarSource):
 
 
 class SourceManagerTests(unittest.IsolatedAsyncioTestCase):
-    def test_default_manager_registers_boe(self):
-        manager = build_default_source_manager()
-        self.assertEqual(manager.get_source("boe").source_name, "BOE")
+    def test_default_manager_does_not_register_boe(self):
+        with patch.dict(os.environ, {}, clear=True):
+            manager = build_default_source_manager()
+        self.assertNotIn("boe", manager.source_keys())
+        self.assertIn("empleo_publico", manager.source_keys())
+
+    def test_boe_can_be_reenabled_without_removing_adapter(self):
+        with patch.dict(os.environ, {"RADAR_SOURCE_BOE_ENABLED": "1"}, clear=True):
+            manager = build_default_source_manager(boe_days_back=9)
+        self.assertEqual(manager.get_source("boe").days_back, 9)
 
     def test_register_duplicate_and_unknown_source(self):
         manager = SourceManager()

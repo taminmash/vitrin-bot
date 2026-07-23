@@ -290,9 +290,11 @@ into the first-seen raw record and appends the additional provenance; records
 are never deleted. Existing validation, Actionability Gate, AI,
 classification, and admin review remain unchanged.
 
-All job sources default to disabled. Enabled sources run after BOE during
-normal scheduler cycles, each with its own interval and failure boundary. A
-failed connector does not stop BOE, another connector, or backlog processing.
+Empleo Público is enabled by default; the other implemented Job connectors are
+opt-in. BOE is temporarily disabled by default but its adapter and historical
+data are retained. Enabled sources run during the existing shared Radar cycle,
+each with its own interval and failure boundary. A failed connector does not
+stop another connector or backlog processing.
 
 | Source | Status | Integration |
 | --- | --- | --- |
@@ -304,10 +306,12 @@ failed connector does not stop BOE, another connector, or backlog processing.
 | Indeed | Blocked | Job Sync posts ATS jobs; it is not a public vacancy retrieval API |
 | LinkedIn Jobs | Blocked | Job APIs require approved partner access; no public search API |
 | Barcelona Activa | Blocked | No documented public feed/API; search is a dynamic authenticated app |
-| Additional local sources | Not integrated | No additional official machine-readable current-vacancy feed with stable IDs, canonical URLs, and reliable dates was verified for this release |
+| Generalitat/SOC | Blocked | Official listing identified, but no documented stable public vacancy API/feed was verified |
+| Empleo Público | Active | Bounded official server-rendered Administracion.gob.es listing; no credentials required |
 
-All connectors use public/official API, RSS, or Atom access only. There is no
-HTML scraping, browser automation, CAPTCHA bypass, or undocumented endpoint.
+All connectors use public/official API, RSS, Atom, or a stable public listing.
+There is no browser automation, CAPTCHA bypass, restricted scraping, or
+undocumented endpoint.
 The Madrid and Domestika connectors remain disabled until their endpoint can be
 smoke-tested from the production network. Tecnoempleo accepts only an
 operator-supplied RSS/Atom URL and has no HTML fallback.
@@ -336,6 +340,7 @@ python scripts/run_radar_jobs.py --smoke
 python scripts/run_radar_jobs.py --source madrid_empleo --smoke
 python scripts/run_radar_jobs.py --source infojobs --smoke
 python scripts/run_radar_jobs.py --source domestika_jobs --smoke
+python scripts/run_radar_jobs.py --source empleo_publico --smoke
 ```
 
 Smoke mode reports fetched, normalized, expired/invalid skipped, failures, and
@@ -359,6 +364,9 @@ Required environment variable:
 - `OPENAI_API_KEY` for AI summary/classification during automatic processing
 - `RADAR_FETCH_INTERVAL_MINUTES` optional; defaults to `15`
 - `RADAR_AUTO_INGESTION_ENABLED` optional; defaults to enabled
+- `RADAR_SOURCE_BOE_ENABLED` optional; defaults to disabled
+- `RADAR_SOURCE_EMPLEO_PUBLICO_ENABLED` optional; defaults to enabled
+- `RADAR_EMPLEO_PUBLICO_MAX_PAGES_PER_CYCLE` optional; defaults to `2`, clamped between `1` and `10`
 - `BOE_LOOKBACK_DAYS` optional; defaults to `7`, clamped between `1` and `30`
 
 Known limitations:

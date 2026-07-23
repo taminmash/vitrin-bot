@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-23 — Temporarily disable BOE and admit only verified safe source access
+
+- **Context:** Radar needs broader Job coverage, while source access must remain public, stable, and compatible with the shared ingestion pipeline.
+- **Decision:** BOE is disabled through source configuration and registry state, without deleting its adapter or historical data. Empleo Público is enabled through its official server-rendered public listing with bounded pagination. EURES, Barcelona Activa, and Generalitat/SOC remain inactive because no documented stable public vacancy endpoint was verified.
+- **Consequences:** Empleo Público items use the existing raw-item, deduplication, candidate, AI, classification, sponsorship-evidence, Admin Review, promotion, and publication stages. No LinkedIn ingestion, private endpoint, browser automation, or automatic publication is introduced.
+
 Decision records capture repository-supported architectural/product choices. Dates reflect the documented decision or the introducing history where available; they do not assert production rollout.
 
 ## ADR-001 — Admin Review remains mandatory for ordinary Radar content

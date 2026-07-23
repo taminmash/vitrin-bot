@@ -11,7 +11,7 @@ All items were last reviewed on **2026-07-20**. “Implemented” is repository 
 | Shared Radar raw-to-candidate pipeline and deterministic Actionability Gate | Implemented | `radar_engine/pipeline/engine.py`; merge PR #32 (`61655a2`) | 2026-07-20 | Diagnose KIB-001 against production data before changing pipeline behavior. |
 | AI summary, structured job extraction, and controlled classification | Implemented | `radar_engine/ai/`, `radar_engine/classification/`; merges #23–#25 and #40 | 2026-07-20 | Verify provider configuration and queue progress in production. |
 | Admin review, approval, promotion, and guarded publication lifecycle | Implemented | `radar_engine/review/`, `promotion/`, `publication/`; merges #37–#39 | 2026-07-20 | Diagnose KIB-002 with Telegram/API error details. |
-| BOE plus opt-in permitted job-source adapters | Implemented | `radar_engine/sources/`, `source_config.py`; merge #34 (`83646fd`) | 2026-07-20 | Smoke-test enabled sources from the target network before enabling. |
+| BOE adapter plus permitted Job-source adapters | Implemented | BOE retained but temporarily disabled; Empleo Público uses the official bounded public listing. | 2026-07-23 | Smoke-test enabled sources from the target network; re-enable BOE only by explicit configuration. |
 | Job freshness/expiration safeguards and concise job channel cards | Implemented | `radar_engine/job_expiration.py`, `job_presentation.py`; merges #39 and #41 | 2026-07-20 | Monitor expiry/review outcomes after production verification. |
 | Language-lesson interactive feedback | Implemented | `handlers/language_lessons.py`; merges #43–#46 | 2026-07-20 | Validate live Telegram behavior separately from repository evidence. |
 | Source-verified visa sponsorship Job Review | Implemented | `radar_engine/job_sponsorship.py`, AI extraction, Review eligibility, and Job presentation tests | 2026-07-23 | Verify AI evidence quality and Review queue outcomes in production before enabling additional Job categories. |
@@ -48,6 +48,8 @@ All items were last reviewed on **2026-07-20**. “Implemented” is repository 
 | Indeed vacancy ingestion | Blocked | `BLOCKED_SOURCES`: Job Sync is an ATS posting API, not public search retrieval. | 2026-07-20 | Do not scrape; use a supported source if one becomes available. |
 | LinkedIn Jobs ingestion | Blocked | `BLOCKED_SOURCES`: approved partner access required; no public search ingestion. | 2026-07-20 | Do not scrape; pursue approved access only. |
 | Barcelona Activa ingestion | Blocked | `BLOCKED_SOURCES`: no verified public feed/API; search is dynamic/authenticated. | 2026-07-20 | Do not bypass protections; reassess only if an official feed/API appears. |
+| Generalitat/SOC vacancy ingestion | Blocked | Official vacancy page identified, but no documented stable machine-readable API/feed was verified. | 2026-07-23 | Reassess only when Generalitat/SOC publishes a supported endpoint. |
+| Empleo Público ingestion | Implemented | Bounded parsing of the official server-rendered Administracion.gob.es listing; stable reference IDs, deadlines, organizations, locations, and canonical detail URLs are retained. | 2026-07-23 | Monitor official markup and target-network availability. |
 
 ## Technical Debt
 

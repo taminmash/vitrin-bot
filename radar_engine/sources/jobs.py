@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
 import html
+from html.parser import HTMLParser
 import json
 import re
 import time
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
@@ -103,7 +104,10 @@ class JobSourceAdapter(BaseRadarSource):
         raise NotImplementedError
 
     def _read(self, url: str, *, headers: dict[str, str] | None = None) -> bytes:
-        request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json, application/atom+xml, application/rss+xml, application/xml"}
+        request_headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json, application/atom+xml, application/rss+xml, application/xml, text/html",
+        }
         request_headers.update(headers or {})
         last_error: Exception | None = None
         for attempt in range(self.retries + 1):
@@ -246,6 +250,140 @@ class DomestikaJobsSource(FeedJobSource):
     source_key = "domestika_jobs"
     source_name = "Domestika Jobs"
     feed_url = "https://www.domestika.org/es/jobs.atom"
+
+
+class _EmpleoPublicoListingParser(HTMLParser):
+    """Extract only official vacancy-detail links and their visible result text."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[dict[str, str]] = []
+        self._row: dict[str, Any] | None = None
+        self._in_detail_link = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.casefold() != "a":
+            return
+        href = dict(attrs).get("href") or ""
+        match = re.search(r"detalleEmpleo\.htm\?[^\"']*idConvocatoria=(\d+)", href)
+        if not match:
+            return
+        if self._row and self._row.get("external_id") == match.group(1):
+            self._in_detail_link = True
+            return
+        self._finish_row()
+        self._row = {"external_id": match.group(1), "url": href, "parts": []}
+        self._in_detail_link = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() == "a":
+            self._in_detail_link = False
+
+    def handle_data(self, data: str) -> None:
+        if self._row is None:
+            return
+        value = _text(data)
+        if not value:
+            return
+        if self._in_detail_link and not self._row.get("title"):
+            self._row["title"] = value
+        self._row["parts"].append(value)
+
+    def close(self) -> None:
+        super().close()
+        self._finish_row()
+
+    def _finish_row(self) -> None:
+        if not self._row:
+            return
+        self._row["text"] = " ".join(self._row.pop("parts"))
+        self.rows.append(self._row)
+        self._row = None
+
+
+class EmpleoPublicoSource(JobSourceAdapter):
+    source_key = "empleo_publico"
+    source_name = "Empleo Público"
+    listing_url = "https://administracion.gob.es/pagFront/ofertasempleopublico/resultadosEmpleo.htm"
+
+    def __init__(self, *, max_pages: int = 2, **kwargs):
+        super().__init__(**kwargs)
+        self.max_pages = min(10, max(1, int(max_pages)))
+
+    def _fetch_sync(self) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        seen: set[str] = set()
+        page_size = min(50, self.max_items)
+        for page in range(self.max_pages):
+            query = urlencode({
+                "idioma": "es",
+                "tipoPlazo": "1",
+                "orders": "id",
+                "sort": "desc",
+                "tam": page_size,
+                "desde": page * page_size + 1,
+            })
+            payload = self._read(f"{self.listing_url}?{query}")
+            parser = _EmpleoPublicoListingParser()
+            parser.feed(payload.decode("utf-8", errors="replace"))
+            parser.close()
+            for row in parser.rows:
+                if row["external_id"] in seen:
+                    continue
+                seen.add(row["external_id"])
+                rows.append(row)
+                if len(rows) >= self.max_items:
+                    return rows
+            if len(parser.rows) < page_size:
+                break
+        return rows
+
+    @staticmethod
+    def _field(text: str, label: str, following_labels: tuple[str, ...]) -> str | None:
+        boundary = "|".join(re.escape(value) for value in following_labels)
+        match = re.search(
+            rf"{re.escape(label)}\s*:?\s*(.+?)(?=\s+(?:{boundary})\s*:|$)",
+            text,
+            re.IGNORECASE,
+        )
+        return _text(match.group(1)) if match else None
+
+    def normalize_job(self, item: Any) -> NormalizedJob:
+        if not isinstance(item, dict):
+            raise ValueError("Empleo Público item must be a dictionary")
+        external_id = _text(item.get("external_id"))
+        title = _text(item.get("title"))
+        relative_url = _text(item.get("url"))
+        text = _text(item.get("text")) or ""
+        if not external_id or not title or not relative_url:
+            raise ValueError("Empleo Público result is missing reference, title, or URL")
+        labels = ("Ref", "Plazas", "Fin de plazo", "Titulación", "Ubicación", "Órgano convocante")
+        deadline_text = self._field(text, "Fin de plazo", labels)
+        qualification = self._field(text, "Titulación", labels)
+        location = self._field(text, "Ubicación", labels)
+        employer = self._field(text, "Órgano convocante", labels)
+        description = ". ".join(
+            value for value in (
+                title,
+                f"Órgano convocante: {employer}" if employer else None,
+                f"Ubicación: {location}" if location else None,
+                f"Titulación: {qualification}" if qualification else None,
+                f"Fin de plazo: {deadline_text}" if deadline_text else None,
+            )
+            if value
+        )
+        return NormalizedJob(
+            external_id=external_id,
+            title=title,
+            description=description,
+            url=urljoin(self.listing_url, relative_url),
+            employer=employer,
+            region=location,
+            deadline=parse_source_datetime(deadline_text, end_of_day=True) if deadline_text else None,
+            reference_number=external_id,
+            source_status="plazo abierto",
+            raw=item,
+        )
 
 
 class InfoJobsSource(JobSourceAdapter):
