@@ -878,7 +878,7 @@ async def edit_admin_radar_menu(query):
 
 
 async def send_admin_radar_sources(message):
-    sources = list_source_registry()
+    sources = list_source_registry(active_only=False)
     if not sources:
         await message.reply_text("منبع فعالی برای رادار ثبت نشده است.", reply_markup=admin_radar_menu_keyboard())
         return
@@ -1143,7 +1143,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await edit_admin_radar_list(query, operation)
             return
         if operation == "sources":
-            sources = list_source_registry()
+            sources = list_source_registry(active_only=False)
             if not sources:
                 await query.edit_message_text(
                     "منبع فعالی برای رادار ثبت نشده است.",

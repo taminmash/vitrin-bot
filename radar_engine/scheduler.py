@@ -224,11 +224,15 @@ def ai_request_delay_seconds_from_env(value: str | None = None, provider: str | 
 def _default_ingest_stage(source_key: str):
     async def ingest():
         manager = build_default_source_manager()
-        primary = await manager.ingest_source(source_key)
+        source_keys = manager.source_keys()
+        if not source_keys:
+            return IngestionReport("radar")
+        primary_key = source_key if source_key in source_keys else source_keys[0]
+        primary = await manager.ingest_source(primary_key)
         now = monotonic()
         last_runs = getattr(_default_ingest_stage, "_job_source_last_runs", {})
-        for job_key in manager.source_keys():
-            if job_key == source_key:
+        for job_key in source_keys:
+            if job_key == primary_key:
                 continue
             interval = source_interval_minutes(job_key) * 60
             if now - last_runs.get(job_key, float("-inf")) < interval:

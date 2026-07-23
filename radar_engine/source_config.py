@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 
-from radar_engine.sources.jobs import DomestikaJobsSource, InfoJobsSource, MadridEmpleoSource, TecnoempleoSource
+from radar_engine.sources.jobs import (
+    DomestikaJobsSource,
+    EmpleoPublicoSource,
+    InfoJobsSource,
+    MadridEmpleoSource,
+    TecnoempleoSource,
+)
 
 
 FALSE_VALUES = {"0", "false", "no", "off"}
@@ -35,6 +41,7 @@ JOB_SOURCE_CATALOG = (
     JobSourceDefinition("madrid_empleo", "Madrid Empleo", "datos.madrid.es", "official_rss", 5, False, (), 60, "Ayuntamiento de Madrid canonical URL", "Official endpoint may return 403 from some hosting networks"),
     JobSourceDefinition("domestika_jobs", "Domestika Jobs", "domestika.org", "public_atom", 4, False, (), 60, "Domestika canonical job URL", "Feed availability must be smoke-tested before enabling"),
     JobSourceDefinition("tecnoempleo", "Tecnoempleo", "operator_configured", "official_rss", 4, False, ("TECNOEMPLEO_RSS_URL",), 60, "Tecnoempleo canonical job URL", "Only operator-provided RSS/Atom; no HTML fallback"),
+    JobSourceDefinition("empleo_publico", "Empleo Público", "administracion.gob.es", "official_public_listing", 5, True, (), 60, "Administracion.gob.es canonical vacancy URL", "Bounded parsing of the official server-rendered public listing"),
 )
 
 
@@ -43,7 +50,7 @@ BLOCKED_SOURCES = (
     SourceStatus("indeed", "blocked", "Indeed Job Sync is an ATS posting API, not a public vacancy search API."),
     SourceStatus("linkedin_jobs", "blocked", "LinkedIn job APIs require approved partner access and do not provide public job search ingestion."),
     SourceStatus("barcelona_activa", "blocked", "No documented public vacancy feed/API was found; the public search is an authenticated dynamic application."),
-    SourceStatus("additional_local", "not_integrated", "No additional official machine-readable feed with current vacancies, stable IDs, reliable dates, and canonical URLs was verified for this release."),
+    SourceStatus("generalitat_soc", "blocked", "The official Generalitat/SOC listing is dynamic and no documented public vacancy feed/API was verified."),
 )
 
 DEFAULT_INFOJOBS_PROVINCES = (
@@ -101,6 +108,13 @@ def configured_job_sources():
         sources.append(MadridEmpleoSource(**common))
     if enabled("domestika_jobs"):
         sources.append(DomestikaJobsSource(**common))
+    if enabled("empleo_publico", default=True):
+        sources.append(
+            EmpleoPublicoSource(
+                max_pages=_bounded_int("RADAR_EMPLEO_PUBLICO_MAX_PAGES_PER_CYCLE", 2, 1, 10),
+                **common,
+            )
+        )
     feed_url = os.getenv("TECNOEMPLEO_RSS_URL", "").strip()
     if enabled("tecnoempleo") and feed_url:
         sources.append(TecnoempleoSource(feed_url=feed_url, **common))

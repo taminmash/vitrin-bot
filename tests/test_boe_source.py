@@ -217,7 +217,8 @@ class BOESourceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["timeout"], source.timeout_seconds)
 
     def test_default_source_manager_passes_boe_lookback_override(self):
-        manager = build_default_source_manager(boe_days_back=9)
+        with patch.dict("os.environ", {"RADAR_SOURCE_BOE_ENABLED": "1"}, clear=True):
+            manager = build_default_source_manager(boe_days_back=9)
         source = manager.get_source("boe")
         self.assertEqual(source.days_back, 9)
 
