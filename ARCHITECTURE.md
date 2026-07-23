@@ -22,7 +22,9 @@ Handlers are organized by user surface in `handlers/`: start/home/menu/profile, 
 
 ## Source Adapters
 
-`radar_engine/sources/boe.py` consumes BOE’s official daily-summary XML. `radar_engine/sources/jobs.py` contains opt-in adapters for InfoJobs, Madrid Empleo, Domestika Jobs, and an operator-configured Tecnoempleo RSS/Atom feed. `source_config.py` documents blocked integrations and deliberately excludes HTML scraping, browser automation, CAPTCHA bypass, and undocumented endpoints.
+`radar_engine/sources/boe.py` retains the BOE official daily-summary XML adapter, but BOE is not registered unless `RADAR_SOURCE_BOE_ENABLED` explicitly enables it. `radar_engine/sources/jobs.py` contains adapters for InfoJobs, Madrid Empleo, Domestika Jobs, an operator-configured Tecnoempleo RSS/Atom feed, and Empleo Público. Empleo Público reads a bounded number of pages from the official server-rendered `administracion.gob.es` public listing and retains canonical detail links and source text. All connectors still enter the same `SourceManager` and raw-item/candidate pipeline.
+
+`source_config.py` records EURES, Barcelona Activa, and Generalitat/SOC as blocked because no documented stable public vacancy API/feed was verified. No private endpoint, browser automation, CAPTCHA bypass, LinkedIn ingestion, or restricted scraping is used.
 
 ## Raw Item Storage
 

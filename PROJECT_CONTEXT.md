@@ -10,7 +10,7 @@ The current product purpose is to help its audience discover and share local inf
 
 - **Vitrin and Hayat Khalvat submissions:** user content creation, admin review, and Telegram-channel publishing flows.
 - **Radar Spain:** browsing categories, deep-linked full item pages, channel cards, reactions, and admin-created Radar items.
-- **Radar ingestion:** BOE and opt-in job-source connectors that normalize into shared raw-item and candidate processing.
+- **Radar ingestion:** configured source connectors normalize into shared raw-item and candidate processing. BOE is temporarily disabled (its adapter and history are retained); Empleo Público is the default active Job connector.
 - **Radar review and promotion:** AI-assisted candidate review, explicit approval, promotion to a ready Radar item, then explicit publication.
 - **Language lessons:** generated lesson content with reactions, comments, reports, and discussion mapping.
 - **Profiles and dashboard:** user-facing navigation and content/profile views.
@@ -24,7 +24,7 @@ The current product purpose is to help its audience discover and share local inf
 | PostgreSQL | `DATABASE_URL` is used by the database layer; startup runs additive schema setup. | Implemented but production connectivity requires verification. |
 | AI provider integration | Configurable Gemini (default) or OpenAI providers support structured Radar summary and classification. | Implemented but provider credentials/quota behavior requires verification. |
 | Scheduler | Bot lifecycle starts an in-process Radar scheduler unless disabled; it also uses a PostgreSQL advisory lock. | Implemented but production scheduling requires verification. |
-| Source ingestion | BOE is registered; enabled job connectors use official/public API, RSS, or Atom inputs. | Implemented; each external source requires operational verification. |
+| Source ingestion | BOE is disabled by configuration; enabled Job connectors use official/public API, RSS, Atom, or a bounded stable official listing. | Implemented; each external source requires operational verification. |
 | Review workflow | Radar candidates can be reviewed by admins and promoted only after approval. | Implemented but production workflow evidence is incomplete. |
 | Channel publishing | Explicit Radar publication sends to the configured Vitrin channel with duplicate/attempt safeguards. | Implemented; a production-reported send failure is tracked in `KNOWN_ISSUES.md`. |
 

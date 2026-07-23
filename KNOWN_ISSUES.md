@@ -1,5 +1,13 @@
 # Known Issues
 
+## KIB-005 — Some requested official Job sources have no supported ingestion endpoint
+
+- **Status:** Open / blocked by upstream access.
+- **Affected subsystem:** Radar Job source expansion.
+- **Observed behavior:** EURES requires partner/public-employment-service access; Barcelona Activa and the Generalitat/SOC public vacancy experiences do not expose a documented stable public vacancy API or feed verified for this release.
+- **Current safeguard:** The sources are visible as inactive in Admin source status and have no adapter. No private API, browser automation, CAPTCHA bypass, or restricted scraping is attempted.
+- **Next step:** Reassess only when the source publishes a documented supported endpoint.
+
 This register contains only issues supported by repository evidence or explicitly labeled production-reported observations. A report is not proof of root cause or current production state. Last reviewed: **2026-07-20**.
 
 ## KIB-004 — BOE full-detail view displayed the Spanish source body
