@@ -10,6 +10,18 @@ from radar_engine.review.models import (
 )
 
 
+REVIEW_ELIGIBILITY_SQL = """
+    (
+        cls.primary_category <> 'job'
+        OR (
+            ai.structured_data ->> 'visa_sponsorship' = 'YES'
+            AND NULLIF(BTRIM(ai.structured_data ->> 'visa_sponsorship_evidence'), '') IS NOT NULL
+            AND ai.structured_data ->> 'visa_sponsorship_evidence_verified' = 'true'
+        )
+    )
+"""
+
+
 def _row_to_candidate(row) -> RadarCandidate:
     return RadarCandidate(
         raw_item_id=str(row["raw_item_id"]),
@@ -70,7 +82,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
     with db_cursor(dict_cursor=True) as (_, cur):
         if candidate_id:
             cur.execute(
-                """
+                f"""
                 SELECT
                     c.id AS candidate_id,
                     c.raw_item_id,
@@ -114,6 +126,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
                 JOIN radar_ai_classifications cls ON cls.candidate_id = c.id
                 WHERE c.id = %s
                   AND c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
+                  AND {REVIEW_ELIGIBILITY_SQL}
                   AND NOT EXISTS (
                     SELECT 1 FROM radar_reviews reviews WHERE reviews.candidate_id = c.id
                   )
@@ -123,7 +136,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
             )
         else:
             cur.execute(
-                """
+                f"""
                 SELECT
                     c.id AS candidate_id,
                     c.raw_item_id,
@@ -166,6 +179,7 @@ def load_review_queue(limit: int = 50, candidate_id: str | None = None) -> list[
                 JOIN radar_ai_results ai ON ai.candidate_id = c.id
                 JOIN radar_ai_classifications cls ON cls.candidate_id = c.id
                 WHERE c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
+                  AND {REVIEW_ELIGIBILITY_SQL}
                   AND NOT EXISTS (
                     SELECT 1 FROM radar_reviews reviews WHERE reviews.candidate_id = c.id
                 )
@@ -228,12 +242,13 @@ def review_status_report() -> ReviewQueueReport:
             if status in {"approved", "rejected", "needs_edit"}:
                 setattr(report, status, int(row.get("total") or 0))
         cur.execute(
-            """
+            f"""
             SELECT COUNT(*) AS total
             FROM radar_candidates c
             JOIN radar_ai_results ai ON ai.candidate_id = c.id
             JOIN radar_ai_classifications cls ON cls.candidate_id = c.id
             WHERE c.metadata -> 'actionability_gate' ->> 'passed' = 'true'
+              AND {REVIEW_ELIGIBILITY_SQL}
               AND NOT EXISTS (
                 SELECT 1 FROM radar_reviews reviews WHERE reviews.candidate_id = c.id
             )

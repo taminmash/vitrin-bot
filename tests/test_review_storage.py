@@ -97,6 +97,10 @@ class ReviewStorageTests(unittest.TestCase):
         self.assertIn("NOT EXISTS", sql)
         self.assertIn("radar_reviews", sql)
         self.assertIn("actionability_gate", sql)
+        self.assertIn("cls.primary_category <> 'job'", sql)
+        self.assertIn("visa_sponsorship' = 'YES'", sql)
+        self.assertIn("visa_sponsorship_evidence_verified", sql)
+        self.assertIn("NULLIF(BTRIM", sql)
         self.assertEqual(params, (5,))
 
     def test_candidate_specific_loading_is_parameterized(self):
@@ -106,6 +110,7 @@ class ReviewStorageTests(unittest.TestCase):
         sql, params = cursor.executed[0]
         self.assertIn("c.id = %s", sql)
         self.assertIn("actionability_gate", sql)
+        self.assertIn("visa_sponsorship_evidence_verified", sql)
         self.assertEqual(params, ("candidate-1",))
 
     def test_approve_reject_and_needs_edit_insert_review_only(self):
@@ -148,6 +153,24 @@ class ReviewStorageTests(unittest.TestCase):
         self.assertEqual(report.needs_edit, 3)
         sql_text = "\n".join(sql for sql, _ in cursor.executed)
         self.assertIn("actionability_gate", sql_text)
+        self.assertIn("visa_sponsorship_evidence_verified", sql_text)
+
+    def test_job_review_filter_requires_yes_evidence_and_deterministic_verification(self):
+        cursor = FakeCursor([])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            load_review_queue(limit=10)
+        sql, _ = cursor.executed[0]
+        self.assertIn("ai.structured_data ->> 'visa_sponsorship' = 'YES'", sql)
+        self.assertIn("ai.structured_data ->> 'visa_sponsorship_evidence'", sql)
+        self.assertIn("ai.structured_data ->> 'visa_sponsorship_evidence_verified' = 'true'", sql)
+        self.assertNotIn("relocation_support", sql)
+        self.assertNotIn("apply_from_outside_spain", sql)
+
+    def test_non_job_review_candidates_remain_eligible(self):
+        cursor = FakeCursor([queue_row(primary_category="legal")])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            rows = load_review_queue(limit=10)
+        self.assertEqual([row.classification.primary_category for row in rows], ["legal"])
 
 
 if __name__ == "__main__":
