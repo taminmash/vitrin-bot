@@ -3,10 +3,19 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
+from config_v2 import (
+    HOME_BUTTON,
+    MENU_CREATE_HAYAT,
+    MENU_CREATE_VITRIN,
+    MENU_HELP,
+    MENU_PROFILE,
+    MENU_RADAR,
+    MENU_SETTINGS,
+    MENU_VIP,
+)
 from database.db import count_today_dashboard_items, get_or_create_user
 
 
@@ -19,10 +28,6 @@ SEASONAL_BANNERS = {
     "winter": Path("assets/winter.png"),
 }
 
-MENU_RADAR = "📡 رادار اسپانیا"
-MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
-MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس حیاط خلوت"
-
 DEMO_DASHBOARD_COUNTS = {
     "jobs": 3,
     "discounts": 5,
@@ -31,18 +36,28 @@ DEMO_DASHBOARD_COUNTS = {
     "alerts": 1,
 }
 
-MAIN_MENU = InlineKeyboardMarkup(
+MAIN_MENU = ReplyKeyboardMarkup(
     [
         [
-            InlineKeyboardButton(MENU_CREATE_VITRIN_DASHBOARD, callback_data="home:create_vitrin"),
-            InlineKeyboardButton(MENU_CREATE_HAYAT_DASHBOARD, callback_data="home:create_hayat"),
+            KeyboardButton(HOME_BUTTON),
+            KeyboardButton(MENU_RADAR),
         ],
-        [InlineKeyboardButton(MENU_RADAR, callback_data="radar:open")],
         [
-            InlineKeyboardButton(MENU_HELP, callback_data="home:help"),
-            InlineKeyboardButton(MENU_PROFILE, callback_data="home:profile"),
+            KeyboardButton(MENU_CREATE_VITRIN),
+            KeyboardButton(MENU_CREATE_HAYAT),
         ],
-    ]
+        [
+            KeyboardButton(MENU_PROFILE),
+            KeyboardButton(MENU_VIP),
+        ],
+        [
+            KeyboardButton(MENU_SETTINGS),
+            KeyboardButton(MENU_HELP),
+        ],
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=False,
+    is_persistent=True,
 )
 
 

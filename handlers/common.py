@@ -155,7 +155,7 @@ def need_edit_keyboard(content):
         [
             [InlineKeyboardButton("✏️ ویرایش آگهی", callback_data=f"draft:edit:{content['human_id']}")],
             [InlineKeyboardButton("🗑 حذف آگهی", callback_data=f"draft:archive:{content['human_id']}")],
-            [InlineKeyboardButton("🏠 منوی اصلی", callback_data=f"draft:home:{content['human_id']}")],
+            [InlineKeyboardButton("🏠 صفحه اصلی", callback_data=f"draft:home:{content['human_id']}")],
         ]
     )
 
