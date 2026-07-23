@@ -24,7 +24,18 @@ from handlers.language_lessons import (
     language_lesson_discussion_mapping_handler,
     language_lesson_feedback_handler,
 )
-from handlers.menu import menu_handler
+from handlers.menu import (
+    anonymous_command,
+    create_ad_command,
+    help_command,
+    home_command,
+    menu_handler,
+    profile_command,
+    radar_command,
+    set_public_bot_commands,
+    settings_command,
+    vip_command,
+)
 from handlers.post_create import draft_callback, post_handler, published_callback, user_post_callback
 from handlers.profile import profile_handler
 from handlers.radar import radar_callback, radar_feedback_callback
@@ -49,6 +60,10 @@ async def error_handler(update, context):
     if update and update.effective_chat:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=FRIENDLY_ERROR)
 
+async def post_init(application):
+    await set_public_bot_commands(application)
+    await start_radar_scheduler(application)
+
 
 def main():
     if not BOT_TOKEN:
@@ -59,12 +74,20 @@ def main():
     app = (
         Application.builder()
         .token(BOT_TOKEN)
-        .post_init(start_radar_scheduler)
+        .post_init(post_init)
         .post_shutdown(stop_radar_scheduler)
         .build()
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("home", home_command))
+    app.add_handler(CommandHandler("radar", radar_command))
+    app.add_handler(CommandHandler("create_ad", create_ad_command))
+    app.add_handler(CommandHandler("anonymous", anonymous_command))
+    app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("vip", vip_command))
+    app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("cancel", cancel_language_lesson_feedback))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("radar_status", radar_status_command))

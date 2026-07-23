@@ -1,4 +1,4 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config_v2 import (
@@ -40,6 +40,58 @@ async def send_placeholder(update: Update, title: str):
     await update.message.reply_text(
         f"{title}\n\nاین بخش در حال توسعه است.",
         reply_markup=PLACEHOLDER_BACK_KEYBOARD,
+    )
+
+PUBLIC_BOT_COMMANDS = [
+    BotCommand("home", HOME_BUTTON),
+    BotCommand("radar", MENU_RADAR),
+    BotCommand("create_ad", MENU_CREATE_VITRIN),
+    BotCommand("anonymous", MENU_CREATE_HAYAT),
+    BotCommand("profile", MENU_PROFILE),
+    BotCommand("vip", MENU_VIP),
+    BotCommand("settings", MENU_SETTINGS),
+    BotCommand("help", MENU_HELP),
+]
+
+
+async def set_public_bot_commands(application):
+    await application.bot.set_my_commands(PUBLIC_BOT_COMMANDS)
+
+
+async def home_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await send_home_dashboard(update)
+
+
+async def radar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(radar_overview_text(), reply_markup=radar_keyboard())
+
+
+async def create_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await start_post(update, context, post_type="vitrin")
+
+
+async def anonymous_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await start_hayat_post(update, context)
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await profile_start(update, context)
+
+
+async def vip_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_placeholder(update, MENU_VIP)
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_placeholder(update, MENU_SETTINGS)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        HELP_TEXT,
+        reply_markup=MAIN_MENU,
+        disable_web_page_preview=True,
     )
 
 
