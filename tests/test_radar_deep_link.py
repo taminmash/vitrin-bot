@@ -7,7 +7,12 @@ from handlers.radar import details_keyboard, open_radar_deep_link
 
 class RadarDeepLinkTests(unittest.IsolatedAsyncioTestCase):
     async def test_job_deep_link_opens_exact_full_detail_immediately(self):
-        item = {"id": "job-123", "type": "job", "structured_data": {"category": "job"}}
+        item = {
+            "id": "job-123",
+            "type": "job",
+            "source_url": "https://example.com/jobs/123",
+            "structured_data": {"category": "job"},
+        }
         update = SimpleNamespace(message=object())
         with (
             patch("handlers.radar.get_active_or_demo_radar_item", return_value=item) as loader,
@@ -47,7 +52,12 @@ class RadarDeepLinkTests(unittest.IsolatedAsyncioTestCase):
         details.assert_awaited_once_with(update.message, item)
 
     def test_job_detail_keyboard_keeps_share_and_standard_navigation(self):
-        item = {"id": "job-123", "type": "job", "structured_data": {"category": "job"}}
+        item = {
+            "id": "job-123",
+            "type": "job",
+            "source_url": "https://example.com/jobs/123",
+            "structured_data": {"category": "job"},
+        }
         with (
             patch("handlers.radar.BOT_USERNAME", "VitrinSpainBot"),
             patch("handlers.radar.CHANNEL_VITRIN_LINK", None),
@@ -57,13 +67,13 @@ class RadarDeepLinkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [button.text for button in buttons],
             [
-                "↩️ بازگشت به ویترین",
+                "🌐 مشاهده آگهی اصلی",
                 "📤 اشتراک‌گذاری",
-                "⬅️ بازگشت به صفحه قبلی",
-                "🏠 بازگشت به صفحه اصلی",
+                "⬅️ صفحه قبل",
+                "🏠 خانه",
             ],
         )
-        self.assertEqual(buttons[0].url, "https://t.me/VitrinSpainBot?start=radar_job-123")
+        self.assertEqual(buttons[0].url, "https://example.com/jobs/123")
         self.assertEqual(buttons[1].switch_inline_query, "https://t.me/VitrinSpainBot?start=radar_job-123")
         self.assertEqual(buttons[2].callback_data, "radar:item:job-123")
         self.assertEqual(buttons[3].callback_data, "radar:home")

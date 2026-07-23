@@ -6,7 +6,7 @@ from radar_engine.job_sponsorship import has_verified_sponsorship
 
 
 JOB_STRUCTURED_METADATA_KEY = "job_structured"
-VERIFIED_SPONSORSHIP_BADGE = "🔥 فرصت ویزا اسپانسرشیپی"
+VERIFIED_SPONSORSHIP_BADGE = "🔥 دارای اسپانسرشیپ ویزا"
 UNKNOWN_STATUS_TEXT = "➖ اعلام نشده"
 JOB_HELP_TEXT = (
     "✨ نیاز به کمک برای ارسال درخواست؟\n\n"
@@ -35,15 +35,6 @@ FIELD_LABELS = (
     ("why_it_matters", "⭐ چرا این فرصت مهم است؟"),
     ("source_url", "🔗 منبع"),
 )
-
-DETAIL_FIELD_LABELS = (
-    ("full_description", "📝 توضیحات کامل"),
-    ("duties", "📋 وظایف"),
-    ("education", "🎓 تحصیلات"),
-    ("remote_status", "🏠 وضعیت دورکاری"),
-    ("source_name", "🏷 نام منبع"),
-)
-
 
 def clean_structured_data(value) -> dict:
     return dict(value) if isinstance(value, dict) else {}
@@ -156,69 +147,83 @@ def job_card(structured_data, *, fallback=None, compact: bool = False) -> str:
     return "\n\n".join(block for block in blocks if block)
 
 
-def _concise_requirements(data: dict) -> str:
-    raw_requirements = data.get("requirements")
-    if isinstance(raw_requirements, (list, tuple)):
-        parts = [str(part).strip() for part in raw_requirements if str(part).strip()]
-    else:
-        text = str(raw_requirements or "").strip()
-        parts = [text] if text and text.upper() != "UNKNOWN" else []
-    if parts:
-        return " • ".join(parts[:2])[:240].rstrip()
-    for key in ("language_level", "requirements_or_language", "language_requirement", "required_language"):
-        value = _display_value(key, data.get(key))
-        if value:
-            return value[:240].rstrip()
-    return "ذکر نشده"
-
-
 def job_channel_card(structured_data, *, fallback=None) -> str:
     data = clean_structured_data(structured_data)
     fallback = clean_structured_data(fallback)
     merged = {**fallback, **{key: value for key, value in data.items() if value not in (None, "", [])}}
     title = _presented_job_title(data, fallback)
     city = _display_value("city", merged.get("city")) or "نامشخص"
-    contract_type = _display_value("contract_type", merged.get("contract_type")) or "نامشخص"
-    requirements = _concise_requirements(merged)
-    employer = _display_value("employer", merged.get("employer"))
-    salary = _display_value("salary", merged.get("salary"))
-    sponsorship = _display_value("visa_sponsorship", merged.get("visa_sponsorship"))
-    relocation = _display_value("relocation_support", merged.get("relocation_support"))
-    apply_from_abroad = _display_value("apply_from_outside_spain", merged.get("apply_from_outside_spain"))
-    why_it_matters = _display_value("why_it_matters", merged.get("why_it_matters"))
-    blocks = [*_header_blocks(data), f"💼 عنوان شغل\n{title}"]
-    if employer:
-        blocks.append(f"🏢 کارفرما\n{employer}")
-    blocks.extend(
-        (
-            f"📍 شهر\n{city}",
-            f"🛂 Visa Sponsorship\n{sponsorship}",
-            f"✈️ Relocation Support\n{relocation}",
-            f"🌍 امکان اقدام از خارج اسپانیا\n{apply_from_abroad}",
-        )
-    )
-    if salary:
-        blocks.append(f"💶 حقوق\n{salary}")
-    blocks.extend(
-        (
-            f"📄 نوع قرارداد\n{contract_type}",
-            f"🗣 پیش‌نیازها / زبان موردنیاز\n{requirements}",
-        )
-    )
-    if why_it_matters:
-        blocks.append(f"⭐ چرا این فرصت مهم است؟\n{why_it_matters}")
-    return "\n\n".join(blocks)
+    lines = [f"💼 {title}", f"📍 {city}"]
+    if has_verified_sponsorship(data):
+        lines.append(VERIFIED_SPONSORSHIP_BADGE)
+    return "\n\n".join(lines)
+
+
+def _localized_work_mode(value) -> str | None:
+    text = _display_value("remote_status", value)
+    if not text:
+        return None
+    normalized = text.casefold().replace("_", " ").replace("-", " ")
+    translations = {
+        "remote": "دورکاری",
+        "fully remote": "دورکاری",
+        "remoto": "دورکاری",
+        "hybrid": "ترکیبی",
+        "híbrido": "ترکیبی",
+        "hibrido": "ترکیبی",
+        "on site": "حضوری",
+        "onsite": "حضوری",
+        "presencial": "حضوری",
+    }
+    return translations.get(normalized, text)
+
+
+def _requirements_list(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value or "").strip()
+    if not text or text.upper() == "UNKNOWN":
+        return []
+    return [part.strip(" •-\t") for part in text.splitlines() if part.strip(" •-\t")]
 
 
 def job_detail_card(structured_data, *, fallback=None) -> str:
     data = clean_structured_data(structured_data)
     fallback = clean_structured_data(fallback)
     merged = {**fallback, **{key: value for key, value in data.items() if value not in (None, "", [])}}
-    if not merged.get("full_description"):
-        merged["full_description"] = merged.get("description")
-    blocks = [job_card(data, fallback=fallback)]
-    for key, label in DETAIL_FIELD_LABELS:
-        displayed = _display_value(key, merged.get(key))
-        if displayed:
-            blocks.append(f"{label}\n{displayed}")
+    title = _presented_job_title(data, fallback)
+    employer = _display_value("employer", merged.get("employer"))
+    city = _display_value("city", merged.get("city")) or "نامشخص"
+    salary = _display_value("salary", merged.get("salary"))
+    work_mode = _localized_work_mode(
+        merged.get("remote_status") or merged.get("work_arrangement") or merged.get("workplace_type")
+    )
+    description = None
+    for key in ("full_text_fa", "full_description_fa", "description_fa", "full_description", "description"):
+        description = _display_value(key, merged.get(key))
+        if description:
+            break
+    requirements = _requirements_list(merged.get("requirements"))
+    deadline = _display_value("deadline", merged.get("deadline"))
+    source = _display_value("source_name", merged.get("source_name"))
+
+    blocks = [f"💼 {title}"]
+    if employer:
+        blocks.append(f"🏢 {employer}")
+    blocks.append(f"📍 {city}")
+    if has_verified_sponsorship(data):
+        blocks.append(VERIFIED_SPONSORSHIP_BADGE)
+    if salary:
+        blocks.append(f"💶 حقوق\n{salary}")
+    if work_mode:
+        blocks.append(f"🏠 نوع همکاری\n{work_mode}")
+    if description:
+        blocks.extend(("━━━━━━━━━━━━━━", f"📝 توضیحات\n\n{description}"))
+    if requirements:
+        skills = "\n".join(f"• {requirement}" for requirement in requirements)
+        blocks.extend(("━━━━━━━━━━━━━━", f"🎯 مهارت‌های موردنیاز\n\n{skills}"))
+    if deadline:
+        blocks.extend(("━━━━━━━━━━━━━━", f"📅 مهلت ارسال درخواست\n{deadline}"))
+    if source:
+        blocks.extend(("━━━━━━━━━━━━━━", f"🔗 منبع\n{source}"))
     return "\n\n".join(blocks)

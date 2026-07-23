@@ -116,7 +116,7 @@ class JobExpirationPolicyTests(unittest.TestCase):
         self.assertIn("معمار", text)
         self.assertNotIn("نیاز به کمک برای ارسال درخواست", text)
 
-    def test_active_channel_dates_and_short_deadline_warning(self):
+    def test_active_overview_hides_dates_while_detail_keeps_deadline_warning(self):
         now = datetime.now(MADRID_TZ)
         deadline = now + timedelta(days=2)
         item = job_item(
@@ -127,8 +127,9 @@ class JobExpirationPolicyTests(unittest.TestCase):
         )
         channel = render_channel_post(item)
         detail = render_details_page(item)
-        self.assertIn("📅 تاریخ انتشار", channel)
-        self.assertIn("⏳ مهلت ارسال درخواست", channel)
+        self.assertNotIn("📅 تاریخ انتشار", channel)
+        self.assertNotIn("مهلت ارسال درخواست", channel)
+        self.assertIn("📅 مهلت ارسال درخواست", detail)
         self.assertIn("⚠️ تنها 2 روز تا پایان مهلت", detail)
 
 
