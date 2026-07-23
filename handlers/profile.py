@@ -52,7 +52,7 @@ async def profile_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     published_count = counts.get("published", 0)
 
     await update.message.reply_text(
-        "👤 پروفایل من\n\n"
+        "👤 پروفایل\n\n"
         "شناسه کاربری:\n"
         f"{user.get('human_id') or '-'}\n\n"
         "📊 وضعیت حساب:\n"

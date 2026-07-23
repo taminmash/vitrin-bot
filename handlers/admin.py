@@ -12,7 +12,7 @@ from telegram import (
 from telegram.error import BadRequest
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
-from config_v2 import ADMIN_IDS, BACK_BUTTON, CHANNEL_HAYAT, CHANNEL_VITRIN, HOME_BUTTON, TECH_SUPPORT_IDS
+from config_v2 import ADMIN_IDS, BACK_BUTTON, CHANNEL_HAYAT, CHANNEL_VITRIN, TECH_SUPPORT_IDS
 from database.db import (
     create_radar_item,
     count_radar_reactions,
@@ -74,7 +74,7 @@ ADMIN_USERS_MANAGE = "👥 مدیریت کاربران"
 ADMIN_PENDING = "📝 مدیریت محتواهای در انتظار"
 ADMIN_COMMENTS = "💬 مدیریت کامنت‌ها"
 ADMIN_REPORTS = "🚨 گزارش‌ها"
-ADMIN_HOME = HOME_BUTTON
+ADMIN_HOME = "🏠 بازگشت به صفحه اصلی"
 ADMIN_RADAR_BACK = BACK_BUTTON
 ADMIN_RADAR = "📡 انتشار رادار"
 ADMIN_RADAR_NEW = "➕ محتوای جدید"
@@ -264,7 +264,7 @@ def admin_panel_inline_keyboard():
                 InlineKeyboardButton(ADMIN_COMMENTS, callback_data="admin:panel:comments"),
                 InlineKeyboardButton("🚨 مدیریت گزارشات", callback_data="admin:panel:reports"),
             ],
-            [InlineKeyboardButton(HOME_BUTTON, callback_data="admin:panel:home")],
+            [InlineKeyboardButton(ADMIN_HOME, callback_data="admin:panel:home")],
         ]
     )
 
@@ -285,7 +285,7 @@ def admin_radar_menu_keyboard():
             [InlineKeyboardButton(ADMIN_RADAR_SOURCES, callback_data="admin_radar:menu:sources")],
             [
                 InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:menu:admin"),
-                InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home"),
+                InlineKeyboardButton(ADMIN_HOME, callback_data="admin_radar:menu:home"),
             ],
         ]
     )
@@ -650,7 +650,7 @@ def radar_item_result_keyboard(item_id):
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(BACK_BUTTON, callback_data=f"admin_radar:item:{item_id}")],
-            [InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home")],
+            [InlineKeyboardButton(ADMIN_HOME, callback_data="admin_radar:menu:home")],
         ]
     )
 
@@ -747,7 +747,7 @@ def radar_item_preview_keyboard(item):
             [InlineKeyboardButton("🔄 بروزرسانی دکمه‌های کانال", callback_data=f"admin_radar:refresh_buttons:{item['id']}")]
         )
     rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:list")])
-    rows.append([InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home")])
+    rows.append([InlineKeyboardButton(ADMIN_HOME, callback_data="admin_radar:menu:home")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -813,7 +813,7 @@ def approved_radar_decision_keyboard(candidate_id):
     if wait_callback:
         rows.append([InlineKeyboardButton("⏳ انتقال به انتظار انتشار", callback_data=wait_callback)])
     rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")])
-    rows.append([InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home")])
+    rows.append([InlineKeyboardButton(ADMIN_HOME, callback_data="admin_radar:menu:home")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -822,7 +822,7 @@ def approved_radar_result_keyboard(candidate_id):
     rows = []
     if decision_callback:
         rows.append([InlineKeyboardButton(BACK_BUTTON, callback_data=decision_callback)])
-    rows.append([InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home")])
+    rows.append([InlineKeyboardButton(ADMIN_HOME, callback_data="admin_radar:menu:home")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -1256,7 +1256,7 @@ async def admin_radar_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [InlineKeyboardButton(BACK_BUTTON, callback_data="admin_radar:review:list")],
-                        [InlineKeyboardButton(HOME_BUTTON, callback_data="admin_radar:menu:home")],
+                        [InlineKeyboardButton(ADMIN_HOME, callback_data="admin_radar:menu:home")],
                     ]
                 ),
             )

@@ -7,18 +7,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TelegramUIUXTests(unittest.TestCase):
-    def test_main_menu_uses_expected_existing_callback_routes(self):
-        text = (ROOT / "handlers" / "start.py").read_text(encoding="utf-8")
-        expected = {
-            "💬 پیام ناشناس": "home:create_hayat",
-            "➕ ثبت آگهی": "home:create_vitrin",
-            "📡 رادار": "radar:open",
-            "👤 پروفایل من": "home:profile",
-            "ℹ️ راهنما": "home:help",
-            "🛟 پشتیبانی": "home:support",
-        }
-        for label, callback in expected.items():
-            self.assertIn(f'InlineKeyboardButton("{label}", callback_data="{callback}")', text)
+    def test_main_menu_uses_persistent_reply_keyboard_navigation(self):
+        start_text = (ROOT / "handlers" / "start.py").read_text(encoding="utf-8")
+        config_text = (ROOT / "config_v2.py").read_text(encoding="utf-8")
+        for constant, label in (
+            ("HOME_BUTTON", "🏠 صفحه اصلی"),
+            ("MENU_RADAR", "📡 رادار"),
+            ("MENU_CREATE_VITRIN", "➕ ثبت آگهی"),
+            ("MENU_CREATE_HAYAT", "💬 پیام ناشناس"),
+            ("MENU_PROFILE", "👤 پروفایل"),
+            ("MENU_VIP", "⭐ اشتراک VIP"),
+            ("MENU_SETTINGS", "⚙️ تنظیمات"),
+            ("MENU_HELP", "ℹ️ راهنما"),
+        ):
+            self.assertIn(f'{constant} = "{label}"', config_text)
+            self.assertIn(f"KeyboardButton({constant})", start_text)
+        self.assertIn("MAIN_MENU = ReplyKeyboardMarkup(", start_text)
+        self.assertIn("is_persistent=True", start_text)
 
     def test_radar_categories_use_registered_radar_callbacks(self):
         text = (ROOT / "handlers" / "radar.py").read_text(encoding="utf-8")
@@ -38,8 +43,8 @@ class TelegramUIUXTests(unittest.TestCase):
         text = (ROOT / "handlers" / "start.py").read_text(encoding="utf-8")
         for expected in (
             "📅 تاریخ میلادی:", "🗓 تاریخ شمسی:", "🇪🇸 ساعت اسپانیا:",
-            "🇮🇷 ساعت ایران:", "💶 قیمت یورو: در دسترس نیست",
-            "💵 قیمت دلار: در دسترس نیست", 'ZoneInfo("Asia/Tehran")',
+            "🇮🇷 ساعت ایران:", 'euro_text = "موقتاً در دسترس نیست"',
+            'dollar_text = "موقتاً در دسترس نیست"', 'ZoneInfo("Asia/Tehran")',
         ):
             self.assertIn(expected, text)
         self.assertNotIn("DEMO_DASHBOARD_COUNTS", text)

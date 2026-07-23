@@ -6,9 +6,19 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from config_v2 import (
+    HOME_BUTTON,
+    MENU_CREATE_HAYAT,
+    MENU_CREATE_VITRIN,
+    MENU_HELP,
+    MENU_PROFILE,
+    MENU_RADAR,
+    MENU_SETTINGS,
+    MENU_VIP,
+)
 from database.db import get_or_create_user, user_exists
 from handlers.language_lessons import begin_lesson_feedback, feedback_prompt, parse_lesson_callback
 
@@ -22,10 +32,6 @@ SEASONAL_BANNERS = {
     "winter": Path("assets/winter.png"),
 }
 
-MENU_RADAR = "📡 اخبار اختصاصی شما"
-MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
-MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس در حیات خلوت"
-
 EXCHANGE_RATE_URLS = {
     "EUR": "https://api.frankfurter.dev/v2/rate/EUR/IRR",
     "USD": "https://api.frankfurter.dev/v2/rate/USD/IRR",
@@ -37,17 +43,28 @@ _exchange_rate_cache = {
     "rates": None,
 }
 
-MAIN_MENU = InlineKeyboardMarkup(
+MAIN_MENU = ReplyKeyboardMarkup(
     [
-        [InlineKeyboardButton(MENU_RADAR, callback_data="radar:open")],
-        [InlineKeyboardButton(MENU_CREATE_VITRIN_DASHBOARD, callback_data="home:create_vitrin")],
-        [InlineKeyboardButton(MENU_CREATE_HAYAT_DASHBOARD, callback_data="home:create_hayat")],
-        [InlineKeyboardButton("👤 پروفایل من", callback_data="home:profile")],
         [
-            InlineKeyboardButton("ℹ️ راهنما", callback_data="home:help"),
-            InlineKeyboardButton("🛟 پشتیبانی", callback_data="home:support"),
+            KeyboardButton(HOME_BUTTON),
+            KeyboardButton(MENU_RADAR),
         ],
-    ]
+        [
+            KeyboardButton(MENU_CREATE_VITRIN),
+            KeyboardButton(MENU_CREATE_HAYAT),
+        ],
+        [
+            KeyboardButton(MENU_PROFILE),
+            KeyboardButton(MENU_VIP),
+        ],
+        [
+            KeyboardButton(MENU_SETTINGS),
+            KeyboardButton(MENU_HELP),
+        ],
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=False,
+    is_persistent=True,
 )
 
 PERSIAN_DIGITS = str.maketrans("0123456789,", "۰۱۲۳۴۵۶۷۸۹٬")

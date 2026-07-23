@@ -53,7 +53,7 @@ class PublicationAdminStaticTests(unittest.TestCase):
         self.assertIn('safe_review_callback_data("p", candidate_id)', admin_text)
         self.assertIn('publish_radar_item(context, item, published_by=query.from_user.id)', admin_text)
         self.assertIn("BACK_BUTTON", admin_text)
-        self.assertIn("HOME_BUTTON", admin_text)
+        self.assertIn("ADMIN_HOME", admin_text)
         for forbidden in (
             'InlineKeyboardButton("⬅️ بازگشت',
             'InlineKeyboardButton("↩️ بازگشت',

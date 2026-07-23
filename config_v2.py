@@ -32,10 +32,13 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "VitrinSpainBot")
 PROJECT_NAME = "ویترین اسپانیا"
 
 BACK_BUTTON = "⬅️ بازگشت به صفحه قبلی"
-HOME_BUTTON = "🏠 بازگشت به صفحه اصلی"
-MENU_CREATE_VITRIN = "🟡 ثبت آگهی در ویترین"
-MENU_CREATE_HAYAT = "🟣 ثبت پیام در حیاط خلوت"
-MENU_PROFILE = "👤 پروفایل من"
+HOME_BUTTON = "🏠 صفحه اصلی"
+MENU_RADAR = "📡 رادار"
+MENU_CREATE_VITRIN = "➕ ثبت آگهی"
+MENU_CREATE_HAYAT = "💬 پیام ناشناس"
+MENU_PROFILE = "👤 پروفایل"
+MENU_VIP = "⭐ اشتراک VIP"
+MENU_SETTINGS = "⚙️ تنظیمات"
 MENU_HELP = "ℹ️ راهنما"
 
 WELCOME_TEXT = (

@@ -1,26 +1,46 @@
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import HOME_BUTTON, MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
+from config_v2 import (
+    HOME_BUTTON,
+    MENU_CREATE_HAYAT,
+    MENU_CREATE_VITRIN,
+    MENU_HELP,
+    MENU_PROFILE,
+    MENU_RADAR,
+    MENU_SETTINGS,
+    MENU_VIP,
+)
 from handlers.post_create import start_hayat_post, start_post
 from handlers.profile import profile_start
 from handlers.radar import radar_keyboard, radar_overview_text
-from handlers.start import MAIN_MENU, MENU_RADAR, send_home_dashboard
+from handlers.start import MAIN_MENU, send_home_dashboard
 
 
 HELP_TEXT = (
     "ℹ️ راهنمای ویترین اسپانیا\n\n"
-    "🟡 ثبت آگهی در ویترین:\n"
-    "برای ثبت آگهی، روی دکمه «ثبت آگهی در ویترین» بزنید و مراحل را کامل کنید.\n\n"
-    "🟣 پیام ناشناس حیاط خلوت:\n"
-    "برای ارسال پیام ناشناس، روی دکمه «پیام ناشناس حیاط خلوت» بزنید.\n\n"
-    "👤 پروفایل من:\n"
+    "➕ ثبت آگهی:\n"
+    "برای ثبت آگهی، روی دکمه «➕ ثبت آگهی» بزنید و مراحل را کامل کنید.\n\n"
+    "💬 پیام ناشناس:\n"
+    "برای ارسال پیام ناشناس، روی دکمه «💬 پیام ناشناس» بزنید.\n\n"
+    "👤 پروفایل:\n"
     "برای دیدن آگهی‌ها، پیش‌نویس‌ها و وضعیت ارسال‌ها.\n\n"
-    "📡 رادار اسپانیا:\n"
+    "📡 رادار:\n"
     "برای دیدن هشدارها، تخفیف‌ها، رویدادها، کار، قوانین و خبرهای کاربردی روز.\n\n"
     "🆘 پشتیبانی:\n"
     "@VitrinSpainAdmin"
 )
+
+PLACEHOLDER_BACK_KEYBOARD = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("🏠 صفحه اصلی", callback_data="home:dashboard")]]
+)
+
+
+async def send_placeholder(update: Update, title: str):
+    await update.message.reply_text(
+        f"{title}\n\nاین بخش در حال توسعه است.",
+        reply_markup=PLACEHOLDER_BACK_KEYBOARD,
+    )
 
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,3 +83,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=MAIN_MENU,
             disable_web_page_preview=True,
         )
+        return
+
+    if text == MENU_VIP:
+        await send_placeholder(update, "⭐ اشتراک VIP")
+        return
+
+    if text == MENU_SETTINGS:
+        await send_placeholder(update, "⚙️ تنظیمات")
