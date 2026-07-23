@@ -138,15 +138,18 @@ def build_welcome_text(now, first_name=None, exchange_rates=None, rate_date=None
     iran_now = now.astimezone(ZoneInfo("Asia/Tehran"))
     jalali = gregorian_to_jalali(now.year, now.month, now.day)
     display_name = (first_name or "کاربر").strip()
+    updated_at = now.strftime("%H:%M")
 
     if exchange_rates:
         euro_text = format_toman_rate(exchange_rates["EUR"])
         dollar_text = format_toman_rate(exchange_rates["USD"])
-        rate_note = f"\n📌 نرخ مرجع بین‌المللی{f' — {rate_date}' if rate_date else ''}"
+        source_suffix = " (مرجع بین‌المللی Frankfurter)"
+        rate_date_text = f"\n📌 تاریخ نرخ مرجع: {rate_date}" if rate_date else ""
     else:
         euro_text = "موقتاً در دسترس نیست"
         dollar_text = "موقتاً در دسترس نیست"
-        rate_note = ""
+        source_suffix = ""
+        rate_date_text = ""
 
     return (
         f"درود، {display_name} 👋\n\n"
@@ -154,13 +157,14 @@ def build_welcome_text(now, first_name=None, exchange_rates=None, rate_date=None
         f"🗓 تاریخ شمسی: {jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}\n\n"
         f"🇪🇸 ساعت اسپانیا: {now:%H:%M}\n"
         f"🇮🇷 ساعت ایران: {iran_now:%H:%M}\n\n"
-        f"💶 قیمت یورو: {euro_text}\n"
-        f"💵 قیمت دلار: {dollar_text}"
-        f"{rate_note}\n\n"
+        f"💶 قیمت یورو{source_suffix}: {euro_text}\n"
+        f"💵 قیمت دلار{source_suffix}: {dollar_text}"
+        f"{rate_date_text}\n\n"
         "──────────────\n\n"
         "👤 با تکمیل پروفایل، اخبار، فرصت‌های شغلی، تخفیف‌ها و پیشنهادهای اختصاصی متناسب با شرایط شما برایتان انتخاب و نمایش داده می‌شود.\n\n"
         "✨ ما همچنان در حال توسعه و رفع اشکال ربات هستیم.\n"
-        "از همراهی و شکیبایی شما صمیمانه سپاسگزاریم. ✨"
+        "از همراهی و شکیبایی شما صمیمانه سپاسگزاریم. ✨\n\n"
+        f"🕒 آخرین بروزرسانی: {updated_at} به وقت اسپانیا"
     )
 
 
