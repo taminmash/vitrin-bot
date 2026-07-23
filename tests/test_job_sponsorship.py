@@ -3,6 +3,7 @@ import unittest
 from radar_engine.job_sponsorship import (
     apply_sponsorship_verification,
     evidence_matches_original,
+    has_explicit_support_statement,
     has_verified_sponsorship,
     normalize_sponsorship_value,
 )
@@ -71,12 +72,35 @@ class JobSponsorshipTests(unittest.TestCase):
                 )
                 self.assertFalse(has_verified_sponsorship(structured))
 
-    def test_matching_normalizes_unicode_case_and_whitespace_only(self):
+    def test_title_body_boundary_cannot_create_synthetic_match(self):
+        self.assertFalse(
+            evidence_matches_original(
+                "We provide complete work visa sponsorship support.",
+                "We provide complete work",
+                "visa sponsorship support.",
+            )
+        )
+
+    def test_trivial_and_generic_evidence_is_rejected(self):
+        for evidence in ("visa", "sponsorship", "work permit"):
+            with self.subTest(evidence=evidence):
+                self.assertFalse(has_explicit_support_statement(evidence))
+                self.assertFalse(evidence_matches_original(evidence, evidence, evidence))
+
+    def test_explicit_english_sponsorship_sentence_is_accepted(self):
+        evidence = "We provide work visa sponsorship for successful candidates."
+        self.assertTrue(evidence_matches_original(evidence, "Engineer", f"Benefits: {evidence} Apply now."))
+
+    def test_explicit_spanish_work_permit_support_sentence_is_accepted(self):
+        evidence = "La empresa ofrece apoyo para tramitar el permiso de trabajo."
+        self.assertTrue(evidence_matches_original(evidence, "Ingeniero", f"Beneficios: {evidence}"))
+
+    def test_matching_normalizes_unicode_case_and_whitespace(self):
         self.assertTrue(
             evidence_matches_original(
-                "WORK VISA   SPONSORSHIP",
+                "WE OFFER WORK VISA   SPONSORSHIP TO THE SELECTED CANDIDATE.",
                 "Senior Engineer",
-                "We offer work visa sponsorship to the selected candidate.",
+                "We offer work visa\u00a0sponsorship to the selected candidate.",
             )
         )
         self.assertFalse(

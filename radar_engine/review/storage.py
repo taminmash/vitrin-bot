@@ -10,9 +10,18 @@ from radar_engine.review.models import (
 )
 
 
-REVIEW_ELIGIBILITY_SQL = """
+JOB_DETECTION_SQL = """
     (
-        cls.primary_category <> 'job'
+        LOWER(COALESCE(cls.primary_category, '')) = 'job'
+        OR LOWER(COALESCE(ai.structured_data ->> 'category', '')) = 'job'
+        OR LOWER(COALESCE(c.source_category, '')) IN ('job', 'jobs')
+        OR LOWER(COALESCE(c.metadata ->> 'content_type', '')) = 'job'
+    )
+"""
+
+REVIEW_ELIGIBILITY_SQL = f"""
+    (
+        NOT {JOB_DETECTION_SQL}
         OR (
             ai.structured_data ->> 'visa_sponsorship' = 'YES'
             AND NULLIF(BTRIM(ai.structured_data ->> 'visa_sponsorship_evidence'), '') IS NOT NULL

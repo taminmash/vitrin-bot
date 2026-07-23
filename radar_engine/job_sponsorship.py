@@ -10,6 +10,25 @@ SPONSORSHIP_NO = "NO"
 SPONSORSHIP_UNKNOWN = "UNKNOWN"
 SPONSORSHIP_VALUES = (SPONSORSHIP_YES, SPONSORSHIP_NO, SPONSORSHIP_UNKNOWN)
 SPONSORSHIP_EVIDENCE_VERIFIED_KEY = "visa_sponsorship_evidence_verified"
+MIN_EVIDENCE_LENGTH = 20
+MIN_EVIDENCE_TOKENS = 4
+
+EXPLICIT_SUPPORT_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(?:work )?visa sponsorship\b",
+        r"\bsponsor(?:s|ed|ing)?\b.{0,50}\b(?:work )?visa\b",
+        r"\b(?:work )?visa\b.{0,50}\bsponsor(?:ship|s|ed|ing)?\b",
+        r"\b(?:provide|provides|provided|offer|offers|offered)\b.{0,50}"
+        r"\b(?:work visa|visa|work permit)\b.{0,30}\b(?:sponsorship|support|assistance)\b",
+        r"\b(?:support|assistance)\b.{0,40}\b(?:work visa|work permit)\b",
+        r"\bpatrocin(?:io|amos|a|ara|ará)\b.{0,50}\b(?:visado|visa|permiso de trabajo)\b",
+        r"\b(?:visado|visa|permiso de trabajo)\b.{0,50}\bpatrocin(?:io|amos|a|ara|ará)\b",
+        r"\b(?:apoyo|asistencia)\b.{0,50}\b(?:visado|visa|permiso de trabajo)\b",
+        r"\b(?:ofrecemos|ofrece|proporcionamos|proporciona|brindamos|brinda)\b.{0,50}"
+        r"\b(?:apoyo|asistencia|patrocinio)\b.{0,50}\b(?:visado|visa|permiso de trabajo)\b",
+    )
+)
 
 
 def normalize_sponsorship_value(value) -> str:
@@ -22,12 +41,21 @@ def normalize_evidence_text(value) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
+def has_explicit_support_statement(evidence) -> bool:
+    normalized = normalize_evidence_text(evidence)
+    tokens = re.findall(r"\b\w+\b", normalized, flags=re.UNICODE)
+    if len(normalized) < MIN_EVIDENCE_LENGTH or len(tokens) < MIN_EVIDENCE_TOKENS:
+        return False
+    return any(pattern.search(normalized) for pattern in EXPLICIT_SUPPORT_PATTERNS)
+
+
 def evidence_matches_original(evidence, title, body) -> bool:
     needle = normalize_evidence_text(evidence)
-    if not needle:
+    if not has_explicit_support_statement(needle):
         return False
-    source = normalize_evidence_text(" ".join(part for part in (title, body) if part))
-    return needle in source
+    title_source = normalize_evidence_text(title)
+    body_source = normalize_evidence_text(body)
+    return needle in title_source or needle in body_source
 
 
 def apply_sponsorship_verification(structured_data: dict, *, title, body) -> dict:

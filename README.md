@@ -430,8 +430,9 @@ constraint prevents duplicate AI results.
 For Job candidates, `visa_sponsorship` uses `YES`, `NO`, or `UNKNOWN`.
 `YES` alone is not sufficient for review. The AI must also return a short
 verbatim `visa_sponsorship_evidence` excerpt copied from the original candidate
-title/body. A deterministic normalization step verifies that the excerpt is
-present in that original text and stores the result in structured JSON.
+title or body. A deterministic normalization step requires a meaningful
+multi-word explicit English/Spanish support statement, matches it against title
+or body independently, and stores the result in structured JSON.
 Relocation, English-friendly work, an international company, suitability for
 foreigners, applying from abroad, and probable sponsorship do not qualify.
 
@@ -503,7 +504,9 @@ step. It loads candidates that already have successful rows in both
 `radar_ai_results` and `radar_ai_classifications`, and have no row yet in
 `radar_reviews`.
 
-Non-Job review eligibility is unchanged. A Job enters this queue only when
+Non-Job review eligibility is unchanged. Review treats classification, AI
+structured category, source category, and candidate content-type metadata as
+independent Job signals so a classification error cannot bypass the gate. A Job enters this queue only when
 `visa_sponsorship = YES`, evidence is present, and deterministic source matching
 succeeded. The evidence excerpt is shown to the admin before a decision. Missing
 or unknown mobility values are displayed as `➖ اعلام نشده`, which remains
