@@ -427,6 +427,14 @@ A successful row in
 `radar_ai_results` is the completion marker; the unique `candidate_id`
 constraint prevents duplicate AI results.
 
+For Job candidates, `visa_sponsorship` uses `YES`, `NO`, or `UNKNOWN`.
+`YES` alone is not sufficient for review. The AI must also return a short
+verbatim `visa_sponsorship_evidence` excerpt copied from the original candidate
+title/body. A deterministic normalization step verifies that the excerpt is
+present in that original text and stores the result in structured JSON.
+Relocation, English-friendly work, an international company, suitability for
+foreigners, applying from abroad, and probable sponsorship do not qualify.
+
 Gemini is the default provider because it supports API-key authentication and
 structured JSON output. The default model is Google's stable Flash-Lite model
 `gemini-2.5-flash-lite`, suitable for high-frequency lightweight
@@ -494,6 +502,17 @@ The admin review stage is the final human review before any future publication
 step. It loads candidates that already have successful rows in both
 `radar_ai_results` and `radar_ai_classifications`, and have no row yet in
 `radar_reviews`.
+
+Non-Job review eligibility is unchanged. A Job enters this queue only when
+`visa_sponsorship = YES`, evidence is present, and deterministic source matching
+succeeded. The evidence excerpt is shown to the admin before a decision. Missing
+or unknown mobility values are displayed as `➖ اعلام نشده`, which remains
+distinct from the explicit negative `❌ ندارد`. Only verified qualifying Jobs
+may display `🔥 فرصت ویزا اسپانسرشیپی`.
+
+Approval does not publish. Approval, promotion to a ready Radar item, and
+explicit channel publication remain separate actions. This phase does not add
+Opportunity Score thresholds or 60/80 publication rules.
 
 Review decisions are stored independently in `radar_reviews` with one row per
 candidate. Allowed statuses are `pending`, `approved`, `rejected`, and

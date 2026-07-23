@@ -65,3 +65,11 @@ Decision records capture repository-supported architectural/product choices. Dat
 - **Context:** Future Codex and developer work must be understandable without prior Local or Cloud conversation history.
 - **Decision:** Maintain project context, architecture, roadmap, known issues, decisions, and contributor instructions in version-controlled repository files.
 - **Consequences:** Every PR must assess documentation impact and update the affected source-of-truth files in the same change.
+
+## ADR-009 — Job Review requires source-verified visa sponsorship
+
+- **Date:** 2026-07-23
+- **Status:** Accepted
+- **Context:** Mobility, English-language, international-employer, and foreigner-suitability signals can be useful but do not prove that an employer will sponsor a visa.
+- **Decision:** Admit a Job to Admin Review only when structured extraction says `visa_sponsorship = YES`, provides a verbatim evidence excerpt, and deterministic normalization matches the excerpt against the original candidate title/body. `NO`, `UNKNOWN`, probable support, and indirect signals do not qualify.
+- **Consequences:** The rule is an additive eligibility predicate inside the shared Review boundary. Non-Job behavior, callback formats, Admin Review, approval, promotion, and explicit publication remain unchanged. No broad Opportunity Score threshold is part of this decision.
