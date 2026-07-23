@@ -6,9 +6,8 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config_v2 import MENU_CREATE_HAYAT, MENU_CREATE_VITRIN, MENU_HELP, MENU_PROFILE
+from database.db import get_or_create_user, user_exists
 from handlers.language_lessons import begin_lesson_feedback, feedback_prompt, parse_lesson_callback
-from database.db import count_today_dashboard_items, get_or_create_user, user_exists
 
 
 logger = logging.getLogger(__name__)
@@ -21,15 +20,15 @@ SEASONAL_BANNERS = {
 }
 
 MENU_RADAR = "📡 اخبار اختصاصی شما"
-MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در کانال ویترین"
-MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس در کانال حیات خلوت"
+MENU_CREATE_VITRIN_DASHBOARD = "➕ ثبت آگهی در ویترین"
+MENU_CREATE_HAYAT_DASHBOARD = "💬 پیام ناشناس در حیات خلوت"
 
 MAIN_MENU = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton(MENU_RADAR, callback_data="radar:open")],
         [InlineKeyboardButton(MENU_CREATE_VITRIN_DASHBOARD, callback_data="home:create_vitrin")],
         [InlineKeyboardButton(MENU_CREATE_HAYAT_DASHBOARD, callback_data="home:create_hayat")],
-        [InlineKeyboardButton("پروفایل من 👤", callback_data="home:profile")],
+        [InlineKeyboardButton("👤 پروفایل من", callback_data="home:profile")],
         [
             InlineKeyboardButton("ℹ️ راهنما", callback_data="home:help"),
             InlineKeyboardButton("🛟 پشتیبانی", callback_data="home:support"),
@@ -46,21 +45,6 @@ def season_for_month(month):
     if month in (6, 7, 8):
         return "summer"
     return "autumn"
-
-
-def dashboard_counts():
-    try:
-        counts = count_today_dashboard_items()
-    except Exception:
-        logger.exception("Failed to load dashboard counts")
-        counts = {}
-    return {
-        "jobs": int(counts.get("jobs") or 0),
-        "discounts": int(counts.get("discounts") or 0),
-        "events": int(counts.get("events") or 0),
-        "radar": int(counts.get("radar") or 0),
-        "alerts": int(counts.get("alerts") or 0),
-    }
 
 
 def gregorian_to_jalali(year, month, day):
@@ -90,14 +74,12 @@ def gregorian_to_jalali(year, month, day):
 
 
 def build_welcome_text(now, first_name=None):
-    counts = dashboard_counts()
-    updated_at = now.strftime("%H:%M")
     iran_now = now.astimezone(ZoneInfo("Asia/Tehran"))
     jalali = gregorian_to_jalali(now.year, now.month, now.day)
     display_name = (first_name or "کاربر").strip()
 
     return (
-        f"سلام، {display_name} 👋\n\n"
+        f"درود، {display_name} 👋\n\n"
         f"📅 تاریخ میلادی: {now:%Y-%m-%d}\n"
         f"🗓 تاریخ شمسی: {jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}\n\n"
         f"🇪🇸 ساعت اسپانیا: {now:%H:%M}\n"
@@ -105,14 +87,9 @@ def build_welcome_text(now, first_name=None):
         "💶 قیمت یورو: در دسترس نیست\n"
         "💵 قیمت دلار: در دسترس نیست\n\n"
         "──────────────\n\n"
-        "✨ اخبار اختصاصی شما\n\n"
-        f"💼 {counts['jobs']} آگهی شغلی جدید\n"
-        f"🛍 {counts['discounts']} تخفیف و آفر\n"
-        f"🎉 {counts['events']} رویداد نزدیک شما\n"
-        f"📡 {counts['radar']} خبر مهم رادار اسپانیا\n"
-        f"🚨 {counts['alerts']} هشدار فوری\n\n"
-        "برای دسترسی به این محتواها روی «اخبار اختصاصی شما» کلیک کنید.\n\n"
-        f"آخرین بروزرسانی: {updated_at}"
+        "👤 با تکمیل پروفایل، اخبار، فرصت‌های شغلی، تخفیف‌ها و پیشنهادهای اختصاصی متناسب با شرایط شما برایتان انتخاب و نمایش داده می‌شود.\n\n"
+        "✨ ما همچنان در حال توسعه و رفع اشکال ربات هستیم.\n"
+        "از همراهی و شکیبایی شما صمیمانه سپاسگزاریم. ✨"
     )
 
 
