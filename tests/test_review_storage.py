@@ -97,6 +97,10 @@ class ReviewStorageTests(unittest.TestCase):
         self.assertIn("NOT EXISTS", sql)
         self.assertIn("radar_reviews", sql)
         self.assertIn("actionability_gate", sql)
+        self.assertIn("LOWER(COALESCE(cls.primary_category, '')) = 'job'", sql)
+        self.assertIn("visa_sponsorship' = 'YES'", sql)
+        self.assertIn("visa_sponsorship_evidence_verified", sql)
+        self.assertIn("NULLIF(BTRIM", sql)
         self.assertEqual(params, (5,))
 
     def test_candidate_specific_loading_is_parameterized(self):
@@ -106,6 +110,7 @@ class ReviewStorageTests(unittest.TestCase):
         sql, params = cursor.executed[0]
         self.assertIn("c.id = %s", sql)
         self.assertIn("actionability_gate", sql)
+        self.assertIn("visa_sponsorship_evidence_verified", sql)
         self.assertEqual(params, ("candidate-1",))
 
     def test_approve_reject_and_needs_edit_insert_review_only(self):
@@ -148,6 +153,62 @@ class ReviewStorageTests(unittest.TestCase):
         self.assertEqual(report.needs_edit, 3)
         sql_text = "\n".join(sql for sql, _ in cursor.executed)
         self.assertIn("actionability_gate", sql_text)
+        self.assertIn("visa_sponsorship_evidence_verified", sql_text)
+
+    def test_job_review_filter_requires_yes_evidence_and_deterministic_verification(self):
+        cursor = FakeCursor([])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            load_review_queue(limit=10)
+        sql, _ = cursor.executed[0]
+        self.assertIn("ai.structured_data ->> 'visa_sponsorship' = 'YES'", sql)
+        self.assertIn("ai.structured_data ->> 'visa_sponsorship_evidence'", sql)
+        self.assertIn("ai.structured_data ->> 'visa_sponsorship_evidence_verified' = 'true'", sql)
+        self.assertNotIn("relocation_support", sql)
+        self.assertNotIn("apply_from_outside_spain", sql)
+
+    def test_every_review_query_uses_all_reliable_job_signals(self):
+        list_cursor = FakeCursor([])
+        with patch.dict(sys.modules, {"database.db": fake_database(list_cursor)}):
+            load_review_queue(limit=10)
+        specific_cursor = FakeCursor([])
+        with patch.dict(sys.modules, {"database.db": fake_database(specific_cursor)}):
+            load_review_queue(candidate_id="candidate-1")
+        count_cursor = FakeCursor(rows=[], one={"total": 0})
+        with patch.dict(sys.modules, {"database.db": fake_database(count_cursor)}):
+            review_status_report()
+
+        review_sql = [
+            list_cursor.executed[0][0],
+            specific_cursor.executed[0][0],
+            count_cursor.executed[1][0],
+        ]
+        for sql in review_sql:
+            with self.subTest(sql=sql[:40]):
+                self.assertIn("LOWER(COALESCE(cls.primary_category, '')) = 'job'", sql)
+                self.assertIn("LOWER(COALESCE(ai.structured_data ->> 'category', '')) = 'job'", sql)
+                self.assertIn("LOWER(COALESCE(c.source_category, '')) IN ('job', 'jobs')", sql)
+                self.assertIn("LOWER(COALESCE(c.metadata ->> 'content_type', '')) = 'job'", sql)
+                self.assertIn("NOT", sql)
+                self.assertIn("visa_sponsorship_evidence_verified", sql)
+
+    def test_misclassified_structured_or_source_job_cannot_use_non_job_bypass(self):
+        cursor = FakeCursor([])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            load_review_queue(limit=10)
+        sql, _ = cursor.executed[0]
+        job_signals_start = sql.index("LOWER(COALESCE(cls.primary_category")
+        sponsorship_gate_start = sql.index("ai.structured_data ->> 'visa_sponsorship' = 'YES'")
+        predicate = sql[job_signals_start:sponsorship_gate_start]
+        self.assertIn("ai.structured_data ->> 'category'", predicate)
+        self.assertIn("c.source_category", predicate)
+        self.assertIn("c.metadata ->> 'content_type'", predicate)
+        self.assertNotIn("cls.primary_category <>", sql)
+
+    def test_non_job_review_candidates_remain_eligible(self):
+        cursor = FakeCursor([queue_row(primary_category="legal")])
+        with patch.dict(sys.modules, {"database.db": fake_database(cursor)}):
+            rows = load_review_queue(limit=10)
+        self.assertEqual([row.classification.primary_category for row in rows], ["legal"])
 
 
 if __name__ == "__main__":

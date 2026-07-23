@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from radar_engine.pipeline.actionability import ACTIONABILITY_METADATA_KEY
 from radar_engine.job_presentation import is_job, job_card, radar_score
+from radar_engine.job_sponsorship import has_verified_sponsorship
 from radar_engine.persian_detail import (
     PERSIAN_FULL_DETAIL_HEADING,
     PERSIAN_TRANSLATION_PENDING,
@@ -172,8 +173,15 @@ def build_review_item_text(
         }
         score = radar_score(candidate.metadata, classification.confidence, summary.structured_data)
         score_block = f"⭐ امتیاز Radar\n{score} / 100\n\n" if score is not None else ""
+        sponsorship_block = ""
+        if has_verified_sponsorship(summary.structured_data):
+            evidence = str(summary.structured_data["visa_sponsorship_evidence"]).strip()
+            sponsorship_block = (
+                "🛂 Visa Sponsorship: تأییدشده\n"
+                f"🔎 Evidence: {evidence}\n\n"
+            )
         return truncate_text(
-            score_block + job_card(summary.structured_data, fallback=fallback),
+            sponsorship_block + score_block + job_card(summary.structured_data, fallback=fallback),
             max_length,
             marker=SHORT_TRUNCATION_MARKER,
         )

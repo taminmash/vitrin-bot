@@ -14,6 +14,7 @@ All items were last reviewed on **2026-07-20**. “Implemented” is repository 
 | BOE plus opt-in permitted job-source adapters | Implemented | `radar_engine/sources/`, `source_config.py`; merge #34 (`83646fd`) | 2026-07-20 | Smoke-test enabled sources from the target network before enabling. |
 | Job freshness/expiration safeguards and concise job channel cards | Implemented | `radar_engine/job_expiration.py`, `job_presentation.py`; merges #39 and #41 | 2026-07-20 | Monitor expiry/review outcomes after production verification. |
 | Language-lesson interactive feedback | Implemented | `handlers/language_lessons.py`; merges #43–#46 | 2026-07-20 | Validate live Telegram behavior separately from repository evidence. |
+| Source-verified visa sponsorship Job Review | Implemented | `radar_engine/job_sponsorship.py`, AI extraction, Review eligibility, and Job presentation tests | 2026-07-23 | Verify AI evidence quality and Review queue outcomes in production before enabling additional Job categories. |
 
 ## In Progress
 
@@ -37,6 +38,7 @@ All items were last reviewed on **2026-07-20**. “Implemented” is repository 
 | --- | --- | --- | --- | --- |
 | Reusable Radar content beyond the bot (dashboard/city/category/personalized feeds/notifications) | Planned | README describes these as future uses of reusable `radar_items`. | 2026-07-20 | Define a scoped product proposal before implementation. |
 | Save and reminder actions in public Radar views | Planned | README identifies these buttons as placeholders. | 2026-07-20 | Specify persistence and notification behavior before replacing placeholders. |
+| Broader Job opportunity scoring and additional Job categories | Planned | Explicitly outside the confirmed-sponsorship phase. | 2026-07-23 | Define separate requirements; do not use 60/80 score thresholds in the current phase. |
 
 ## Blocked
 

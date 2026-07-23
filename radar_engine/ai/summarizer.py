@@ -6,6 +6,7 @@ from radar_engine.ai.client import AIClient
 from radar_engine.ai.models import AITaskResult
 from radar_engine.ai.prompts import PROMPT_VERSION, build_summary_prompt
 from radar_engine.job_title import displayed_job_title
+from radar_engine.job_sponsorship import apply_sponsorship_verification
 from radar_engine.pipeline.candidate import RadarCandidate
 
 
@@ -27,6 +28,7 @@ SUMMARY_SCHEMA = {
         "job_level": {"type": ["string", "null"]},
         "experience_required": {"type": ["string", "null"]},
         "visa_sponsorship": {"type": ["string", "null"], "enum": ["YES", "NO", "UNKNOWN", None]},
+        "visa_sponsorship_evidence": {"type": ["string", "null"]},
         "relocation_support": {"type": ["string", "null"], "enum": ["YES", "NO", "UNKNOWN", None]},
         "apply_from_outside_spain": {"type": ["string", "null"], "enum": ["YES", "NO", "UNKNOWN", None]},
         "why_it_matters": {"type": ["string", "null"]},
@@ -37,7 +39,7 @@ SUMMARY_SCHEMA = {
     "required": [
         "category", "job_title", "job_title_confidence", "employer", "city", "region", "salary", "contract_type",
         "working_hours", "deadline", "requirements", "language_level", "job_level",
-        "experience_required", "visa_sponsorship", "relocation_support",
+        "experience_required", "visa_sponsorship", "visa_sponsorship_evidence", "relocation_support",
         "apply_from_outside_spain", "full_text_fa", "source_url", "confidence",
     ],
 }
@@ -61,6 +63,11 @@ class RadarAISummarizer:
         for key in ("visa_sponsorship", "relocation_support", "apply_from_outside_spain"):
             value = str(structured.get(key) or "UNKNOWN").strip().upper()
             structured[key] = value if value in {"YES", "NO", "UNKNOWN"} else "UNKNOWN"
+        structured = apply_sponsorship_verification(
+            structured,
+            title=candidate.title,
+            body=candidate.body,
+        )
         structured["source_url"] = structured.get("source_url") or candidate.source_url
         if structured.get("category"):
             structured["category"] = str(structured["category"]).strip().casefold()

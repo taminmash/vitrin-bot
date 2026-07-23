@@ -92,6 +92,46 @@ def make_item(**overrides):
 
 
 class ReviewPresentationTests(unittest.TestCase):
+    def test_verified_job_review_shows_source_evidence_before_decision(self):
+        evidence = "We provide work visa sponsorship."
+        item = make_item(
+            candidate=make_candidate(
+                source_key="jobs",
+                source_category="job",
+                body=f"Senior role. {evidence}",
+            ),
+            summary=make_summary(
+                structured_data={
+                    "category": "job",
+                    "job_title": "مهندس نرم‌افزار",
+                    "visa_sponsorship": "YES",
+                    "visa_sponsorship_evidence": evidence,
+                    "visa_sponsorship_evidence_verified": True,
+                }
+            ),
+            classification=make_classification(primary_category="job", category_tags=["job"]),
+        )
+
+        text = build_review_item_text(item)
+
+        self.assertIn("🛂 Visa Sponsorship: تأییدشده", text)
+        self.assertIn(f"🔎 Evidence: {evidence}", text)
+        self.assertLessEqual(len(text), SAFE_TELEGRAM_TEXT_LIMIT)
+
+    def test_unverified_job_review_does_not_claim_confirmed_sponsorship(self):
+        item = make_item(
+            summary=make_summary(
+                structured_data={
+                    "category": "job",
+                    "visa_sponsorship": "YES",
+                    "visa_sponsorship_evidence": "unmatched",
+                    "visa_sponsorship_evidence_verified": False,
+                }
+            ),
+            classification=make_classification(primary_category="job", category_tags=["job"]),
+        )
+        self.assertNotIn("Visa Sponsorship: تأییدشده", build_review_item_text(item))
+
     def test_long_boe_body_is_truncated_without_losing_review_context(self):
         source_url = "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-12345"
         item = make_item(

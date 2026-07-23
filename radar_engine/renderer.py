@@ -435,12 +435,10 @@ def details_button_specs(item: dict, deep_link: str, channel_url: str | None = N
 def job_details_button_specs(item: dict, deep_link: str, channel_url: str | None = None) -> list[list[ButtonSpec]]:
     back_target = channel_url or deep_link
     return_label = "↩️ بازگشت به کانال ویترین" if channel_url else "↩️ بازگشت به ویترین"
-    item_id = item["id"]
     return [
         [ButtonSpec(return_label, url=back_target)],
         [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
-        [ButtonSpec("🤝 درخواست اقدام توسط ویترین", callback_data=f"radar:apply:{item_id}")],
-        [ButtonSpec("⬅️ بازگشت به صفحه قبلی", callback_data=f"radar:item:{item_id}")],
+        [ButtonSpec("⬅️ بازگشت به صفحه قبلی", callback_data=f"radar:item:{item['id']}")],
         [ButtonSpec("🏠 بازگشت به صفحه اصلی", callback_data="radar:home")],
     ]
 

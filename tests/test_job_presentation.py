@@ -2,7 +2,13 @@ import unittest
 
 from radar_engine.category_headers import CATEGORY_HEADERS, category_header
 from radar_engine.ai.summarizer import SUMMARY_SCHEMA
-from radar_engine.job_presentation import JOB_HELP_TEXT, job_card, radar_score
+from radar_engine.job_presentation import (
+    JOB_HELP_TEXT,
+    UNKNOWN_STATUS_TEXT,
+    VERIFIED_SPONSORSHIP_BADGE,
+    job_card,
+    radar_score,
+)
 from radar_engine.renderer import render_admin_preview, render_channel_post, render_details_page
 from radar_engine.review.presentation import build_review_item_text
 from tests.test_review_presentation import make_candidate, make_classification, make_item, make_summary
@@ -57,7 +63,7 @@ class JobPresentationTests(unittest.TestCase):
         self.assertIn("⭐ امتیاز Radar\n95 / 100", text)
         self.assertIn("🟢 آگهی استخدام رایگان", text)
         self.assertIn("💶 حقوق\n€35,000–€42,000", text)
-        self.assertIn("🛂 Visa Sponsorship\nبله", text)
+        self.assertIn("🛂 Visa Sponsorship\n✅ دارد", text)
 
     def test_job_without_salary_hides_field(self):
         self.assertNotIn("💶 حقوق", job_card(structured(salary=None)))
@@ -70,9 +76,9 @@ class JobPresentationTests(unittest.TestCase):
 
     def test_job_without_sponsorship_shows_no(self):
         text = job_card(structured(visa_sponsorship="NO"))
-        self.assertIn("🛂 Visa Sponsorship\nخیر", text)
+        self.assertIn("🛂 Visa Sponsorship\n❌ ندارد", text)
 
-    def test_unknown_values_are_hidden_not_printed(self):
+    def test_unknown_mobility_values_are_explicit_and_distinct_from_no(self):
         text = job_card(
             structured(
                 visa_sponsorship="UNKNOWN",
@@ -82,7 +88,22 @@ class JobPresentationTests(unittest.TestCase):
         )
         self.assertNotIn("Unknown", text)
         self.assertNotIn("UNKNOWN", text)
-        self.assertNotIn("Visa Sponsorship", text)
+        self.assertEqual(text.count(UNKNOWN_STATUS_TEXT), 3)
+        self.assertNotIn("❌ ندارد", text)
+
+    def test_verified_sponsorship_badge_requires_deterministic_flag(self):
+        verified = structured(
+            visa_sponsorship="YES",
+            visa_sponsorship_evidence="We provide work visa sponsorship.",
+            visa_sponsorship_evidence_verified=True,
+        )
+        unverified = structured(
+            visa_sponsorship="YES",
+            visa_sponsorship_evidence="We provide work visa sponsorship.",
+            visa_sponsorship_evidence_verified=False,
+        )
+        self.assertIn(VERIFIED_SPONSORSHIP_BADGE, job_card(verified))
+        self.assertNotIn(VERIFIED_SPONSORSHIP_BADGE, job_card(unverified))
 
     def test_legacy_pending_job_remains_reviewable(self):
         text = build_review_item_text(review_item())
@@ -145,21 +166,41 @@ class JobPresentationTests(unittest.TestCase):
                 "structured_data": data,
             }
         )
-        self.assertEqual(
-            text,
-            "🟢 آگهی استخدام رایگان\n\n"
-            "💼 عنوان شغل\nمهندس نرم‌افزار\n\n"
-            "📍 شهر\nMadrid\n\n"
-            "📄 نوع قرارداد\nتمام‌وقت\n\n"
-            "🗣 پیش‌نیازها / زبان موردنیاز\nPython • سه سال سابقه\n\n"
-            "⏳ مهلت ارسال درخواست\n2026-08-31",
-        )
+        for included in (
+            "شرکت نمونه",
+            "Visa Sponsorship",
+            "Relocation Support",
+            "امکان اقدام از خارج اسپانیا",
+            "چرا این فرصت مهم است؟",
+            "€35,000",
+        ):
+            self.assertIn(included, text)
         for excluded in (
-            "شرکت نمونه", "Visa Sponsorship", "امکان اقدام از خارج اسپانیا",
-            "چرا این فرصت مهم است؟", "https://www.boe.es/job-1", "متن کامل منبع",
-            "شرح کامل شغل", "€35,000", "40 ساعت", "Hybrid", "BOE",
+            "https://www.boe.es/job-1", "متن کامل منبع",
+            "شرح کامل شغل", "40 ساعت", "Hybrid", "BOE",
         ):
             self.assertNotIn(excluded, text)
+        self.assertIn("⏳ مهلت ارسال درخواست\n2026-08-31", text)
+
+    def test_channel_badge_is_only_for_verified_sponsorship(self):
+        verified = structured(
+            visa_sponsorship="YES",
+            visa_sponsorship_evidence="Visa sponsorship provided",
+            visa_sponsorship_evidence_verified=True,
+        )
+        probable = structured(
+            visa_sponsorship="YES",
+            visa_sponsorship_evidence="Visa support may be available",
+            visa_sponsorship_evidence_verified=False,
+        )
+        self.assertIn(
+            VERIFIED_SPONSORSHIP_BADGE,
+            render_channel_post({"type": "job", "structured_data": verified}),
+        )
+        self.assertNotIn(
+            VERIFIED_SPONSORSHIP_BADGE,
+            render_channel_post({"type": "job", "structured_data": probable}),
+        )
 
     def test_job_channel_post_uses_required_missing_field_fallbacks(self):
         text = render_channel_post(
@@ -210,7 +251,7 @@ class JobPresentationTests(unittest.TestCase):
         self.assertIn("🎓 تحصیلات\nکارشناسی", text)
         self.assertIn("🏠 وضعیت دورکاری\nHybrid", text)
         self.assertIn("🏷 نام منبع\nInfoJobs", text)
-        self.assertNotIn("✈️ Relocation Support", text)
+        self.assertIn("✈️ Relocation Support\n➖ اعلام نشده", text)
 
     def test_non_job_channel_renderer_keeps_existing_template(self):
         text = render_channel_post(

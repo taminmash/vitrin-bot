@@ -37,7 +37,7 @@ def callback_update(data):
 
 
 class RadarApplyKeyboardTests(unittest.TestCase):
-    def test_active_job_actions_are_five_separate_rows_in_exact_order(self):
+    def test_active_job_actions_hide_nonfunctional_request_placeholder(self):
         with (
             patch("handlers.radar.BOT_USERNAME", "VitrinSpainBot"),
             patch("handlers.radar.CHANNEL_VITRIN_LINK", "https://t.me/vitrinspain/42"),
@@ -50,20 +50,20 @@ class RadarApplyKeyboardTests(unittest.TestCase):
             [
                 "↩️ بازگشت به کانال ویترین",
                 "📤 اشتراک‌گذاری",
-                "🤝 درخواست اقدام توسط ویترین",
                 "⬅️ بازگشت به صفحه قبلی",
                 "🏠 بازگشت به صفحه اصلی",
             ],
         )
         self.assertEqual(buttons[0].url, "https://t.me/vitrinspain/42")
         self.assertEqual(buttons[1].switch_inline_query, "https://t.me/VitrinSpainBot?start=radar_job-123")
-        self.assertEqual(buttons[2].callback_data, "radar:apply:job-123")
+        self.assertNotIn("🤝 درخواست اقدام توسط ویترین", [button.text for button in buttons])
+        self.assertEqual(buttons[2].callback_data, "radar:item:job-123")
         self.assertLessEqual(len(buttons[2].callback_data.encode("utf-8")), 64)
 
     def test_stale_but_active_job_keeps_request_action(self):
         stale = job_item(published_at=datetime.now(MADRID_TZ) - timedelta(days=45))
         labels = [row[0].text for row in details_keyboard(stale).inline_keyboard]
-        self.assertIn("🤝 درخواست اقدام توسط ویترین", labels)
+        self.assertNotIn("🤝 درخواست اقدام توسط ویترین", labels)
 
     def test_expired_job_does_not_show_request_or_share(self):
         expired = job_item(structured_data={"category": "job", "deadline": "2020-01-01"})

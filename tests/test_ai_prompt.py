@@ -7,7 +7,7 @@ from tests.test_radar_candidate import make_candidate
 class AIPromptTests(unittest.TestCase):
     def test_prompt_is_versioned_and_constrained(self):
         messages = build_summary_prompt(make_candidate(title="Titulo", body="Texto oficial en español."))
-        self.assertEqual(PROMPT_VERSION, "radar-structured-v4")
+        self.assertEqual(PROMPT_VERSION, "radar-structured-v5")
         combined = "\n".join(message["content"] for message in messages)
         self.assertIn("factual", combined)
         self.assertIn("Do not hallucinate", combined)
@@ -22,6 +22,9 @@ class AIPromptTests(unittest.TestCase):
         self.assertIn('"UNKNOWN"', combined)
         self.assertIn("job_title_extraction_needed: NO", combined)
         self.assertIn("visa_sponsorship", combined)
+        self.assertIn("visa_sponsorship_evidence", combined)
+        self.assertIn("verbatim excerpt", combined)
+        self.assertIn("probable/possible support are not visa sponsorship", combined)
         self.assertIn("apply_from_outside_spain", combined)
         self.assertIn("why_it_matters", combined)
         self.assertIn("full_text_fa", combined)

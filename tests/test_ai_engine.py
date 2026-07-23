@@ -393,7 +393,7 @@ class AISummarizerTests(unittest.TestCase):
 
         result = RadarAISummarizer(Client()).summarize(make_candidate())
         self.assertEqual(result.model_name, "test-model")
-        self.assertEqual(result.prompt_version, "radar-structured-v4")
+        self.assertEqual(result.prompt_version, "radar-structured-v5")
 
     def test_summarizer_extracts_job_fields_and_normalizes_support_values(self):
         class Client:
@@ -416,6 +416,7 @@ class AISummarizerTests(unittest.TestCase):
                     "job_level": "Senior",
                     "experience_required": "5 years",
                     "visa_sponsorship": "yes",
+                    "visa_sponsorship_evidence": "We provide visa sponsorship.",
                     "relocation_support": "not stated",
                     "apply_from_outside_spain": "NO",
                     "why_it_matters": "فرصت تخصصی",
@@ -427,6 +428,7 @@ class AISummarizerTests(unittest.TestCase):
         result = RadarAISummarizer(Client()).summarize(make_candidate())
         self.assertEqual(result.structured_data["category"], "job")
         self.assertEqual(result.structured_data["visa_sponsorship"], "YES")
+        self.assertFalse(result.structured_data["visa_sponsorship_evidence_verified"])
         self.assertEqual(result.structured_data["relocation_support"], "UNKNOWN")
         self.assertEqual(result.structured_data["apply_from_outside_spain"], "NO")
         self.assertEqual(result.structured_data["source_url"], "https://www.boe.es/test")

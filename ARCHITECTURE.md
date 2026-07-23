@@ -44,11 +44,11 @@ For BOE candidates, the same AI summary call also produces `structured_data.full
 
 ## Structured Job Extraction
 
-The summary prompt extracts job-specific fields (such as title, employer, location, deadline, requirements, and mobility-related fields) into structured JSON. Promotion copies this additively into `radar_items.structured_data`; legacy items remain reviewable through fallbacks.
+The summary prompt extracts job-specific fields (such as title, employer, location, deadline, requirements, and mobility-related fields) into structured JSON. Visa sponsorship also requires a short verbatim `visa_sponsorship_evidence` excerpt. After extraction, a conservative deterministic helper normalizes Unicode, whitespace, and case; requires meaningful length/tokens plus explicit English or Spanish sponsorship/work-permit support wording; rejects denial patterns tied to those same concepts before positive-pattern evaluation; and matches the excerpt against the original title or body independently. Unrelated negation does not automatically reject an otherwise explicit positive statement. The helper never constructs a synthetic title/body source or makes another AI call. Promotion copies structured data additively into `radar_items.structured_data`; no dedicated schema or parallel Job pipeline is used.
 
 ## Review Queue
 
-The review engine loads candidates with successful summary and classification records and no review decision. It stores independent `pending`, `approved`, `rejected`, or `needs_edit` decisions in `radar_reviews`. Admin callbacks render bounded Telegram-safe review cards.
+The review engine loads candidates with successful summary and classification records and no review decision. Non-Job behavior is unchanged. Review SQL deterministically treats a candidate as a Job when classification, AI structured category, source category, or candidate content-type metadata says Job; a classifier mistake therefore cannot select the non-Job path. A Job is eligible only when sponsorship is `YES`, evidence is present, and deterministic source matching succeeded; mobility or audience signals never substitute for this requirement. The same predicate is used by list, candidate-specific, and pending-count queries. Admin Review displays the source evidence and stores independent `pending`, `approved`, `rejected`, or `needs_edit` decisions in `radar_reviews`. Admin callbacks remain bounded and compatibility-sensitive.
 
 ## Admin Notifications
 
