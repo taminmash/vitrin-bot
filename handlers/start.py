@@ -31,10 +31,10 @@ EXCHANGE_RATE_URLS = {
     "USD": "https://api.frankfurter.dev/v2/rate/USD/IRR",
 }
 EXCHANGE_RATE_CACHE_TTL = timedelta(minutes=30)
+_exchange_rate_lock = asyncio.Lock()
 _exchange_rate_cache = {
     "fetched_at": None,
     "rates": None,
-    "date": None,
 }
 
 MAIN_MENU = InlineKeyboardMarkup(
@@ -49,6 +49,12 @@ MAIN_MENU = InlineKeyboardMarkup(
         ],
     ]
 )
+
+PERSIAN_DIGITS = str.maketrans("0123456789,", "۰۱۲۳۴۵۶۷۸۹٬")
+
+
+def to_persian_digits(value):
+    return str(value).translate(PERSIAN_DIGITS)
 
 
 def season_for_month(month):
@@ -98,7 +104,7 @@ def _fetch_rate(currency):
     rate = float(payload["rate"])
     if rate <= 0:
         raise ValueError(f"Invalid {currency}/IRR rate: {rate}")
-    return rate, payload.get("date")
+    return rate
 
 
 async def get_exchange_rates():
@@ -107,65 +113,81 @@ async def get_exchange_rates():
     cached_rates = _exchange_rate_cache["rates"]
 
     if fetched_at and cached_rates and now_utc - fetched_at < EXCHANGE_RATE_CACHE_TTL:
-        return cached_rates, _exchange_rate_cache["date"]
+        return cached_rates, fetched_at, False
 
-    try:
-        eur_result, usd_result = await asyncio.gather(
-            asyncio.to_thread(_fetch_rate, "EUR"),
-            asyncio.to_thread(_fetch_rate, "USD"),
-        )
-        rates = {"EUR": eur_result[0], "USD": usd_result[0]}
-        source_date = eur_result[1] or usd_result[1]
-        _exchange_rate_cache.update(
-            fetched_at=now_utc,
-            rates=rates,
-            date=source_date,
-        )
-        return rates, source_date
-    except Exception:
-        logger.exception("Failed to fetch exchange rates")
-        if cached_rates:
-            return cached_rates, _exchange_rate_cache["date"]
-        return None, None
+    async with _exchange_rate_lock:
+        fetched_at = _exchange_rate_cache["fetched_at"]
+        cached_rates = _exchange_rate_cache["rates"]
+        now_utc = datetime.now(ZoneInfo("UTC"))
+        if fetched_at and cached_rates and now_utc - fetched_at < EXCHANGE_RATE_CACHE_TTL:
+            return cached_rates, fetched_at, False
+
+        try:
+            euro_rate, dollar_rate = await asyncio.gather(
+                asyncio.to_thread(_fetch_rate, "EUR"),
+                asyncio.to_thread(_fetch_rate, "USD"),
+            )
+            fetched_at = datetime.now(ZoneInfo("UTC"))
+            rates = {"EUR": euro_rate, "USD": dollar_rate}
+            _exchange_rate_cache.update(fetched_at=fetched_at, rates=rates)
+            return rates, fetched_at, False
+        except Exception:
+            logger.exception("Failed to fetch exchange rates")
+            if cached_rates and fetched_at:
+                return cached_rates, fetched_at, True
+            return None, None, False
 
 
 def format_toman_rate(irr_rate):
-    toman_rate = round(irr_rate / 10)
-    return f"{toman_rate:,.0f} تومان"
+    toman_rate = round((irr_rate / 10) / 100) * 100
+    return f"{to_persian_digits(f'{toman_rate:,.0f}')} تومان"
 
 
-def build_welcome_text(now, first_name=None, exchange_rates=None, rate_date=None):
+def format_date_persian(value):
+    return to_persian_digits(value.strftime("%Y-%m-%d"))
+
+
+def format_time_persian(value):
+    return to_persian_digits(value.strftime("%H:%M"))
+
+
+def build_welcome_text(now, first_name=None, exchange_rates=None, rates_fetched_at=None, rates_stale=False):
     iran_now = now.astimezone(ZoneInfo("Asia/Tehran"))
     jalali = gregorian_to_jalali(now.year, now.month, now.day)
     display_name = (first_name or "کاربر").strip()
-    updated_at = now.strftime("%H:%M")
 
     if exchange_rates:
         euro_text = format_toman_rate(exchange_rates["EUR"])
         dollar_text = format_toman_rate(exchange_rates["USD"])
-        source_text = "\n📌 منبع نرخ ارز: Frankfurter (مرجع بین‌المللی)"
-        rate_date_text = f"\n📅 تاریخ نرخ مرجع: {rate_date}" if rate_date else ""
+        source_text = "\n📌 منبع: Frankfurter — نرخ مرجع بین‌المللی"
+        fetched_spain = rates_fetched_at.astimezone(ZoneInfo("Europe/Madrid")) if rates_fetched_at else now
+        update_text = f"\n🕒 آخرین بروزرسانی نرخ: {format_time_persian(fetched_spain)} به وقت اسپانیا"
+        stale_text = "\n⚠️ نمایش آخرین نرخ ثبت‌شده؛ دریافت نرخ جدید موقتاً ممکن نیست." if rates_stale else ""
     else:
         euro_text = "موقتاً در دسترس نیست"
         dollar_text = "موقتاً در دسترس نیست"
         source_text = ""
-        rate_date_text = ""
+        update_text = ""
+        stale_text = "\n⚠️ دریافت نرخ ارز موقتاً ممکن نیست. لطفاً کمی بعد دوباره تلاش کنید."
+
+    gregorian_text = format_date_persian(now)
+    jalali_text = to_persian_digits(f"{jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}")
 
     return (
         f"درود، {display_name} 👋\n\n"
-        f"📅 تاریخ میلادی: {now:%Y-%m-%d}\n"
-        f"🗓 تاریخ شمسی: {jalali[0]:04d}-{jalali[1]:02d}-{jalali[2]:02d}\n\n"
-        f"🇪🇸 ساعت اسپانیا: {now:%H:%M}\n"
-        f"🇮🇷 ساعت ایران: {iran_now:%H:%M}\n\n"
+        f"📅 تاریخ میلادی: {gregorian_text}\n"
+        f"🗓 تاریخ شمسی: {jalali_text}\n\n"
+        f"🇪🇸 ساعت اسپانیا: {format_time_persian(now)}\n"
+        f"🇮🇷 ساعت ایران: {format_time_persian(iran_now)}\n\n"
         f"💶 قیمت یورو: {euro_text}\n"
         f"💵 قیمت دلار: {dollar_text}"
         f"{source_text}"
-        f"{rate_date_text}\n\n"
+        f"{update_text}"
+        f"{stale_text}\n\n"
         "──────────────\n\n"
         "👤 با تکمیل پروفایل، اخبار، فرصت‌های شغلی، تخفیف‌ها و پیشنهادهای اختصاصی متناسب با شرایط شما برایتان انتخاب و نمایش داده می‌شود.\n\n"
         "✨ ما همچنان در حال توسعه و رفع اشکال ربات هستیم.\n"
-        "از همراهی و شکیبایی شما صمیمانه سپاسگزاریم. ✨\n\n"
-        f"🕒 آخرین بروزرسانی: {updated_at} به وقت اسپانیا"
+        "از همراهی و شکیبایی شما صمیمانه سپاسگزاریم. ✨"
     )
 
 
@@ -178,12 +200,13 @@ def update_target(update: Update):
 async def send_home_dashboard(update: Update, show_banner=False):
     now = datetime.now(ZoneInfo("Europe/Madrid"))
     season = season_for_month(now.month)
-    exchange_rates, rate_date = await get_exchange_rates()
+    exchange_rates, rates_fetched_at, rates_stale = await get_exchange_rates()
     welcome_text = build_welcome_text(
         now,
         update.effective_user.first_name,
         exchange_rates=exchange_rates,
-        rate_date=rate_date,
+        rates_fetched_at=rates_fetched_at,
+        rates_stale=rates_stale,
     )
     if not show_banner or not await send_start_banner(update, season, welcome_text):
         await update_target(update).reply_text(
@@ -191,6 +214,11 @@ async def send_home_dashboard(update: Update, show_banner=False):
             reply_markup=MAIN_MENU,
             disable_web_page_preview=True,
         )
+
+
+async def preview_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Render the first-entry home card without creating a new user."""
+    await send_home_dashboard(update, show_banner=True)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
