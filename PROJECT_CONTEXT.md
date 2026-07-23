@@ -10,7 +10,7 @@ The current product purpose is to help its audience discover and share local inf
 
 - **Vitrin and Hayat Khalvat submissions:** user content creation, admin review, and Telegram-channel publishing flows.
 - **Radar Spain:** browsing categories, deep-linked full item pages, channel cards, reactions, and admin-created Radar items.
-- **Radar ingestion:** configured source connectors normalize into shared raw-item and candidate processing. BOE is temporarily disabled (its adapter and history are retained); Empleo Público is the default active Job connector.
+- **Radar ingestion:** configured source connectors normalize into shared raw-item and candidate processing. BOE is temporarily disabled (its adapter and history are retained); Empleo Público plus the allowlisted 2K Madrid, Keyfactor Spain, and Scopely Spain public Greenhouse boards are active by default.
 - **Radar review and promotion:** AI-assisted candidate review, explicit approval, promotion to a ready Radar item, then explicit publication.
 - **Language lessons:** generated lesson content with reactions, comments, reports, and discussion mapping.
 - **Profiles and dashboard:** user-facing navigation and content/profile views.

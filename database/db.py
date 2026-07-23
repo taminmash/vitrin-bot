@@ -24,10 +24,10 @@ INITIAL_RADAR_SOURCES = [
     ("Tecnoempleo", "Jobs", "https://www.tecnoempleo.com/", "jobs", 4, "Spain", None),
     ("Domestika Jobs", "Jobs", "https://www.domestika.org/es/jobs", "jobs", 4, "Spain", None),
     ("Indeed España", "Jobs", "https://es.indeed.com/", "jobs", 4, "Spain", None),
-    ("EURES", "Jobs", "https://eures.europa.eu/", "official", 5, "Europe", None),
-    ("Barcelona Activa", "Jobs", "https://treball.barcelonactiva.cat/es/ofertas-de-empleo", "official", 5, "Spain", "Barcelona"),
-    ("Generalitat/SOC", "Jobs", "https://web.gencat.cat/ca/generalitat/treballar-generalitat/ofertes-treball-temporal", "official", 5, "Spain", None),
     ("Empleo Público", "Jobs", "https://administracion.gob.es/pagFront/ofertasempleopublico/resultadosEmpleo.htm", "official", 5, "Spain", None),
+    ("2K Madrid Careers", "Jobs", "https://job-boards.greenhouse.io/2kmadrid", "public_api", 4, "Spain", "Madrid"),
+    ("Keyfactor Spain Careers", "Jobs", "https://job-boards.greenhouse.io/keyfactorinc", "public_api", 4, "Spain", None),
+    ("Scopely Spain Careers", "Jobs", "https://job-boards.greenhouse.io/scopely", "public_api", 4, "Spain", None),
     ("Renfe", "Travel", "https://www.renfe.com/es/es", "travel", 4, "Spain", None),
     ("Ouigo", "Travel", "https://www.ouigo.com/es/", "travel", 4, "Spain", None),
     ("Iryo", "Travel", "https://iryo.eu/es", "travel", 4, "Spain", None),
@@ -58,10 +58,10 @@ def configured_radar_source_states():
         "Tecnoempleo": state("TECNOEMPLEO"),
         "Domestika Jobs": state("DOMESTIKA_JOBS"),
         "Indeed España": False,
-        "EURES": False,
-        "Barcelona Activa": False,
-        "Generalitat/SOC": False,
         "Empleo Público": state("EMPLEO_PUBLICO", default=True),
+        "2K Madrid Careers": state("2K_MADRID", default=True),
+        "Keyfactor Spain Careers": state("KEYFACTOR_SPAIN", default=True),
+        "Scopely Spain Careers": state("SCOPELY_SPAIN", default=True),
     }
 
 
@@ -1022,6 +1022,12 @@ def init_db():
             ON CONFLICT (name, source_url) DO NOTHING
             """,
             INITIAL_RADAR_SOURCES,
+        )
+        cur.execute(
+            """
+            DELETE FROM source_registry
+            WHERE name IN ('EURES', 'Barcelona Activa', 'Generalitat/SOC')
+            """
         )
         cur.executemany(
             """

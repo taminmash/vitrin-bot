@@ -22,9 +22,9 @@ Handlers are organized by user surface in `handlers/`: start/home/menu/profile, 
 
 ## Source Adapters
 
-`radar_engine/sources/boe.py` retains the BOE official daily-summary XML adapter, but BOE is not registered unless `RADAR_SOURCE_BOE_ENABLED` explicitly enables it. `radar_engine/sources/jobs.py` contains adapters for InfoJobs, Madrid Empleo, Domestika Jobs, an operator-configured Tecnoempleo RSS/Atom feed, and Empleo Público. Empleo Público reads a bounded number of pages from the official server-rendered `administracion.gob.es` public listing and retains canonical detail links and source text. All connectors still enter the same `SourceManager` and raw-item/candidate pipeline.
+`radar_engine/sources/boe.py` retains the BOE official daily-summary XML adapter, but BOE is not registered unless `RADAR_SOURCE_BOE_ENABLED` explicitly enables it. `radar_engine/sources/jobs.py` contains adapters for InfoJobs, Madrid Empleo, Domestika Jobs, an operator-configured Tecnoempleo RSS/Atom feed, Empleo Público, and allowlisted public Greenhouse boards. Empleo Público reads a bounded number of pages from the official server-rendered `administracion.gob.es` public listing. The Greenhouse connector uses the documented public Job Board API without authentication, filters deterministic Spain locations, rejects prospect posts, and retains source text, stable job IDs, and canonical hosted URLs. All connectors still enter the same `SourceManager` and raw-item/candidate pipeline.
 
-`source_config.py` records EURES, Barcelona Activa, and Generalitat/SOC as blocked because no documented stable public vacancy API/feed was verified. No private endpoint, browser automation, CAPTCHA bypass, LinkedIn ingestion, or restricted scraping is used.
+`source_config.py` records EURES, Barcelona Activa, and Generalitat/SOC as researched but blocked because no documented stable public vacancy API/feed was verified. They are not operational registry entries. No private endpoint, browser automation, CAPTCHA bypass, LinkedIn ingestion, or restricted scraping is used.
 
 ## Raw Item Storage
 

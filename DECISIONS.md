@@ -6,6 +6,12 @@
 - **Decision:** BOE is disabled through source configuration and registry state, without deleting its adapter or historical data. Empleo Público is enabled through its official server-rendered public listing with bounded pagination. EURES, Barcelona Activa, and Generalitat/SOC remain inactive because no documented stable public vacancy endpoint was verified.
 - **Consequences:** Empleo Público items use the existing raw-item, deduplication, candidate, AI, classification, sponsorship-evidence, Admin Review, promotion, and publication stages. No LinkedIn ingestion, private endpoint, browser automation, or automatic publication is introduced.
 
+## 2026-07-23 — Operational registry contains ingesting sources, not research placeholders
+
+- **Context:** Listing blocked sources beside active sources in Admin overstated operational Job coverage.
+- **Decision:** EURES, Barcelona Activa, and Generalitat/SOC remain in research documentation but are removed from `source_registry`. Add three enabled, allowlisted Greenhouse boards with verified current Spain vacancies: 2K Madrid, Keyfactor Spain, and Scopely Spain.
+- **Consequences:** Every newly registered source has a working adapter, deterministic ID, canonical URL, normalization tests, and independent failure handling. The API is public and documented; no authentication or browser automation is used.
+
 Decision records capture repository-supported architectural/product choices. Dates reflect the documented decision or the introducing history where available; they do not assert production rollout.
 
 ## ADR-001 — Admin Review remains mandatory for ordinary Radar content

@@ -45,6 +45,9 @@ class SourceManagerTests(unittest.IsolatedAsyncioTestCase):
             manager = build_default_source_manager()
         self.assertNotIn("boe", manager.source_keys())
         self.assertIn("empleo_publico", manager.source_keys())
+        self.assertIn("2k_madrid", manager.source_keys())
+        self.assertIn("keyfactor_spain", manager.source_keys())
+        self.assertIn("scopely_spain", manager.source_keys())
 
     def test_boe_can_be_reenabled_without_removing_adapter(self):
         with patch.dict(os.environ, {"RADAR_SOURCE_BOE_ENABLED": "1"}, clear=True):

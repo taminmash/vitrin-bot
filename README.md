@@ -308,6 +308,9 @@ stop another connector or backlog processing.
 | Barcelona Activa | Blocked | No documented public feed/API; search is a dynamic authenticated app |
 | Generalitat/SOC | Blocked | Official listing identified, but no documented stable public vacancy API/feed was verified |
 | Empleo Público | Active | Bounded official server-rendered Administracion.gob.es listing; no credentials required |
+| 2K Madrid Careers | Active | Public documented Greenhouse Job Board API; Spain vacancies only |
+| Keyfactor Spain Careers | Active | Public documented Greenhouse Job Board API; Spain vacancies only |
+| Scopely Spain Careers | Active | Public documented Greenhouse Job Board API; Spain vacancies only |
 
 All connectors use public/official API, RSS, Atom, or a stable public listing.
 There is no browser automation, CAPTCHA bypass, restricted scraping, or
@@ -367,6 +370,9 @@ Required environment variable:
 - `RADAR_SOURCE_BOE_ENABLED` optional; defaults to disabled
 - `RADAR_SOURCE_EMPLEO_PUBLICO_ENABLED` optional; defaults to enabled
 - `RADAR_EMPLEO_PUBLICO_MAX_PAGES_PER_CYCLE` optional; defaults to `2`, clamped between `1` and `10`
+- `RADAR_SOURCE_2K_MADRID_ENABLED` optional; defaults to enabled
+- `RADAR_SOURCE_KEYFACTOR_SPAIN_ENABLED` optional; defaults to enabled
+- `RADAR_SOURCE_SCOPELY_SPAIN_ENABLED` optional; defaults to enabled
 - `BOE_LOOKBACK_DAYS` optional; defaults to `7`, clamped between `1` and `30`
 
 Known limitations:
