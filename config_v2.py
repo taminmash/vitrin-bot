@@ -28,10 +28,10 @@ CHANNEL_HAYAT_LINK = "https://t.me/hayatkhalvatspain"
 CHANNEL_VITRIN_USERNAME = "@vitrinspain"
 CHANNEL_HAYAT_USERNAME = "@hayatkhalvatspain"
 
-BOT_USERNAME = "VitrinSpainBot"
+BOT_USERNAME = os.getenv("BOT_USERNAME", "VitrinSpainBot")
 PROJECT_NAME = "ویترین اسپانیا"
 
-BACK_BUTTON = "🔙 بازگشت"
+BACK_BUTTON = "⬅️ بازگشت به صفحه قبلی"
 HOME_BUTTON = "🏠 صفحه اصلی"
 MENU_RADAR = "📡 رادار"
 MENU_CREATE_VITRIN = "➕ ثبت آگهی"

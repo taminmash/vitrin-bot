@@ -7,6 +7,63 @@ from psycopg2.extras import Json, RealDictCursor
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+INITIAL_RADAR_SOURCES = [
+    ("BOE", "Government", "https://www.boe.es/", "official", 5, "Spain", None),
+    ("SEPE", "Government", "https://www.sepe.es/", "official", 5, "Spain", None),
+    ("Seguridad Social", "Government", "https://www.seg-social.es/", "official", 5, "Spain", None),
+    ("Agencia Tributaria", "Government", "https://sede.agenciatributaria.gob.es/", "official", 5, "Spain", None),
+    ("Ministerio de Inclusión", "Government", "https://www.inclusion.gob.es/", "official", 5, "Spain", None),
+    ("Carrefour", "Discounts", "https://www.carrefour.es/ofertas", "retailer", 4, "Spain", None),
+    ("Lidl", "Discounts", "https://www.lidl.es/", "retailer", 4, "Spain", None),
+    ("Aldi", "Discounts", "https://www.aldi.es/", "retailer", 4, "Spain", None),
+    ("Primor", "Discounts", "https://www.primor.eu/es_es/ofertas", "retailer", 4, "Spain", None),
+    ("MediaMarkt", "Discounts", "https://www.mediamarkt.es/", "retailer", 4, "Spain", None),
+    ("El Corte Inglés", "Discounts", "https://www.elcorteingles.es/", "retailer", 4, "Spain", None),
+    ("InfoJobs", "Jobs", "https://www.infojobs.net/", "jobs", 4, "Spain", None),
+    ("Madrid Empleo", "Jobs", "https://datos.madrid.es/", "official", 5, "Spain", "Madrid"),
+    ("Tecnoempleo", "Jobs", "https://www.tecnoempleo.com/", "jobs", 4, "Spain", None),
+    ("Domestika Jobs", "Jobs", "https://www.domestika.org/es/jobs", "jobs", 4, "Spain", None),
+    ("Indeed España", "Jobs", "https://es.indeed.com/", "jobs", 4, "Spain", None),
+    ("Empleo Público", "Jobs", "https://administracion.gob.es/pagFront/ofertasempleopublico/resultadosEmpleo.htm", "official", 5, "Spain", None),
+    ("2K Madrid Careers", "Jobs", "https://job-boards.greenhouse.io/2kmadrid", "public_api", 4, "Spain", "Madrid"),
+    ("Keyfactor Spain Careers", "Jobs", "https://job-boards.greenhouse.io/keyfactorinc", "public_api", 4, "Spain", None),
+    ("Scopely Spain Careers", "Jobs", "https://job-boards.greenhouse.io/scopely", "public_api", 4, "Spain", None),
+    ("Renfe", "Travel", "https://www.renfe.com/es/es", "travel", 4, "Spain", None),
+    ("Ouigo", "Travel", "https://www.ouigo.com/es/", "travel", 4, "Spain", None),
+    ("Iryo", "Travel", "https://iryo.eu/es", "travel", 4, "Spain", None),
+    ("Iberia", "Travel", "https://www.iberia.com/es/", "travel", 4, "Spain", None),
+    ("Ryanair", "Travel", "https://www.ryanair.com/es/es", "travel", 3, "Spain", None),
+    ("Eventbrite España", "Events", "https://www.eventbrite.es/", "events", 3, "Spain", None),
+    ("Fever", "Events", "https://feverup.com/es", "events", 3, "Spain", None),
+    ("Meetup", "Events", "https://www.meetup.com/", "events", 3, "Spain", None),
+    ("AEMET", "Weather", "https://www.aemet.es/", "weather", 5, "Spain", None),
+]
+
+
+def configured_radar_source_states():
+    truthy = {"1", "true", "yes", "on"}
+    falsey = {"0", "false", "no", "off"}
+
+    def state(key, default=False):
+        raw = os.getenv(f"RADAR_SOURCE_{key}_ENABLED")
+        if raw is None:
+            return default
+        normalized = raw.strip().casefold()
+        return normalized in truthy if default is False else normalized not in falsey
+
+    return {
+        "BOE": state("BOE"),
+        "InfoJobs": state("INFOJOBS"),
+        "Madrid Empleo": state("MADRID_EMPLEO"),
+        "Tecnoempleo": state("TECNOEMPLEO"),
+        "Domestika Jobs": state("DOMESTIKA_JOBS"),
+        "Indeed España": False,
+        "Empleo Público": state("EMPLEO_PUBLICO", default=True),
+        "2K Madrid Careers": state("2K_MADRID", default=True),
+        "Keyfactor Spain Careers": state("KEYFACTOR_SPAIN", default=True),
+        "Scopely Spain Careers": state("SCOPELY_SPAIN", default=True),
+    }
+
 
 def get_connection():
     if not DATABASE_URL:
@@ -200,6 +257,7 @@ def init_db():
                 body TEXT,
                 type TEXT NOT NULL,
                 category TEXT,
+                category_tags JSONB DEFAULT '[]'::jsonb,
                 city TEXT,
                 province TEXT,
                 country TEXT DEFAULT 'Spain',
@@ -216,6 +274,18 @@ def init_db():
                 expires_at TIMESTAMP,
                 notify_immediately BOOLEAN DEFAULT false,
                 daily_digest BOOLEAN DEFAULT true,
+                content_status TEXT DEFAULT 'draft',
+                channel_status TEXT DEFAULT 'not_sent',
+                channel_message_id BIGINT,
+                channel_published_at TIMESTAMP,
+                last_publish_error TEXT,
+                ai_summary TEXT,
+                ai_reason TEXT,
+                ai_tags JSONB DEFAULT '[]'::jsonb,
+                ai_priority INTEGER DEFAULT 0,
+                structured_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                original_text TEXT,
+                original_language TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -227,6 +297,7 @@ def init_db():
         ensure_column(cur, "radar_items", "body", "TEXT")
         ensure_column(cur, "radar_items", "type", "TEXT")
         ensure_column(cur, "radar_items", "category", "TEXT")
+        ensure_column(cur, "radar_items", "category_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
         ensure_column(cur, "radar_items", "city", "TEXT")
         ensure_column(cur, "radar_items", "province", "TEXT")
         ensure_column(cur, "radar_items", "country", "TEXT DEFAULT 'Spain'", "'Spain'")
@@ -243,13 +314,729 @@ def init_db():
         ensure_column(cur, "radar_items", "expires_at", "TIMESTAMP")
         ensure_column(cur, "radar_items", "notify_immediately", "BOOLEAN DEFAULT false", "false")
         ensure_column(cur, "radar_items", "daily_digest", "BOOLEAN DEFAULT true", "true")
+        ensure_column(cur, "radar_items", "content_status", "TEXT DEFAULT 'draft'", "'draft'")
+        ensure_column(cur, "radar_items", "channel_status", "TEXT DEFAULT 'not_sent'", "'not_sent'")
+        ensure_column(cur, "radar_items", "channel_message_id", "BIGINT")
+        ensure_column(cur, "radar_items", "channel_published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_items", "channel_post_url", "TEXT")
+        ensure_column(cur, "radar_items", "last_publish_error", "TEXT")
+        ensure_column(cur, "radar_items", "ai_summary", "TEXT")
+        ensure_column(cur, "radar_items", "ai_reason", "TEXT")
+        ensure_column(cur, "radar_items", "ai_tags", "JSONB DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_items", "ai_priority", "INTEGER DEFAULT 0", "0")
+        ensure_column(cur, "radar_items", "structured_data", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "radar_items", "original_text", "TEXT")
+        ensure_column(cur, "radar_items", "original_language", "TEXT")
         ensure_column(cur, "radar_items", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
         ensure_column(cur, "radar_items", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET content_status = CASE
+                    WHEN content_status IS NOT NULL THEN content_status
+                    WHEN channel_status = 'published' THEN 'published'
+                    WHEN channel_status = 'ready' THEN 'ready'
+                    ELSE 'draft'
+                END,
+                channel_status = CASE
+                    WHEN channel_status = 'published' THEN 'published'
+                    WHEN channel_status = 'failed' THEN 'failed'
+                    ELSE 'not_sent'
+                END
+            WHERE content_status IS NULL
+               OR channel_status IS NULL
+               OR channel_status IN ('draft', 'ready')
+            """
+        )
         cur.execute(
             """
             CREATE INDEX IF NOT EXISTS radar_items_available_idx
             ON radar_items (is_published, published_at, expires_at, type, city)
             """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_items_channel_status_idx
+            ON radar_items (channel_status, updated_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_raw_items (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                source_key TEXT NOT NULL,
+                external_id TEXT,
+                deduplication_key TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                canonical_url TEXT,
+                original_title TEXT NOT NULL,
+                original_text TEXT NOT NULL,
+                original_language TEXT NOT NULL DEFAULT 'es',
+                published_at TIMESTAMP,
+                valid_from TIMESTAMP,
+                valid_until TIMESTAMP,
+                raw_category TEXT,
+                raw_location TEXT,
+                content_hash TEXT NOT NULL,
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                ingestion_status TEXT NOT NULL DEFAULT 'raw',
+                first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_raw_items", "source_key", "TEXT")
+        ensure_column(cur, "radar_raw_items", "external_id", "TEXT")
+        ensure_column(cur, "radar_raw_items", "deduplication_key", "TEXT")
+        ensure_column(cur, "radar_raw_items", "source_name", "TEXT")
+        ensure_column(cur, "radar_raw_items", "source_url", "TEXT")
+        ensure_column(cur, "radar_raw_items", "canonical_url", "TEXT")
+        ensure_column(cur, "radar_raw_items", "original_title", "TEXT")
+        ensure_column(cur, "radar_raw_items", "original_text", "TEXT")
+        ensure_column(cur, "radar_raw_items", "original_language", "TEXT DEFAULT 'es'", "'es'")
+        ensure_column(cur, "radar_raw_items", "published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "valid_from", "TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "valid_until", "TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "raw_category", "TEXT")
+        ensure_column(cur, "radar_raw_items", "raw_location", "TEXT")
+        ensure_column(cur, "radar_raw_items", "content_hash", "TEXT")
+        ensure_column(cur, "radar_raw_items", "metadata", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "radar_raw_items", "ingestion_status", "TEXT NOT NULL DEFAULT 'raw'", "'raw'")
+        ensure_column(cur, "radar_raw_items", "first_seen_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "last_seen_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_raw_items", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_raw_items_deduplication_key_unique
+            ON radar_raw_items (deduplication_key)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_source_key_idx
+            ON radar_raw_items (source_key)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_published_at_idx
+            ON radar_raw_items (published_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_ingestion_status_idx
+            ON radar_raw_items (ingestion_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_raw_items_source_external_idx
+            ON radar_raw_items (source_key, external_id)
+            WHERE external_id IS NOT NULL
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_candidates (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                raw_item_id UUID NOT NULL REFERENCES radar_raw_items(id) ON DELETE CASCADE,
+                source_key TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                external_id TEXT,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                language TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                canonical_url TEXT,
+                published_at TIMESTAMP,
+                valid_from TIMESTAMP,
+                valid_until TIMESTAMP,
+                source_category TEXT,
+                source_location TEXT,
+                country TEXT NOT NULL DEFAULT 'Spain',
+                source_type TEXT NOT NULL,
+                trust_level INTEGER NOT NULL CHECK (trust_level BETWEEN 1 AND 5),
+                candidate_status TEXT NOT NULL DEFAULT 'pending_ai'
+                    CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed')),
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+                pipeline_version TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_candidates", "raw_item_id", "UUID")
+        ensure_column(cur, "radar_candidates", "source_key", "TEXT")
+        ensure_column(cur, "radar_candidates", "source_name", "TEXT")
+        ensure_column(cur, "radar_candidates", "external_id", "TEXT")
+        ensure_column(cur, "radar_candidates", "title", "TEXT")
+        ensure_column(cur, "radar_candidates", "body", "TEXT")
+        ensure_column(cur, "radar_candidates", "language", "TEXT")
+        ensure_column(cur, "radar_candidates", "source_url", "TEXT")
+        ensure_column(cur, "radar_candidates", "canonical_url", "TEXT")
+        ensure_column(cur, "radar_candidates", "published_at", "TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "valid_from", "TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "valid_until", "TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "source_category", "TEXT")
+        ensure_column(cur, "radar_candidates", "source_location", "TEXT")
+        ensure_column(cur, "radar_candidates", "country", "TEXT NOT NULL DEFAULT 'Spain'", "'Spain'")
+        ensure_column(cur, "radar_candidates", "source_type", "TEXT")
+        ensure_column(cur, "radar_candidates", "trust_level", "INTEGER")
+        ensure_column(cur, "radar_candidates", "candidate_status", "TEXT NOT NULL DEFAULT 'pending_ai'", "'pending_ai'")
+        ensure_column(cur, "radar_candidates", "metadata", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "radar_candidates", "validation_errors", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_candidates", "pipeline_version", "TEXT")
+        ensure_column(cur, "radar_candidates", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_candidates", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            DO $$
+            DECLARE constraint_name TEXT;
+            BEGIN
+                FOR constraint_name IN
+                    SELECT con.conname
+                    FROM pg_constraint con
+                    JOIN pg_class rel ON rel.oid = con.conrelid
+                    WHERE rel.relname = 'radar_candidates'
+                      AND con.contype = 'c'
+                      AND pg_get_constraintdef(con.oid) LIKE '%candidate_status%'
+                LOOP
+                    EXECUTE format('ALTER TABLE radar_candidates DROP CONSTRAINT IF EXISTS %I', constraint_name);
+                END LOOP;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE radar_candidates
+            ADD CONSTRAINT radar_candidates_candidate_status_check
+            CHECK (candidate_status IN ('pending_ai', 'rejected', 'failed'))
+            """
+        )
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_candidates_raw_item_unique
+            ON radar_candidates (raw_item_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_status_idx
+            ON radar_candidates (candidate_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_source_key_idx
+            ON radar_candidates (source_key)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_published_at_idx
+            ON radar_candidates (published_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_candidates_created_at_idx
+            ON radar_candidates (created_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_ai_results (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                headline TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                why_it_matters TEXT NOT NULL,
+                confidence DOUBLE PRECISION NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                latency INTEGER NOT NULL,
+                structured_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_ai_results", "candidate_id", "UUID")
+        ensure_column(cur, "radar_ai_results", "headline", "TEXT")
+        ensure_column(cur, "radar_ai_results", "summary", "TEXT")
+        ensure_column(cur, "radar_ai_results", "why_it_matters", "TEXT")
+        ensure_column(cur, "radar_ai_results", "confidence", "DOUBLE PRECISION")
+        ensure_column(cur, "radar_ai_results", "model", "TEXT")
+        ensure_column(cur, "radar_ai_results", "prompt_version", "TEXT")
+        ensure_column(cur, "radar_ai_results", "latency", "INTEGER")
+        ensure_column(cur, "radar_ai_results", "structured_data", "JSONB NOT NULL DEFAULT '{}'::jsonb", "'{}'::jsonb")
+        ensure_column(cur, "radar_ai_results", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_ai_results_candidate_unique
+            ON radar_ai_results (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_ai_classifications (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                ai_result_id UUID REFERENCES radar_ai_results(id) ON DELETE SET NULL,
+                primary_category TEXT NOT NULL,
+                category_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+                audience_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+                cities JSONB NOT NULL DEFAULT '[]'::jsonb,
+                geographic_scope TEXT NOT NULL,
+                urgency TEXT NOT NULL,
+                priority_score INTEGER NOT NULL,
+                confidence DOUBLE PRECISION NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                latency INTEGER NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_ai_classifications", "candidate_id", "UUID")
+        ensure_column(cur, "radar_ai_classifications", "ai_result_id", "UUID")
+        ensure_column(cur, "radar_ai_classifications", "primary_category", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "category_tags", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_ai_classifications", "audience_tags", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_ai_classifications", "cities", "JSONB NOT NULL DEFAULT '[]'::jsonb", "'[]'::jsonb")
+        ensure_column(cur, "radar_ai_classifications", "geographic_scope", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "urgency", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "priority_score", "INTEGER")
+        ensure_column(cur, "radar_ai_classifications", "confidence", "DOUBLE PRECISION")
+        ensure_column(cur, "radar_ai_classifications", "model", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "prompt_version", "TEXT")
+        ensure_column(cur, "radar_ai_classifications", "latency", "INTEGER")
+        ensure_column(cur, "radar_ai_classifications", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_ai_classifications", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_ai_classifications_candidate_unique
+            ON radar_ai_classifications (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_primary_category_idx
+            ON radar_ai_classifications (primary_category)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_geographic_scope_idx
+            ON radar_ai_classifications (geographic_scope)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_urgency_idx
+            ON radar_ai_classifications (urgency)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_priority_score_idx
+            ON radar_ai_classifications (priority_score)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_ai_classifications_created_at_idx
+            ON radar_ai_classifications (created_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_priority_score_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_priority_score_check
+                    CHECK (priority_score BETWEEN 0 AND 100);
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_confidence_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_confidence_check
+                    CHECK (confidence BETWEEN 0 AND 1);
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_geographic_scope_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_geographic_scope_check
+                    CHECK (geographic_scope IN ('national', 'autonomous_community', 'province', 'city', 'unknown'));
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_ai_classifications_urgency_check'
+                ) THEN
+                    ALTER TABLE radar_ai_classifications
+                    ADD CONSTRAINT radar_ai_classifications_urgency_check
+                    CHECK (urgency IN ('low', 'medium', 'high', 'urgent'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_reviews (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                review_status TEXT NOT NULL DEFAULT 'pending',
+                reviewed_by BIGINT,
+                reviewed_at TIMESTAMP,
+                admin_note TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_reviews", "candidate_id", "UUID")
+        ensure_column(cur, "radar_reviews", "review_status", "TEXT NOT NULL DEFAULT 'pending'", "'pending'")
+        ensure_column(cur, "radar_reviews", "reviewed_by", "BIGINT")
+        ensure_column(cur, "radar_reviews", "reviewed_at", "TIMESTAMP")
+        ensure_column(cur, "radar_reviews", "admin_note", "TEXT")
+        ensure_column(cur, "radar_reviews", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_reviews", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_reviews_candidate_unique
+            ON radar_reviews (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_reviews_status_idx
+            ON radar_reviews (review_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_reviews_reviewed_at_idx
+            ON radar_reviews (reviewed_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_reviews_status_check'
+                ) THEN
+                    ALTER TABLE radar_reviews
+                    ADD CONSTRAINT radar_reviews_status_check
+                    CHECK (review_status IN ('pending', 'approved', 'rejected', 'needs_edit'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_promotions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID NOT NULL REFERENCES radar_candidates(id) ON DELETE CASCADE,
+                review_id UUID NOT NULL REFERENCES radar_reviews(id) ON DELETE CASCADE,
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                promotion_status TEXT NOT NULL DEFAULT 'completed',
+                promoted_by BIGINT,
+                promoted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_promotions", "candidate_id", "UUID")
+        ensure_column(cur, "radar_promotions", "review_id", "UUID")
+        ensure_column(cur, "radar_promotions", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_promotions", "promotion_status", "TEXT NOT NULL DEFAULT 'completed'", "'completed'")
+        ensure_column(cur, "radar_promotions", "promoted_by", "BIGINT")
+        ensure_column(cur, "radar_promotions", "promoted_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_promotions", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_promotions_candidate_unique
+            ON radar_promotions (candidate_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_promotions_review_unique
+            ON radar_promotions (review_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_promotions_item_unique
+            ON radar_promotions (radar_item_id)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_promotions_status_check'
+                ) THEN
+                    ALTER TABLE radar_promotions
+                    ADD CONSTRAINT radar_promotions_status_check
+                    CHECK (promotion_status IN ('completed'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_publications (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                channel_id TEXT NOT NULL,
+                telegram_message_id BIGINT NOT NULL,
+                channel_post_url TEXT,
+                publication_status TEXT NOT NULL DEFAULT 'published',
+                attempt_count INTEGER NOT NULL DEFAULT 1,
+                published_by BIGINT,
+                published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_error TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_publications", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_publications", "channel_id", "TEXT")
+        ensure_column(cur, "radar_publications", "telegram_message_id", "BIGINT")
+        ensure_column(cur, "radar_publications", "channel_post_url", "TEXT")
+        ensure_column(cur, "radar_publications", "publication_status", "TEXT NOT NULL DEFAULT 'published'", "'published'")
+        ensure_column(cur, "radar_publications", "attempt_count", "INTEGER NOT NULL DEFAULT 1", "1")
+        ensure_column(cur, "radar_publications", "published_by", "BIGINT")
+        ensure_column(cur, "radar_publications", "published_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publications", "last_error", "TEXT")
+        ensure_column(cur, "radar_publications", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publications", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_publications_item_published_unique
+            ON radar_publications (radar_item_id)
+            WHERE publication_status = 'published'
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publications_status_idx
+            ON radar_publications (publication_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publications_message_idx
+            ON radar_publications (telegram_message_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publications_published_at_idx
+            ON radar_publications (published_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'radar_publications_status_check'
+                ) THEN
+                    ALTER TABLE radar_publications
+                    ADD CONSTRAINT radar_publications_status_check
+                    CHECK (publication_status IN ('published', 'failed'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_publication_attempts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                attempt_token UUID NOT NULL,
+                attempt_status TEXT NOT NULL,
+                claimed_by BIGINT,
+                claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                telegram_message_id BIGINT,
+                channel_id TEXT,
+                channel_post_url TEXT,
+                last_error TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "radar_publication_attempts", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_publication_attempts", "attempt_token", "UUID")
+        ensure_column(cur, "radar_publication_attempts", "attempt_status", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "claimed_by", "BIGINT")
+        ensure_column(cur, "radar_publication_attempts", "claimed_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "expires_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "telegram_message_id", "BIGINT")
+        ensure_column(cur, "radar_publication_attempts", "channel_id", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "channel_post_url", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "last_error", "TEXT")
+        ensure_column(cur, "radar_publication_attempts", "released_by", "BIGINT")
+        ensure_column(cur, "radar_publication_attempts", "released_at", "TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_publication_attempts", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_publication_attempts_active_sending_unique
+            ON radar_publication_attempts (radar_item_id)
+            WHERE attempt_status = 'sending'
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publication_attempts_item_status_idx
+            ON radar_publication_attempts (radar_item_id, attempt_status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_publication_attempts_expires_idx
+            ON radar_publication_attempts (expires_at)
+            """
+        )
+        cur.execute(
+            """
+            DO $$
+            DECLARE
+                current_definition TEXT;
+            BEGIN
+                SELECT pg_get_constraintdef(oid)
+                INTO current_definition
+                FROM pg_constraint
+                WHERE conname = 'radar_publication_attempts_status_check';
+
+                IF current_definition IS NULL THEN
+                    ALTER TABLE radar_publication_attempts
+                    ADD CONSTRAINT radar_publication_attempts_status_check
+                    CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous', 'cancelled'));
+                ELSIF current_definition NOT ILIKE '%cancelled%' THEN
+                    ALTER TABLE radar_publication_attempts
+                    DROP CONSTRAINT radar_publication_attempts_status_check;
+                    ALTER TABLE radar_publication_attempts
+                    ADD CONSTRAINT radar_publication_attempts_status_check
+                    CHECK (attempt_status IN ('sending', 'sent_unpersisted', 'completed', 'failed', 'ambiguous', 'cancelled'));
+                END IF;
+            END $$;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_reactions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                radar_item_id UUID NOT NULL REFERENCES radar_items(id) ON DELETE CASCADE,
+                telegram_user_id BIGINT NOT NULL,
+                reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (radar_item_id, telegram_user_id)
+            )
+            """
+        )
+        ensure_column(cur, "radar_reactions", "id", "UUID DEFAULT gen_random_uuid()", "gen_random_uuid()")
+        ensure_column(cur, "radar_reactions", "radar_item_id", "UUID")
+        ensure_column(cur, "radar_reactions", "telegram_user_id", "BIGINT")
+        ensure_column(cur, "radar_reactions", "reaction", "TEXT")
+        ensure_column(cur, "radar_reactions", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "radar_reactions", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS radar_reactions_item_user_unique
+            ON radar_reactions (radar_item_id, telegram_user_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS radar_reactions_item_reaction_idx
+            ON radar_reactions (radar_item_id, reaction)
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS source_registry (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                category TEXT,
+                source_url TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT true,
+                trust_level INTEGER DEFAULT 3,
+                country TEXT DEFAULT 'Spain',
+                city TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        ensure_column(cur, "source_registry", "name", "TEXT")
+        ensure_column(cur, "source_registry", "category", "TEXT")
+        ensure_column(cur, "source_registry", "source_url", "TEXT")
+        ensure_column(cur, "source_registry", "source_type", "TEXT")
+        ensure_column(cur, "source_registry", "is_active", "BOOLEAN DEFAULT true", "true")
+        ensure_column(cur, "source_registry", "trust_level", "INTEGER DEFAULT 3", "3")
+        ensure_column(cur, "source_registry", "country", "TEXT DEFAULT 'Spain'", "'Spain'")
+        ensure_column(cur, "source_registry", "city", "TEXT")
+        ensure_column(cur, "source_registry", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        ensure_column(cur, "source_registry", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS source_registry_name_url_unique
+            ON source_registry (name, source_url)
+            """
+        )
+        cur.executemany(
+            """
+            INSERT INTO source_registry (
+                name, category, source_url, source_type, trust_level, country, city
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (name, source_url) DO NOTHING
+            """,
+            INITIAL_RADAR_SOURCES,
+        )
+        cur.execute(
+            """
+            DELETE FROM source_registry
+            WHERE name IN ('EURES', 'Barcelona Activa', 'Generalitat/SOC')
+            """
+        )
+        cur.executemany(
+            """
+            UPDATE source_registry
+            SET is_active = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE name = %s
+            """,
+            [(is_active, name) for name, is_active in configured_radar_source_states().items()],
         )
 
         cur.execute(
@@ -401,6 +1188,87 @@ def init_db():
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS language_lesson_reactions (
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_telegram_id, level, lesson_number)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_reactions_lesson_idx
+            ON language_lesson_reactions (level, lesson_number)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_comments (
+                id BIGSERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                comment_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_review',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_comments_lesson_idx
+            ON language_lesson_comments (level, lesson_number, status)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_reports (
+                id BIGSERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                report_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS language_lesson_reports_lesson_idx
+            ON language_lesson_reports (level, lesson_number, status)
+            """
+        )
+
+        ensure_column(cur, "language_lesson_comments", "display_name", "TEXT")
+        ensure_column(cur, "language_lesson_comments", "public_message_chat_id", "BIGINT")
+        ensure_column(cur, "language_lesson_comments", "public_message_id", "BIGINT")
+        ensure_column(cur, "language_lesson_comments", "published_at", "TIMESTAMP")
+        ensure_column(cur, "language_lesson_comments", "deleted_at", "TIMESTAMP")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS language_lesson_discussion_posts (
+                level VARCHAR(16) NOT NULL,
+                lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+                channel_chat_id BIGINT NOT NULL,
+                channel_message_id BIGINT NOT NULL,
+                discussion_chat_id BIGINT NOT NULL,
+                discussion_message_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(level, lesson_number),
+                UNIQUE(channel_chat_id, channel_message_id)
+            )
+            """
+        )
+
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS admin_logs (
                 internal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 human_id TEXT UNIQUE NOT NULL,
@@ -483,6 +1351,20 @@ def get_or_create_user(tg_user):
                 (tg_user.id, human_id, display_name, tg_user.username, tg_user.first_name),
             )
         return row_to_dict(cur.fetchone())
+
+
+def user_exists(telegram_id):
+    """Return whether Telegram user data already exists without mutating it."""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        id_type = column_data_type(cur, "users", "id")
+        if id_type in ("bigint", "integer"):
+            cur.execute(
+                "SELECT 1 FROM users WHERE telegram_id = %s OR id = %s LIMIT 1",
+                (telegram_id, telegram_id),
+            )
+        else:
+            cur.execute("SELECT 1 FROM users WHERE telegram_id = %s LIMIT 1", (telegram_id,))
+        return cur.fetchone() is not None
 
 
 def get_user_profile(user_id):
@@ -649,6 +1531,8 @@ def available_radar_where():
         is_published = true
         AND (published_at IS NULL OR published_at <= CURRENT_TIMESTAMP)
         AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        AND (end_date IS NULL OR end_date > CURRENT_TIMESTAMP)
+        AND COALESCE(content_status, 'draft') <> 'expired'
     """
 
 
@@ -712,6 +1596,321 @@ def list_available_radar_items(radar_type=None, limit=5):
             values,
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+def list_admin_radar_items(limit_per_status=10):
+    statuses = ["draft", "ready", "published", "expired", "failed"]
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT *
+            FROM (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY CASE
+                               WHEN COALESCE(expires_at, end_date) <= CURRENT_TIMESTAMP THEN 'expired'
+                               WHEN COALESCE(channel_status, 'not_sent') = 'failed' THEN 'failed'
+                               ELSE COALESCE(content_status, 'draft')
+                           END
+                           ORDER BY COALESCE(ai_priority, priority_score, 0) DESC,
+                                    updated_at DESC,
+                                    created_at DESC
+                       ) AS status_rank
+                FROM radar_items
+            ) ranked
+            WHERE CASE
+                    WHEN COALESCE(expires_at, end_date) <= CURRENT_TIMESTAMP THEN 'expired'
+                    WHEN COALESCE(channel_status, 'not_sent') = 'failed' THEN 'failed'
+                    ELSE COALESCE(content_status, 'draft')
+                  END = ANY(%s)
+              AND status_rank <= %s
+            ORDER BY CASE
+                         WHEN COALESCE(expires_at, end_date) <= CURRENT_TIMESTAMP THEN 4
+                         WHEN COALESCE(channel_status, 'not_sent') = 'failed' THEN 5
+                         WHEN COALESCE(content_status, 'draft') = 'draft' THEN 1
+                         WHEN COALESCE(content_status, 'draft') = 'ready' THEN 2
+                         WHEN COALESCE(content_status, 'draft') = 'published' THEN 3
+                         ELSE 6
+                     END,
+                     status_rank
+            """,
+            (statuses, limit_per_status),
+        )
+        grouped = {status: [] for status in statuses}
+        for row in cur.fetchall():
+            item = dict(row)
+            item.pop("status_rank", None)
+            status = radar_content_status(item)
+            if item.get("channel_status") == "failed":
+                status = "failed"
+            grouped[status].append(item)
+        return grouped
+
+
+def get_radar_status_metrics():
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)
+                    FROM radar_candidates candidates
+                    WHERE candidates.candidate_status = 'pending_ai'
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM radar_ai_results ai
+                          WHERE ai.candidate_id = candidates.id
+                      )
+                ) AS pending_ai,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_ai_results
+                ) AS ai_completed,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_candidates candidates
+                    JOIN radar_ai_results ai ON ai.candidate_id = candidates.id
+                    JOIN radar_ai_classifications cls ON cls.candidate_id = candidates.id
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM radar_reviews reviews
+                        WHERE reviews.candidate_id = candidates.id
+                    )
+                ) AS pending_review,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_reviews
+                    WHERE review_status = 'approved'
+                ) AS approved,
+                (
+                    SELECT COUNT(*)
+                    FROM radar_items
+                    WHERE COALESCE(channel_status, '') = 'published'
+                       OR COALESCE(content_status, '') = 'published'
+                       OR COALESCE(is_published, FALSE) = TRUE
+                ) AS published,
+                (
+                    SELECT COALESCE(MAX(last_seen_at), MAX(created_at))
+                    FROM radar_raw_items
+                    WHERE source_key = 'boe'
+                ) AS boe_last_item_seen_time,
+                (
+                    SELECT ingestion_status
+                    FROM radar_raw_items
+                    WHERE source_key = 'boe'
+                    ORDER BY COALESCE(last_seen_at, created_at) DESC
+                    LIMIT 1
+                ) AS boe_last_item_ingestion_status
+            """
+        )
+        row = cur.fetchone()
+    result = row_to_dict(row) or {}
+    result["ai_queue_size"] = result.get("pending_ai")
+    return result
+
+
+def radar_content_status(item):
+    if item.get("expires_at") and item["expires_at"] <= datetime_now_sql_safe():
+        return "expired"
+    if item.get("end_date") and item["end_date"] <= datetime_now_sql_safe():
+        return "expired"
+    return item.get("content_status") or "draft"
+
+
+def datetime_now_sql_safe():
+    from datetime import datetime
+
+    return datetime.now()
+
+
+def get_radar_item(item_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute("SELECT * FROM radar_items WHERE id = %s", (item_id,))
+        return row_to_dict(cur.fetchone())
+
+
+def get_active_radar_item(item_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            SELECT *
+            FROM radar_items
+            WHERE id = %s
+              AND {available_radar_where()}
+            """,
+            (item_id,),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def create_radar_item(fields, content_status="draft"):
+    allowed = {
+        "title",
+        "summary",
+        "body",
+        "type",
+        "category",
+        "category_tags",
+        "city",
+        "province",
+        "country",
+        "start_date",
+        "end_date",
+        "source_url",
+        "source_name",
+        "urgency",
+        "priority_score",
+        "audience_tags",
+        "is_verified",
+        "is_published",
+        "published_at",
+        "expires_at",
+        "ai_summary",
+        "ai_reason",
+        "ai_tags",
+        "ai_priority",
+        "original_text",
+        "original_language",
+    }
+    payload = {key: value for key, value in fields.items() if key in allowed}
+    payload.setdefault("country", "Spain")
+    payload.setdefault("type", "alert")
+    payload.setdefault("category", payload["type"])
+    payload.setdefault("category_tags", [])
+    payload.setdefault("urgency", "low")
+    payload.setdefault("priority_score", 0)
+    payload.setdefault("audience_tags", [])
+    payload.setdefault("ai_tags", [])
+    payload.setdefault("is_verified", True)
+    payload.setdefault("is_published", content_status in ("ready", "published"))
+    payload["content_status"] = content_status
+    payload["channel_status"] = "not_sent"
+
+    columns = list(payload.keys())
+    values = [
+        Json(payload[column]) if column in ("audience_tags", "ai_tags", "category_tags") else payload[column]
+        for column in columns
+    ]
+    placeholders = ", ".join(["%s"] * len(columns))
+
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            INSERT INTO radar_items ({", ".join(columns)})
+            VALUES ({placeholders})
+            RETURNING *
+            """,
+            values,
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def update_radar_content_status(item_id, content_status):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET content_status = %s,
+                is_published = CASE WHEN %s IN ('ready', 'published') THEN true ELSE is_published END,
+                published_at = CASE
+                    WHEN %s IN ('ready', 'published') THEN COALESCE(published_at, CURRENT_TIMESTAMP)
+                    ELSE published_at
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+            """,
+            (content_status, content_status, content_status, item_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def list_source_registry(active_only=True):
+    where_clause = "WHERE is_active = true" if active_only else ""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            f"""
+            SELECT *
+            FROM source_registry
+            {where_clause}
+            ORDER BY category, trust_level DESC, name
+            """
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def mark_radar_channel_published(item_id, message_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET content_status = 'published',
+                channel_status = 'published',
+                channel_message_id = %s,
+                channel_published_at = CURRENT_TIMESTAMP,
+                last_publish_error = NULL,
+                is_published = true,
+                published_at = COALESCE(published_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+            """,
+            (message_id, item_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def mark_radar_channel_failed(item_id, error_text=None):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            UPDATE radar_items
+            SET channel_status = 'failed',
+                last_publish_error = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+            """,
+            (error_text, item_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_radar_reaction(item_id, user_id, reaction):
+    if reaction not in ("like", "dislike"):
+        raise ValueError("Invalid Radar reaction")
+
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO radar_reactions (radar_item_id, telegram_user_id, reaction)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (radar_item_id, telegram_user_id) DO UPDATE
+            SET reaction = EXCLUDED.reaction,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (item_id, user_id, reaction),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def count_radar_reactions(item_id):
+    counts = {"like": 0, "dislike": 0}
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT reaction, COUNT(*) AS count
+            FROM radar_reactions
+            WHERE radar_item_id = %s
+            GROUP BY reaction
+            """,
+            (item_id,),
+        )
+        for row in cur.fetchall():
+            if row["reaction"] in counts:
+                counts[row["reaction"]] = row["count"]
+    return counts
 
 
 def list_pending_content():
@@ -853,6 +2052,22 @@ def get_comment(human_id):
         return row_to_dict(cur.fetchone())
 
 
+def list_pending_comments(limit=20):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            SELECT c.*, co.human_id AS content_human_id, co.title AS content_title
+            FROM comments c
+            JOIN content_objects co ON co.internal_id = c.content_id
+            WHERE c.status = 'pending_review'
+            ORDER BY c.created_at ASC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def resolve_comment(comment_human_id, admin_id, action, reason=None):
     status = "approved" if action == "approve" else "rejected"
     with db_cursor(dict_cursor=True) as (_, cur):
@@ -974,3 +2189,127 @@ def log_admin_action(admin_id, action, object_id, reason=None, cur=None):
 
     with db_cursor() as (_, own_cur):
         log_admin_action(admin_id, action, object_id, reason, cur=own_cur)
+
+
+def save_language_lesson_reaction(user_telegram_id, level, lesson_number, reaction):
+    """Create or update the sole reaction a user has for a language lesson."""
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_reactions
+                (user_telegram_id, level, lesson_number, reaction)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_telegram_id, level, lesson_number) DO UPDATE
+            SET reaction = EXCLUDED.reaction,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, reaction),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_comment(user_telegram_id, level, lesson_number, comment_text):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_comments
+                (user_telegram_id, level, lesson_number, comment_text, status)
+            VALUES (%s, %s, %s, %s, 'pending_review')
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, comment_text),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_report(user_telegram_id, level, lesson_number, report_text):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """
+            INSERT INTO language_lesson_reports
+                (user_telegram_id, level, lesson_number, report_text, status)
+            VALUES (%s, %s, %s, %s, 'active')
+            RETURNING *
+            """,
+            (user_telegram_id, level, lesson_number, report_text),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def get_language_lesson_reaction_counts(level, lesson_number):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """SELECT reaction, COUNT(*) AS count FROM language_lesson_reactions
+               WHERE level = %s AND lesson_number = %s GROUP BY reaction""",
+            (level, lesson_number),
+        )
+        counts = {"like": 0, "dislike": 0}
+        for row in cur.fetchall():
+            counts[row["reaction"]] = int(row["count"])
+        return counts
+
+
+def save_language_lesson_discussion_post(level, lesson_number, channel_chat_id, channel_message_id, discussion_chat_id, discussion_message_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """INSERT INTO language_lesson_discussion_posts
+                (level, lesson_number, channel_chat_id, channel_message_id, discussion_chat_id, discussion_message_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (level, lesson_number) DO UPDATE
+                SET channel_chat_id = EXCLUDED.channel_chat_id,
+                    channel_message_id = EXCLUDED.channel_message_id,
+                    discussion_chat_id = EXCLUDED.discussion_chat_id,
+                    discussion_message_id = EXCLUDED.discussion_message_id,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING *""",
+            (level, lesson_number, channel_chat_id, channel_message_id, discussion_chat_id, discussion_message_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def get_language_lesson_discussion_post(level, lesson_number):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute("SELECT * FROM language_lesson_discussion_posts WHERE level = %s AND lesson_number = %s", (level, lesson_number))
+        return row_to_dict(cur.fetchone())
+
+
+def save_language_lesson_comment(user_telegram_id, level, lesson_number, comment_text, display_name=None):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """INSERT INTO language_lesson_comments
+                (user_telegram_id, level, lesson_number, comment_text, display_name, status)
+                VALUES (%s, %s, %s, %s, %s, 'pending') RETURNING *""",
+            (user_telegram_id, level, lesson_number, comment_text, display_name),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def mark_language_lesson_comment_published(comment_id, chat_id, message_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """UPDATE language_lesson_comments SET status = 'published', public_message_chat_id = %s,
+                public_message_id = %s, published_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING *""",
+            (chat_id, message_id, comment_id),
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def mark_language_lesson_comment_failed(comment_id):
+    with db_cursor() as (_, cur):
+        cur.execute("UPDATE language_lesson_comments SET status = 'failed' WHERE id = %s", (comment_id,))
+
+
+def delete_language_lesson_comment(comment_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute(
+            """UPDATE language_lesson_comments SET status = 'deleted', deleted_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND status = 'published' RETURNING *""", (comment_id,)
+        )
+        return row_to_dict(cur.fetchone())
+
+
+def get_language_lesson_comment(comment_id):
+    with db_cursor(dict_cursor=True) as (_, cur):
+        cur.execute("SELECT * FROM language_lesson_comments WHERE id = %s", (comment_id,))
+        return row_to_dict(cur.fetchone())

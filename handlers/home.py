@@ -54,6 +54,14 @@ async def home_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(HELP_TEXT, reply_markup=MAIN_MENU, disable_web_page_preview=True)
         return
 
+    if action == "support":
+        await query.message.reply_text(
+            "🛟 پشتیبانی ویترین اسپانیا\n\nبرای ارتباط با پشتیبانی به @VitrinSpainAdmin پیام دهید.",
+            reply_markup=MAIN_MENU,
+            disable_web_page_preview=True,
+        )
+        return
+
     if action == "dashboard":
         context.user_data.clear()
         await send_home_dashboard(update)
