@@ -504,7 +504,16 @@ when it is missing, and split long translations into ordered Telegram-safe
 messages with navigation buttons only on the final message. Opening a detail
 view never triggers a new AI request.
 
-Job review and admin preview use a compact structured card and omit unavailable
+Public Job list/channel cards are mobile-first and contain only the Persian
+job title, city, and the verified sponsorship badge when applicable. The Job
+detail page uses Persian labels and presents company, location, optional
+sponsorship/salary/work mode, full available description, requirements as
+bullets, deadline, and source. Its functional actions open the original ad,
+share the deep link, return to the previous card, or return home. Missing source
+URLs do not produce a non-functional original-ad button. Company logos are not
+derived or fetched when a trusted logo URL is absent from the existing item.
+
+Job review and admin preview use a structured evidence-bearing card and omit unavailable
 fields. Legacy pending items without structured data remain reviewable through
 a fallback based on their existing AI result, classification, and source. On
 promotion, structured data is copied into `radar_items.structured_data`. The
@@ -528,7 +537,7 @@ independent Job signals so a classification error cannot bypass the gate. A Job 
 succeeded. The evidence excerpt is shown to the admin before a decision. Missing
 or unknown mobility values are displayed as `➖ اعلام نشده`, which remains
 distinct from the explicit negative `❌ ندارد`. Only verified qualifying Jobs
-may display `🔥 فرصت ویزا اسپانسرشیپی`.
+may display `🔥 دارای اسپانسرشیپ ویزا`.
 
 Approval does not publish. Approval, promotion to a ready Radar item, and
 explicit channel publication remain separate actions. This phase does not add

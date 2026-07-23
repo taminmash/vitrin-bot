@@ -286,7 +286,6 @@ def _join_blocks(blocks: Iterable[Iterable[str] | str]) -> str:
 
 def render_channel_post(item: dict) -> str:
     if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
-        state = job_temporal_state(item)
         card = job_channel_card(
             item.get("structured_data"),
             fallback={
@@ -297,12 +296,7 @@ def render_channel_post(item: dict) -> str:
                 "language_level": item.get("language_level"),
             },
         )
-        date_blocks = []
-        if state.publication_date:
-            date_blocks.append(f"📅 تاریخ انتشار\n{format_job_date(state.publication_date)}")
-        if state.deadline:
-            date_blocks.append(f"⏳ مهلت ارسال درخواست\n{format_job_date(state.deadline)}")
-        return _join_blocks([card, *date_blocks])
+        return card
     return _join_blocks(
         [
             RADAR_HEADER,
@@ -408,6 +402,14 @@ def render_admin_preview(item: dict) -> str:
 
 
 def render_ready_preview(item: dict) -> str:
+    if is_job(item.get("type") or item.get("category"), item.get("structured_data")):
+        return job_channel_card(
+            item.get("structured_data"),
+            fallback={
+                "job_title": item.get("title"),
+                "city": item.get("city"),
+            },
+        )
     return render_admin_preview({**item, "admin_status": item.get("admin_status") or "ready"})
 
 
@@ -433,14 +435,15 @@ def details_button_specs(item: dict, deep_link: str, channel_url: str | None = N
 
 
 def job_details_button_specs(item: dict, deep_link: str, channel_url: str | None = None) -> list[list[ButtonSpec]]:
-    back_target = channel_url or deep_link
-    return_label = "↩️ بازگشت به کانال ویترین" if channel_url else "↩️ بازگشت به ویترین"
-    return [
-        [ButtonSpec(return_label, url=back_target)],
+    rows = []
+    if source_url(item) != "-":
+        rows.append([ButtonSpec("🌐 مشاهده آگهی اصلی", url=source_url(item))])
+    rows.extend([
         [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
-        [ButtonSpec("⬅️ بازگشت به صفحه قبلی", callback_data=f"radar:item:{item['id']}")],
-        [ButtonSpec("🏠 بازگشت به صفحه اصلی", callback_data="radar:home")],
-    ]
+        [ButtonSpec("⬅️ صفحه قبل", callback_data=f"radar:item:{item['id']}")],
+        [ButtonSpec("🏠 خانه", callback_data="radar:home")],
+    ])
+    return rows
 
 
 def expired_job_button_specs(item: dict, deep_link: str, channel_url: str | None = None) -> list[list[ButtonSpec]]:
@@ -452,8 +455,13 @@ def expired_job_button_specs(item: dict, deep_link: str, channel_url: str | None
 
 
 def overview_button_specs(item: dict, deep_link: str) -> list[list[ButtonSpec]]:
+    detail_label = (
+        "مشاهده جزئیات"
+        if is_job(item.get("type") or item.get("category"), item.get("structured_data"))
+        else "📄 مشاهده جزئیات رویداد"
+    )
     return [
-        [ButtonSpec("📄 مشاهده جزئیات رویداد", callback_data=f"radar:details:{item['id']}")],
+        [ButtonSpec(detail_label, callback_data=f"radar:details:{item['id']}")],
         [ButtonSpec("📤 اشتراک‌گذاری", switch_inline_query=deep_link)],
         [ButtonSpec("🏠 خانه", callback_data="radar:home")],
     ]

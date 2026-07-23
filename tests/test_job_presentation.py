@@ -150,11 +150,13 @@ class JobPresentationTests(unittest.TestCase):
         self.assertIn(JOB_HELP_TEXT, details)
         self.assertNotIn("نیاز به کمک برای ارسال درخواست", channel)
 
-    def test_job_channel_post_contains_only_requested_short_card(self):
+    def test_job_channel_post_is_mobile_first_and_at_most_three_lines(self):
         data = structured(
             full_description="شرح کامل شغل",
             duties="توسعه و نگهداری سامانه",
             remote_status="Hybrid",
+            visa_sponsorship_evidence="We provide visa sponsorship for this role.",
+            visa_sponsorship_evidence_verified=True,
         )
         text = render_channel_post(
             {
@@ -166,21 +168,32 @@ class JobPresentationTests(unittest.TestCase):
                 "structured_data": data,
             }
         )
-        for included in (
-            "شرکت نمونه",
-            "Visa Sponsorship",
-            "Relocation Support",
-            "امکان اقدام از خارج اسپانیا",
-            "چرا این فرصت مهم است؟",
-            "€35,000",
-        ):
-            self.assertIn(included, text)
+        self.assertEqual(
+            text,
+            "💼 مهندس نرم‌افزار\n\n📍 Madrid\n\n🔥 دارای اسپانسرشیپ ویزا",
+        )
+        self.assertEqual(len([line for line in text.splitlines() if line]), 3)
         for excluded in (
             "https://www.boe.es/job-1", "متن کامل منبع",
-            "شرح کامل شغل", "40 ساعت", "Hybrid", "BOE",
+            "شرح کامل شغل", "40 ساعت", "Hybrid", "BOE", "شرکت نمونه",
+            "€35,000", "2026-08-31",
         ):
             self.assertNotIn(excluded, text)
-        self.assertIn("⏳ مهلت ارسال درخواست\n2026-08-31", text)
+
+    def test_job_channel_hides_unverified_false_and_unknown_sponsorship(self):
+        for sponsorship in ("NO", "UNKNOWN", "YES"):
+            with self.subTest(sponsorship=sponsorship):
+                text = render_channel_post(
+                    {
+                        "type": "job",
+                        "structured_data": structured(
+                            visa_sponsorship=sponsorship,
+                            visa_sponsorship_evidence_verified=False,
+                        ),
+                    }
+                )
+                self.assertEqual(text, "💼 مهندس نرم‌افزار\n\n📍 Madrid")
+                self.assertNotIn("اسپانسرشیپ", text)
 
     def test_channel_badge_is_only_for_verified_sponsorship(self):
         verified = structured(
@@ -216,21 +229,7 @@ class JobPresentationTests(unittest.TestCase):
                 ),
             }
         )
-        self.assertIn("💼 عنوان شغل\nعنوان نرمال‌شده", text)
-        self.assertIn("📍 شهر\nنامشخص", text)
-        self.assertIn("📄 نوع قرارداد\nنامشخص", text)
-        self.assertIn("🗣 پیش‌نیازها / زبان موردنیاز\nذکر نشده", text)
-
-    def test_job_channel_prefers_requirements_then_language(self):
-        requirements = render_channel_post(
-            {"type": "job", "structured_data": structured(requirements=["Python"], language_level="Spanish B2")}
-        )
-        language = render_channel_post(
-            {"type": "job", "structured_data": structured(requirements=None, language_level="Spanish B2")}
-        )
-        self.assertIn("موردنیاز\nPython", requirements)
-        self.assertNotIn("Spanish B2", requirements)
-        self.assertIn("موردنیاز\nSpanish B2", language)
+        self.assertEqual(text, "💼 عنوان نرمال‌شده\n\n📍 نامشخص")
 
     def test_full_job_detail_keeps_extended_fields_and_hides_empty_ones(self):
         text = render_details_page(
@@ -246,12 +245,17 @@ class JobPresentationTests(unittest.TestCase):
                 ),
             }
         )
-        self.assertIn("📝 توضیحات کامل\nشرح کامل موقعیت و مسئولیت‌ها", text)
-        self.assertIn("📋 وظایف\nتوسعه سرویس‌های Python", text)
-        self.assertIn("🎓 تحصیلات\nکارشناسی", text)
-        self.assertIn("🏠 وضعیت دورکاری\nHybrid", text)
-        self.assertIn("🏷 نام منبع\nInfoJobs", text)
-        self.assertIn("✈️ Relocation Support\n➖ اعلام نشده", text)
+        self.assertIn("💼 مهندس نرم‌افزار", text)
+        self.assertIn("🏢 شرکت نمونه", text)
+        self.assertIn("📍 Madrid", text)
+        self.assertIn("🏠 نوع همکاری\nترکیبی", text)
+        self.assertIn("📝 توضیحات\n\nشرح کامل موقعیت و مسئولیت‌ها", text)
+        self.assertIn("🎯 مهارت‌های موردنیاز\n\n• Python\n• سه سال سابقه", text)
+        self.assertIn("📅 مهلت ارسال درخواست\n2026-08-31", text)
+        self.assertIn("🔗 منبع\nInfoJobs", text)
+        self.assertNotIn("Relocation Support", text)
+        self.assertNotIn("وظایف", text)
+        self.assertNotIn("تحصیلات", text)
 
     def test_non_job_channel_renderer_keeps_existing_template(self):
         text = render_channel_post(

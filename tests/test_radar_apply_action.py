@@ -48,17 +48,15 @@ class RadarApplyKeyboardTests(unittest.TestCase):
         self.assertEqual(
             [button.text for button in buttons],
             [
-                "↩️ بازگشت به کانال ویترین",
                 "📤 اشتراک‌گذاری",
-                "⬅️ بازگشت به صفحه قبلی",
-                "🏠 بازگشت به صفحه اصلی",
+                "⬅️ صفحه قبل",
+                "🏠 خانه",
             ],
         )
-        self.assertEqual(buttons[0].url, "https://t.me/vitrinspain/42")
-        self.assertEqual(buttons[1].switch_inline_query, "https://t.me/VitrinSpainBot?start=radar_job-123")
+        self.assertEqual(buttons[0].switch_inline_query, "https://t.me/VitrinSpainBot?start=radar_job-123")
         self.assertNotIn("🤝 درخواست اقدام توسط ویترین", [button.text for button in buttons])
-        self.assertEqual(buttons[2].callback_data, "radar:item:job-123")
-        self.assertLessEqual(len(buttons[2].callback_data.encode("utf-8")), 64)
+        self.assertEqual(buttons[1].callback_data, "radar:item:job-123")
+        self.assertLessEqual(len(buttons[1].callback_data.encode("utf-8")), 64)
 
     def test_stale_but_active_job_keeps_request_action(self):
         stale = job_item(published_at=datetime.now(MADRID_TZ) - timedelta(days=45))
